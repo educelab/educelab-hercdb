@@ -16,6 +16,25 @@ WITH line
 MERGE (e:EduceLabID {id:line.EduceLab_ID, uuid:line.UUID})
 
 
+# Record which UUID was replaced by which
+LOAD CSV WITH HEADERS FROM "file:///MellonUUID_mod.csv" as line
+WITH line
+WHERE line.Replacement_UUID IS NOT NULL
+MATCH (orig:EduceLabID{id: line.EduceLab_ID})
+MATCH (new:EduceLabID{uuid: line.Replacement_UUID})
+MERGE (orig)<-[:REPLACES]-(new)
+
+
+
+
+
+
+
+
+
+
+
+
 # Create PHerc node 
 LOAD CSV WITH HEADERS FROM "file:///MellonUUID_mod.csv" as line
 WITH line
