@@ -1,44 +1,36 @@
-############ USEFUL COMMANDS ###############
-
 # Delete everything
 MATCH (n)
 DETACH DELETE n
 
 
-# Match and count
-MATCH (n:UUID) RETURN count(n)
+
+######### For Mellon UUID sheet ####################
+## Change the headers to 
+## "EduceLab_ID,UUID,PHerc,Pezzo_Cr,Replacement_UUID"
+## (Replace blank spaces and slash with underscores) 
 
 
-############# INSERT HERCULANEUM DATA ############
-
-
-######### Mellon UUID sheet
-- Change the headers to 
-- "EduceLab_ID,UUID,PHerc,Pezzo_Cr,Replacement_UUID"
-- (Replace blank spaces and slash with underscores) 
-
-
-
-# Create EduceLab ID and UUID nodes (no nulls)
+# Create node(:Educelab ID) and write its UUIP as a property
 LOAD CSV WITH HEADERS FROM "file:///MellonUUID_mod.csv" as line
 WITH line
-MERGE (:EduceLabID {id:line.EduceLab_ID})<-[:MAPS_TO]-(:UUID {id:line.UUID})
+MERGE (e:EduceLabID {id:line.EduceLab_ID, uuid:line.UUID})
 
 
 # Create PHerc node 
 LOAD CSV WITH HEADERS FROM "file:///MellonUUID_mod.csv" as line
 WITH line
 WHERE line.PHerc IS NOT NULL
-MERGE (:PHerc {name: line.PHerc})
-
+MERGE (p:PHerc {name: line.PHerc})
 
 # Create Pezzo_Cr node and attach it to PHerc node
+# Without the PHerc number as an attribute, the every cornice #1 becomes the same 
+# Think about this to see if there is a better way
 LOAD CSV WITH HEADERS FROM "file:///MellonUUID_mod.csv" as line
 WITH line
 WHERE line.Pezzo_Cr IS NOT NULL
 MATCH (p:PHerc {name: line.PHerc})
 MERGE (c:CornicePezzo {pherc_name: line.PHerc, cor_name: line.Pezzo_Cr})
-MERGE (p)-[:HAS]->(:CornicePezzo {name: line.Pezzo_Cr})
+MERGE (p)-[:HAS]->(c)
 
 
 # Create PHerc, and Pezzo/Cr nodes and connect Cornice to EduceLab ID
@@ -46,9 +38,8 @@ LOAD CSV WITH HEADERS FROM "file:///MellonUUID_mod.csv" as line
 WITH line
 WHERE line.Pezzo_Cr IS NOT NULL
 MATCH (e:EduceLabID{id: line.EduceLab_ID})
-MATCH (p:PHerc {name: line.PHerc})-[:HAS]->(c:CornicePezzo {name: line.Pezzo_Cr})
+MATCH (c:CornicePezzo {pherc_name: line.PHerc, cor_name: line.Pezzo_Cr})
 MERGE (c)-[:ASSIGNED_TO]->(e)
-
 
 # Deal with a missing Pezzo_Cr case
 LOAD CSV WITH HEADERS FROM "file:///MellonUUID_mod.csv" as line
@@ -64,34 +55,12 @@ LOAD CSV WITH HEADERS FROM "file:///MellonUUID_mod.csv" as line
 WITH line
 WHERE line.Replacement_UUID IS NOT NULL
 MATCH (e:EduceLabID{id: line.EduceLab_ID})
-MERGE (e)-[:REPLACED_BY]->(:ReplacementUUID {id: line.Replacement_UUID})
+MERGE (r:ReplacementUUID {id: line.Replacement_UUID})
+MERGE (e)-[:REPLACED_BY]->(r)
 
 
-################ Metadata 
-- Clean up column names
+########  For Metadata ##################
+### Assumes new column names
 
-# Create PHec nodes (if not exist already from UUID sheet)
-LOAD CSV WITH HEADERS FROM "file:///metadata.csv" as line
-WITH line
-WHERE line.PapyrusNum IS NOT NULL
-MERGE (p:PHerc {name: line.PapyrusNum})
-
-
-# Add Cornice nodes (if not exist already from UUID sheet)
-LOAD CSV WITH HEADERS FROM "file:///metadata.csv" as line
-WITH line
-WHERE line.CorniceNum IS NOT NULL
-MATCH (p:PHerc {name: line.PapyrusNum})
-MERGE (p)-[:HAS]->(:CornicePezzo {name: line.CorniceNum})
-
-
-# Enter UUIDs on those artifacts that have no EduceLabID assigned 
-# by creating a dummy EduceLabID Node
-LOAD CSV WITH HEADERS FROM "file:///metadata.csv" as line
-WITH line
-WHERE (line.UUID IS NOT NULL) AND (line.CorniceNum IS NOT NULL)
-MATCH (:PHerc {name: line.PapyrusNum})-[:HAS]->(c:CornicePezzo {name: line.CorniceNum})
-WHERE not (c)-[:ASSIGNED_TO]->(:EduceLabID)
-MERGE (c)-[:ASSIGNED_TO]->(:EduceLabID)-[:MAPS_TO]->(:UUID {id:line.UUID})
-
+# 
 
