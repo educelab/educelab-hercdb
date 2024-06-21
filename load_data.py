@@ -105,7 +105,75 @@ class GraphDataLoader:
         except Exception as e:
             print(e)
 
+    def add_flatbed_scan_nodes_and_attach(self, negatives_file):
+        try:
+            records, summary, keys = self.driver.execute_query("""
+                LOAD CSV WITH HEADERS FROM $neg_f  as line
+                WITH line
+                WHERE line.Image_num IS NOT NULL
+                MATCH (e:EduceLabID {uuid: line.UUID})
+                MERGE (e)<-[:BELONGS_TO]-(:FlatbedScanDataset {img_num: line.Image_num, 
+                neg_series: coalesce(line.Negatives_series, "unknown"), 
+                neg_storage: coalesce(line.storage_loc, "unknown")})
+                """, neg_f=negatives_file,
+                database_="neo4j",
+            )
+        except Exception as e:
+            print(e)
 
+    def add_pgs_raw_nodes_and_attach(self, pgs_file):
+        try:
+            records, summary, keys = self.driver.execute_query("""
+                LOAD CSV WITH HEADERS FROM $pgs_f  as line
+                WITH line
+                WHERE line.sample_uuid IS NOT NULL
+                MATCH (e:EduceLabID {uuid: line.sample_uuid})
+                MERGE (e)<-[:BELONGS_TO]-(:PGSRaw {uuid: coalesce(line.uuid, "unknown"), 
+                path: coalesce(line.path, "unknown"), 
+                data_start: coalesce(line.datetime_start, "unknown"), 
+                date_end: coalesce(line.datetime_end, "unknown"), 
+                complete: coalesce (line.complete, "unknown")})
+                """, pgs_f=pgs_file,
+                database_="neo4j",
+            )
+        except Exception as e:
+            print(e)
+
+
+    def add_spectral_raw_nodes_and_attach(self, spectral_raw_file):
+        try:
+            records, summary, keys = self.driver.execute_query("""
+                LOAD CSV WITH HEADERS FROM $spectral_raw_f  as line
+                WITH line
+                WHERE line.sample_uuid IS NOT NULL
+                MATCH (e:EduceLabID {uuid: line.sample_uuid})
+                MERGE (e)<-[:BELONGS_TO]-(:SpectralRaw {uuid: coalesce(line.uuid, "unknown"), 
+                path: coalesce(line.path, "unknown"), 
+                data_start: coalesce(line.datetime_start, "unknown"), 
+                date_end: coalesce(line.datetime_end, "unknown"), 
+                complete: coalesce (line.complete, "unknown")})
+                """, spectral_raw_f=spectral_raw_file,
+                database_="neo4j",
+            )
+        except Exception as e:
+            print(e)
+
+
+    def attach_spectral_raw_uuid2(self, spectral_raw_file):
+        try:
+            records, summary, keys = self.driver.execute_query("""
+                LOAD CSV WITH HEADERS FROM $spectral_raw_f  as line
+                WITH line
+                WHERE line.sample_uuid2 IS NOT NULL
+                MATCH (e2:EduceLabID {uuid: line.sample_uuid2})
+                MATCH (s:SpectralRaw {uuid: line.uuid})
+                MERGE (e2)<-[:BELONGS_TO]-(s)
+                """, spectral_raw_f=spectral_raw_file,
+                database_="neo4j",
+            )
+        except Exception as e:
+            print(e)
+        
 
 if __name__ == "__main__":
 
@@ -118,5 +186,9 @@ if __name__ == "__main__":
     loader.add_replacement_EduceLabID("file:///MellonUUID_mod.csv")
     loader.add_pherc_nodes("file:///MellonUUID_mod.csv")
     loader.add_cornice_nodes_and_attach("file:///MellonUUID_mod.csv")
+    loader.add_flatbed_scan_nodes_and_attach("file:///negatives_mod.csv")
+    loader.add_pgs_raw_nodes_and_attach("file:///photogrammetry-scans-20231107_mod.csv")
+    loader.add_spectral_raw_nodes_and_attach("file:///spectral-scans-20231108_mod.csv")
+    loader.attach_spectral_raw_uuid2("file:///spectral-scans-20231108_mod.csv")
     loader.count_all()
     loader.close()
