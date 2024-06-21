@@ -89,29 +89,14 @@ MERGE (e2)<-[:BELONGS_TO]-(s)
 ### Assumes new column names
 # TODO
 
-- Clean up column names
-
-# Create PHec nodes (if not exist already from UUID sheet)
-LOAD CSV WITH HEADERS FROM "file:///metadata.csv" as line
-WITH line
-WHERE line.PapyrusNum IS NOT NULL
-MERGE (p:PHerc {name: line.PapyrusNum})
 
 
-# Add Cornice nodes (if not exist already from UUID sheet)
-LOAD CSV WITH HEADERS FROM "file:///metadata.csv" as line
-WITH line
-WHERE line.CorniceNum IS NOT NULL
-MATCH (p:PHerc {name: line.PapyrusNum})
-MERGE (p)-[:HAS]->(:CornicePezzo {name: line.CorniceNum})
+##################################################
+################### QUERIES ######################
+##################################################
 
+Find All PGSRAW.path for a given PHerc name
+MATCH (p:PHerc {name:"1010"})-[*]-(pg:PGSRaw)
+RETURN pg.path
 
-# Enter UUIDs on those artifacts that have no EduceLabID assigned 
-# by creating a dummy EduceLabID Node
-LOAD CSV WITH HEADERS FROM "file:///metadata.csv" as line
-WITH line
-WHERE (line.UUID IS NOT NULL) AND (line.CorniceNum IS NOT NULL)
-MATCH (:PHerc {name: line.PapyrusNum})-[:HAS]->(c:CornicePezzo {name: line.CorniceNum})
-WHERE not (c)-[:ASSIGNED_TO]->(:EduceLabID)
-MERGE (c)-[:ASSIGNED_TO]->(:EduceLabID)-[:MAPS_TO]->(:UUID {id:line.UUID})# 
 
