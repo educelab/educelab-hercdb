@@ -40,6 +40,48 @@ MATCH (p:PHerc {name: line.PHerc})
 MATCH (e:EduceLabID {id: line.EduceLab_ID})
 MERGE (p)-[:HAS]->(:Cornice {name: line.Pezzo_Cr})<-[:ASSIGNED_TO]-(e)
 
+######## negatives_mod.csv #############
+## Changed headers to
+## Image_num,Negatives_series,PHerc,cornice,UUID,storage_loc
+
+
+# Create a FlatbedScanDataset node
+LOAD CSV WITH HEADERS FROM "file:///negatives_mod.csv" as line
+WITH line
+WHERE line.Image_num IS NOT NULL
+MATCH (e:EduceLabID {uuid: line.UUID})
+MERGE (e)<-[:BELONGS_TO]-(:FlatbedScanDataset {img_num: line.Image_num, neg_series: coalesce(line.Negatives_series, "unknown"), neg_storage: coalesce(line.storage_loc, "unknown")})
+
+
+################ photogrammetry-scans-20231107_mod.csv ###################
+# Changed headers to 
+# path,type,uuid,datetime_start,datetime_end,complete,sample_uuid
+
+LOAD CSV WITH HEADERS FROM "file:///photogrammetry-scans-20231107_mod.csv" as line
+WITH line
+WHERE line.sample_uuid IS NOT NULL
+MATCH (e:EduceLabID {uuid: line.sample_uuid})
+MERGE (e)<-[:BELONGS_TO]-(:PGSRaw {uuid: coalesce(line.uuid, "unknown"), path: coalesce(line.path, "unknown"), data_start: coalesce(line.datetime_start, "unknown"), date_end: coalesce(line.datetime_end, "unknown"), complete: coalesce (line.complete, "unknown")})
+
+
+######## spectral-scans-20231108_mod.csv ##################
+# Changed headers to
+# path,type,uuid,datetime_start,datetime_end,complete,sample_uuid,sample_uuid2
+
+LOAD CSV WITH HEADERS FROM "file:///spectral-scans-20231108_mod.csv" as line
+WITH line
+WHERE line.sample_uuid IS NOT NULL
+MATCH (e:EduceLabID {uuid: line.sample_uuid})
+MERGE (e)<-[:BELONGS_TO]-(:SpectralRaw {uuid: coalesce(line.uuid, "unknown"), path: coalesce(line.path, "unknown"), data_start: coalesce(line.datetime_start, "unknown"), date_end: coalesce(line.datetime_end, "unknown"), complete: coalesce (line.complete, "unknown")})
+
+# Deal with a case where there is a second UUID
+LOAD CSV WITH HEADERS FROM "file:///spectral-scans-20231108_mod.csv" as line
+WITH line
+WHERE line.sample_uuid2 IS NOT NULL
+MATCH (e2:EduceLabID {uuid: line.sample_uuid2})
+MATCH (s:SpectralRaw {uuid: line.uuid})
+MERGE (e2)<-[:BELONGS_TO]-(s)
+
 
 
 
