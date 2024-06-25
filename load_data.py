@@ -130,7 +130,7 @@ class GraphDataLoader:
                 MATCH (e:EduceLabID {uuid: line.sample_uuid})
                 MERGE (e)<-[:BELONGS_TO]-(:PGSRaw {uuid: coalesce(line.uuid, "unknown"), 
                 path: coalesce(line.path, "unknown"), 
-                data_start: coalesce(line.datetime_start, "unknown"), 
+                date_start: coalesce(line.datetime_start, "unknown"), 
                 date_end: coalesce(line.datetime_end, "unknown"), 
                 complete: coalesce (line.complete, "unknown")})
                 """, pgs_f=pgs_file,
@@ -149,7 +149,7 @@ class GraphDataLoader:
                 MATCH (e:EduceLabID {uuid: line.sample_uuid})
                 MERGE (e)<-[:BELONGS_TO]-(:SpectralRaw {uuid: coalesce(line.uuid, "unknown"), 
                 path: coalesce(line.path, "unknown"), 
-                data_start: coalesce(line.datetime_start, "unknown"), 
+                date_start: coalesce(line.datetime_start, "unknown"), 
                 date_end: coalesce(line.datetime_end, "unknown"), 
                 complete: coalesce (line.complete, "unknown")})
                 """, spectral_raw_f=spectral_raw_file,

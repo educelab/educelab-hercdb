@@ -61,7 +61,7 @@ LOAD CSV WITH HEADERS FROM "file:///photogrammetry-scans-20231107_mod.csv" as li
 WITH line
 WHERE line.sample_uuid IS NOT NULL
 MATCH (e:EduceLabID {uuid: line.sample_uuid})
-MERGE (e)<-[:BELONGS_TO]-(:PGSRaw {uuid: coalesce(line.uuid, "unknown"), path: coalesce(line.path, "unknown"), data_start: coalesce(line.datetime_start, "unknown"), date_end: coalesce(line.datetime_end, "unknown"), complete: coalesce (line.complete, "unknown")})
+MERGE (e)<-[:BELONGS_TO]-(:PGSRaw {uuid: coalesce(line.uuid, "unknown"), path: coalesce(line.path, "unknown"), date_start: coalesce(line.datetime_start, "unknown"), date_end: coalesce(line.datetime_end, "unknown"), complete: coalesce (line.complete, "unknown")})
 
 
 ######## spectral-scans-20231108_mod.csv ##################
@@ -72,7 +72,7 @@ LOAD CSV WITH HEADERS FROM "file:///spectral-scans-20231108_mod.csv" as line
 WITH line
 WHERE line.sample_uuid IS NOT NULL
 MATCH (e:EduceLabID {uuid: line.sample_uuid})
-MERGE (e)<-[:BELONGS_TO]-(:SpectralRaw {uuid: coalesce(line.uuid, "unknown"), path: coalesce(line.path, "unknown"), data_start: coalesce(line.datetime_start, "unknown"), date_end: coalesce(line.datetime_end, "unknown"), complete: coalesce (line.complete, "unknown")})
+MERGE (e)<-[:BELONGS_TO]-(:SpectralRaw {uuid: coalesce(line.uuid, "unknown"), path: coalesce(line.path, "unknown"), date_start: coalesce(line.datetime_start, "unknown"), date_end: coalesce(line.datetime_end, "unknown"), complete: coalesce (line.complete, "unknown")})
 
 # Deal with a case where there is a second UUID
 LOAD CSV WITH HEADERS FROM "file:///spectral-scans-20231108_mod.csv" as line
