@@ -1,6 +1,10 @@
 import csv
 from neo4j import GraphDatabase
+import logging
+
 import config
+
+logging.basicConfig(level=logging.INFO)
 
 class GraphDataLoader:
 
@@ -54,12 +58,29 @@ class GraphDataLoader:
         except Exception as e:
             print(e)
 
+    def add_human_names_to_cornice_and_papyrus(self, uuid, papyrus_name, cornice_name):
+
+        try:
+            records, summary, keys = self.driver.execute_query("""
+                MATCH (e:EduceLabID {uuid: $uuid})--(c:Cornice)--(p:PHerc)
+                SET c.human_name = $cor
+                SET p.human_name = $ph
+                RETURN p.human_name, c.human_name, e.uuid
+                """, uuid=uuid, ph=papyrus_name, cor=cornice_name,
+                database_="neo4j",
+            )
+
+            for record in records:
+                return record
+
+        except Exception as e:
+            print(e)
+
+
 if __name__ == "__main__":
 
     loader = GraphDataLoader("neo4j://localhost:7687", config.username, config.password)
     loader.verify_conn()
-
-    #loader.find_uuid_assignment_type("ebcf800e-3872-5e3d-be95-908b245827af")
 
     metadata_file = config.metadata_file
 
@@ -70,56 +91,71 @@ if __name__ == "__main__":
     
         for row in csv_reader:
     
-            if row["Pezzo"]:
-                #print(f'Pezzo Row: {row["PapyrusNum"]}, {row["CorniceNum"]}, {row["Pezzo"]}: {row["UUID"]}')
+            uuid = row["UUID"]
+            papyrus = row["PapyrusNum"]
+            cornice = row["CorniceNum"]
+            pezzo = row["Pezzo"]
+            disegni = row["Disegni"]
+
+            if pezzo:
+                logging.info(f'Pezzo Row: {uuid}, {papyrus}, {cornice}, {pezzo}')
 
                 # Pezzo row with UUID
-                if row["UUID"]:
-                    discovered_node = loader.find_uuid_assignment_type(row["UUID"])
-                    print(f'Discovered node: {discovered_node}')
+                #if uuid:
+                #    discovered_node = loader.find_uuid_assignment_type(uuid)
+                #    logging.info(f'Discovered node: {discovered_node}')
 
-                    if 'Cornice' in discovered_node:
-                        print(f'Pezzo Row: {row["PapyrusNum"]}, {row["CorniceNum"]}, {row["Pezzo"]}: {row["UUID"]}')
+                #    if 'Cornice' in discovered_node:
+                #        logging.info(f'Pezzo Row: {papyrus}, {cornice}, {pezzo}: {uuid}')
 
-                        result = loader.split_cornice_pezzo_node(row["UUID"], row["PapyrusNum"], row["CorniceNum"], row["Pezzo"])
-                        print(result)
+                #        result = loader.split_cornice_pezzo_node(uuid, papyrus, cornice, pezzo)
+                #        logging.info(result)
 
+                #
+                #    else:
+                #        pass
+                #        # There are currently no cases, but if EduceLabID is there without any connections.
+            
+            if cornice and (not pezzo) and (not disegni):
                 
-                    else:
-                        pass
-                        # There are currently no cases, but if EduceLabID is there without any connections.
-
-            if (not row["Pezzo"]) and (not row["Disegni"]) and row["CorniceNum"]:
-                #print(f'Cornice Row: {row["PapyrusNum"]}, {row["CorniceNum"]}, {row["UUID"]}')
-
-                if row["UUID"]:
-                    discovered_node = loader.find_uuid_assignment_type(row["UUID"])
-                    print(f'Discovered node: {discovered_node}')
+                if uuid:
+                    discovered_node = loader.find_uuid_assignment_type(uuid)
+                    #logging.info(f'Discovered node: {discovered_node}')
 
                     if 'Cornice' in discovered_node:
                         # Already has a Cornice node
-                        # TODO: Add human readable name
+                        result = loader.add_human_names_to_cornice_and_papyrus(uuid, papyrus, cornice)
+                        logging.info(result)
 
                     else:
                         # TODO: Create PHerc and Cornice nodes, find UUID node, attach 
+                        logging.info(f'Cornice not attached to UUID: {uuid}, {papyrus}, {cornice}, {pezzo}')
 
+                else:
+                    # NO UUID
+                    logging.info(f'Cornice without UUID: {uuid}, {papyrus}, {cornice}, {pezzo}')
 
             if (row["PapyrusNum"]) and (not row["CorniceNum"]) and  (not row["Pezzo"]) and (not row["Disegni"]):
-                #print(f'Papyrus Row: {row["PapyrusNum"]}, {row["CorniceNum"]}, {row["Pezzo"]}: {row["UUID"]}')
+                print(f'Papyrus Row: {row["PapyrusNum"]}, {row["CorniceNum"]}, {row["Pezzo"]}: {row["UUID"]}')
 
-                if row["UUID"]:
-                    discovered_node = loader.find_uuid_assignment_type(row["UUID"])
-                    print(f'Discovered node: {discovered_node}')
+                #if row["UUID"]:
+                #    discovered_node = loader.find_uuid_assignment_type(row["UUID"])
+                #    print(f'Discovered node: {discovered_node}')
 
-                    if 'Cornice' in discovered_node:
-                        pass
-                        # not likely
-                        # Already has a Cornice node
-                        # TODO: Add human readable name
+                #    if 'Cornice' in discovered_node:
+                #        pass
+                #        # not likely
+                #        # Already has a Cornice node
+                #        # TODO: Add human readable name
 
-                    else:
-                        pass
-                        # TODO: Create PHerc and Cornice nodes, find UUID node, attach 
-                
+                #    else:
+                #        pass
+                #        # TODO: Create PHerc and Cornice nodes, find UUID node, attach 
+            
+
+            if line_count > 100:
+                break
+
             line_count +=1
+
     
