@@ -19,36 +19,18 @@ class GraphDataLoader:
         print("connected to Neo4j.")
 
 
-    def find_uuid_assignment_type(self,uuid):
-        # Returns a list of node labels (str)
+    def add_pezzo_with_uuid(self, uuid, papyrus, cornice, pezzo):
 
         try:
             records, summary, keys = self.driver.execute_query("""
-                MATCH (e:EduceLabID {uuid: $uuid})
-                OPTIONAL MATCH (e)-[:ASSIGNED_TO]->(n)
-                RETURN labels(n)
-                """, uuid=uuid,
-                database_="neo4j",
-            )
-
-            for record in records:
-                return record['labels(n)']
-
-        except Exception as e:
-            print(e)
-    
-
-    def split_cornice_pezzo_node(self, uuid, papyrus_name, cornice_name, pezzo_name):
-
-        try:
-            records, summary, keys = self.driver.execute_query("""
-                MATCH (e:EduceLabID {uuid: $uuid})-[old_r:ASSIGNED_TO]->(c:Cornice)<-[:HAS]-(p:PHerc)
+                MERGE (e:EduceLabID {uuid: $uuid})
+                MERGE (p:PHerc)-[:HAS]->(c:Cornice)<-[old_r:ASSIGNED_TO]-(e) 
                 MERGE (c)-[:HAS]->(pz:Pezzo {human_name: $pz})<-[:ASSIGNED_TO]-(e)
-                SET p.human_name = $ph 
+                SET p.human_name = $ph
                 SET c.human_name = $cor 
                 DELETE old_r
                 RETURN p.human_name, c.human_name, pz.human_name, e.uuid
-                """, uuid=uuid, ph=papyrus_name, cor=cornice_name, pz=pezzo_name,
+                """, uuid=uuid, ph=papyrus, cor=cornice, pz=pezzo,
                 database_="neo4j",
             )
 
@@ -58,15 +40,22 @@ class GraphDataLoader:
         except Exception as e:
             print(e)
 
-    def add_human_names_to_cornice_and_papyrus(self, uuid, papyrus_name, cornice_name):
+
+    def add_pezzo_without_uuid(self, uuid, papyrus, cornice, pezzo):
+        # No such cases found at the moment
+        pass
+
+
+    def add_cornice_with_uuid(self, uuid, papyrus, cornic):
 
         try:
             records, summary, keys = self.driver.execute_query("""
-                MATCH (e:EduceLabID {uuid: $uuid})--(c:Cornice)--(p:PHerc)
+                MERGE (e:EduceLabID {uuid: $uuid})
+                MERGE (e)-[:ASSIGNED_TO]->(c:Cornice)<-[:HAS]-(p:PHerc)
                 SET c.human_name = $cor
                 SET p.human_name = $ph
                 RETURN p.human_name, c.human_name, e.uuid
-                """, uuid=uuid, ph=papyrus_name, cor=cornice_name,
+                """, uuid=uuid, ph=papyrus, cor=cornice,
                 database_="neo4j",
             )
 
@@ -75,6 +64,64 @@ class GraphDataLoader:
 
         except Exception as e:
             print(e)
+
+    
+    def add_cornice_without_uuid(self, papyrus, cornice):
+
+        try:
+            records, summary, keys = self.driver.execute_query("""
+                MERGE(p:PHerc {name: $ph})
+                MERGE(c:Cornice {human_name: $cor})<-[:HAS]-(p)
+                SET p.human_name = $ph
+                RETURN p.human_name, c.human_name
+                """,  ph=papyrus, cor=cornice,
+                database_="neo4j",
+            )
+
+            for record in records:
+                return record
+
+        except Exception as e:
+            print(e)
+
+    
+    def add_pherc_with_uuid(self, uuid, papyrus):
+
+        try:
+            records, summary, keys = self.driver.execute_query("""
+                MERGE (e:EduceLabID {uuid: $uuid})
+                MERGE (e)-[:ASSIGNED_TO]->(p:PHerc)
+                SET p.human_name = $ph
+                RETURN e.uuid, p.human_name
+                """, uuid=uuid, ph=papyrus,
+                database_="neo4j",
+            )
+
+            for record in records:
+                return record
+
+        except Exception as e:
+            print(e)
+
+    
+    def add_pherc_without_uuid(self, papyrus):
+
+        try:
+            records, summary, keys = self.driver.execute_query("""
+                MERGE (p:PHerc {name: $ph})
+                SET p.human_name=$ph
+                RETURN p.human_name
+                """, ph=papyrus, 
+                database_="neo4j",
+            )
+
+            for record in records:
+                return record
+
+        except Exception as e:
+            print(e)
+
+    
 
 
 if __name__ == "__main__":
@@ -98,64 +145,49 @@ if __name__ == "__main__":
             disegni = row["Disegni"]
 
             if pezzo:
-                logging.info(f'Pezzo Row: {uuid}, {papyrus}, {cornice}, {pezzo}')
+                #logging.info(f'Pezzo Row: {uuid}, {papyrus}, {cornice}, {pezzo}')
 
-                # Pezzo row with UUID
-                #if uuid:
-                #    discovered_node = loader.find_uuid_assignment_type(uuid)
-                #    logging.info(f'Discovered node: {discovered_node}')
+                #  Pezzo row with UUID
+                if uuid:
+                    result = loader.add_pezzo_with_uuid(uuid, papyrus, cornice, pezzo)
+                    logging.info(result)
+                
+                else:
+                    # There are currently no cases, but if EduceLabID is there without any connections.
+                    pass
+           
 
-                #    if 'Cornice' in discovered_node:
-                #        logging.info(f'Pezzo Row: {papyrus}, {cornice}, {pezzo}: {uuid}')
-
-                #        result = loader.split_cornice_pezzo_node(uuid, papyrus, cornice, pezzo)
-                #        logging.info(result)
-
-                #
-                #    else:
-                #        pass
-                #        # There are currently no cases, but if EduceLabID is there without any connections.
-            
-            if cornice and (not pezzo) and (not disegni):
+            elif cornice and (not pezzo) and (not disegni):
                 
                 if uuid:
-                    discovered_node = loader.find_uuid_assignment_type(uuid)
-                    #logging.info(f'Discovered node: {discovered_node}')
-
-                    if 'Cornice' in discovered_node:
-                        # Already has a Cornice node
-                        result = loader.add_human_names_to_cornice_and_papyrus(uuid, papyrus, cornice)
-                        logging.info(result)
-
-                    else:
-                        # TODO: Create PHerc and Cornice nodes, find UUID node, attach 
-                        logging.info(f'Cornice not attached to UUID: {uuid}, {papyrus}, {cornice}, {pezzo}')
+                    result = loader.add_cornice_with_uuid(uuid, papyrus, cornice)
+                    logging.info(result)
 
                 else:
-                    # NO UUID
-                    logging.info(f'Cornice without UUID: {uuid}, {papyrus}, {cornice}, {pezzo}')
+                    result = loader.add_cornice_without_uuid(papyrus, cornice)
+                    logging.info(result)
 
-            if (row["PapyrusNum"]) and (not row["CorniceNum"]) and  (not row["Pezzo"]) and (not row["Disegni"]):
-                print(f'Papyrus Row: {row["PapyrusNum"]}, {row["CorniceNum"]}, {row["Pezzo"]}: {row["UUID"]}')
 
-                #if row["UUID"]:
-                #    discovered_node = loader.find_uuid_assignment_type(row["UUID"])
-                #    print(f'Discovered node: {discovered_node}')
+            elif papyrus and (not cornice) and  (not pezzo) and (not disegni):
+                #logging.info(f'Papyrus Row: {uuid}. {papyrus}')
 
-                #    if 'Cornice' in discovered_node:
-                #        pass
-                #        # not likely
-                #        # Already has a Cornice node
-                #        # TODO: Add human readable name
+                if uuid:
+                    result = loader.add_pherc_with_uuid(uuid, papyrus)
+                    logging.info(result)
 
-                #    else:
-                #        pass
-                #        # TODO: Create PHerc and Cornice nodes, find UUID node, attach 
+                else:
+                    result = loader.add_pherc_without_uuid(papyrus)
+                    logging.info(result)
             
+            elif disegni:
+                # To be dealt with later
+                pass
 
-            if line_count > 100:
-                break
+            ## For initial testing only
+            #if line_count > 100:
+            #    break
 
             line_count +=1
+            
+    loader.close()
 
-    
