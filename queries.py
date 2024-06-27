@@ -46,6 +46,7 @@ class GraphDataLoader:
 
     def get_human_readable_name(self, pherc, cornice=None, pezzo=None):
 
+        pherc_n = None
         corn_n = None
         pezzo_n = None
 
@@ -73,12 +74,25 @@ class GraphDataLoader:
                 pherc_n = records[0]["ph.human_name"]
                 pezzo_n = records[0]["pz.human_name"]
 
+        if not pherc_n:
+            # If there was neither cornice nor pezzo names given
+            records, summary, keys = self.driver.execute_query("""
+                MATCH (ph:PHerc {name: $ph})
+                RETURN ph.human_name
+                """, ph=pherc,
+                database_ = "neo4j",
+            )
+            if records:
+                pherc_n = records[0]["ph.human_name"]
+            
+
         return pherc_n, corn_n, pezzo_n
 
                
     def find_cornici_pezzi(self, pherc):
+        # Use display names
         records, summary, keys = self.driver.execute_query("""
-            MATCH (ph:PHerc {name: $ph})
+            MATCH (ph:PHerc {human_name: $ph})
             OPTIONAL MATCH (ph)-[:HAS]-(c:Cornice)
             OPTIONAL MATCH (c)-[:HAS]-(p:Pezzo)
             RETURN c.human_name, p.human_name            
@@ -97,6 +111,7 @@ class GraphDataLoader:
 
         
     def find_datasets(self, dataset_t, pherc, cornice=None, pezzo=None):
+        # Use display names
         if cornice:
             records, summary, keys = self.driver.execute_query("""
                 MATCH (ph:PHerc {human_name: $ph})-[:HAS]-(c:Cornice {human_name: $cor})
@@ -143,19 +158,20 @@ if __name__ == "__main__":
 
     ### TODO: figure out when to use human-readable names vs. names from UUID
 
-    # Find human readable names
+    # Find display names with names (from UUID assignment sheet)
     ph_n, c_n, p_n = loader.get_human_readable_name("467/2", "Scorza", "467/2")
-    print(ph_n, c_n, p_n)
+    print(f'PHerc, Cornice, Pezzo (display names): {ph_n}, {c_n}, {p_n}')
 
-    # Find cornici and pezzi human-readable names for the given papyrus
+
+    # Find cornici and pezzi display names for a papyrus with the display name
     records = loader.find_cornici_pezzi("76")
     print(records)
 
+
     # Choices are "SpectralRaw", "PGSRaw", or "FlatbedScanDataset"
-    # These use human-readable names 
+    # Use display names 
     records = loader.find_datasets("SpectralRaw", "1045", cornice="1")
     print(records)
-
     records = loader.find_datasets("SpectralRaw", "76", pezzo="Left")
     print(records)
 
