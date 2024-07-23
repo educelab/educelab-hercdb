@@ -22,6 +22,7 @@ class GraphDBConnection:
     logger = logging.getLogger('educelab.hercdb')
     uri: str = None
     user: str = None
+    driver = None
 
     def __init__(self, uri, user, password):
         self.uri = uri
@@ -32,7 +33,8 @@ class GraphDBConnection:
         self.close()
 
     def close(self):
-        self.driver.close()
+        if self.driver is not None:
+            self.driver.close()
 
     def verify_connection(self):
         try:
