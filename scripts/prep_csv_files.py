@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import logging
 
-import config
+from educelab.hercdb import config
 
 COL_MAP = {
     'Meta' : {

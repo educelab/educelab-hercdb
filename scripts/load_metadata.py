@@ -2,7 +2,7 @@ import csv
 from neo4j import GraphDatabase
 import logging
 
-import config
+from educelab.hercdb import config
 
 logging.basicConfig(level=logging.INFO)
 

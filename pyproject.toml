@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools >= 62"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src/"]
+include = ["educelab.hercdb"]
+
+[project]
+name = "educelab-hercdb"
+version = "0.1.0"
+dependencies = [
+    "neo4j>=5.20",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "prompt-toolkit"
+]
+requires-python = ">= 3.10"
+authors = [
+    {name = "Mami Hayashida", email = "mami.hayashida@uky.edu"},
+    {name = "Seth Parker", email = "c.seth.parker@uky.edu"}
+]
+description = "Graph database API for Herculaneum data"
+readme = "README.md"
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Repository = "https://gitlab.com/educelab/educelab-hercdb"
+
+[project.scripts]
+el-hercdb-search = "educelab.hercdb.apps.search:main"

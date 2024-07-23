@@ -1,5 +1,7 @@
 from neo4j import GraphDatabase
-import config
+
+from educelab.hercdb import config
+
 
 class HelloWorldExample:
 
@@ -22,12 +24,17 @@ class HelloWorldExample:
         return result.single()[0]
 
 
-if __name__ == "__main__":
+def main():
 
+    config.request_required()
 
-    greeter = HelloWorldExample("neo4j://localhost:7687", config.username, config.password)
+    greeter = HelloWorldExample(config.uri, config.username, config.password)
     
     #greeter = HelloWorldExample("neo4j://localhost:7687", username, password)
     #greeter = HelloWorldExample("neo4j://localhost:7687", config.username, config.password)
     greeter.print_greeting("hello, world")
     greeter.close()
+
+
+if __name__ == "__main__":
+    main()
