@@ -1,5 +1,7 @@
 from neo4j import GraphDatabase
-import config
+
+from educelab.hercdb import config
+
 
 class GraphDataLoader:
 
