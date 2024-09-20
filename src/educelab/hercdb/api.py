@@ -73,7 +73,7 @@ class GraphDBConnection:
             """,
             database_="neo4j",
         )
-        count = record[0]
+        count = record[0]['count(n)']
         assert isinstance(count, int)
         return count
 
