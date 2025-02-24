@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src/"]
-include = ["educelab.hercdb"]
+include = ["educelab.hercdb*"]
 
 [project]
 name = "educelab-hercdb"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
     "neo4j>=5.20",
     "numpy>=2.0",
