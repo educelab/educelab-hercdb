@@ -79,6 +79,7 @@ target/
 
 # venv
 venv/
+.venv/
 
 # celery beat schedule file
 celerybeat-schedule
@@ -118,6 +119,12 @@ dmypy.json
 # Singularity built containers
 *.sif
 
-# Local folder for test data
+# Local folder for input data
 test_data/
 scripts/data/
+input_data/
+
+# config, secret, local test files
+**token**
+**local**
+**credential**
