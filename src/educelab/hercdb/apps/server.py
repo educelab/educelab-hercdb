@@ -1,5 +1,5 @@
 import logging
-import os
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Depends, status
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
@@ -9,7 +9,9 @@ from educelab import hercdb
 TOKENS = {}
 TOKEN_TO_USER = {}
 try:
-    with open('.tokens', 'r') as f:
+    
+    tokens_path = Path.home() / '.tokens'
+    with open(tokens_path, 'r') as f:
         for line in f:
             line = line.strip()
             if line and '=' in line:
