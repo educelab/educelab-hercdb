@@ -2,6 +2,7 @@ from neo4j import GraphDatabase
 
 from educelab.hercdb import config
 
+### This is an obsolete script. Use src/educelab/hercdb/api.py instead.
 
 class GraphDataLoader:
 
