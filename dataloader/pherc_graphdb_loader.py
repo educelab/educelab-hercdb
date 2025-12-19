@@ -8,10 +8,11 @@ logger = logging.getLogger('educelab.dataloader')
 
 class PhercGraphDatabaseLoader:
 
-    def __init__(self, uri, user, password):
+    def __init__(self, uri=None, user=None, password=None):
         """
         Create a new connection to the graph database.
-        """      
+        If uri, user, or password are not provided, they will be read from ~/.educedb config file.
+        """
         if uri is None:
             uri = config.uri
         if user is None:
@@ -547,7 +548,7 @@ class PhercGraphDatabaseLoader:
         
         query = """
             MERGE (s:SpectralRaw {uuid: $scan_uuid,
-            spectral_path: $spectral_path,
+            path: $spectral_path,
             date_start: $datetime_start})
         """
         if datetime_end:
@@ -560,4 +561,135 @@ class PhercGraphDatabaseLoader:
             query += " WITH s MATCH (e2:EduceLabID {uuid: $sample_uuid2}) MERGE (e2)<-[:BELONGS_TO]-(s)"
             
         self._run_query(query, **params)
+        
+        
+################ For the image processing pipeline ################
     
+    
+    def add_image_processing_node(self, artifact_uuid, op_type, input_ds_path, output_ds_path,
+                                  date_time, slurm_id, pipeline_id):
+        """
+        Creates an image processing node and attaches it to
+        - input-dataset node
+        - output-dataset node
+        - pipeline node
+        
+        If pipline node does not exist, it creates one first.
+        
+        input:
+        op_type: "PGS" | "SPEC" | "WEB"
+        """
+        
+        if op_type == "PGS":
+        
+            query = """
+            MATCH (:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(pgs:PGSRaw {path: $input_ds_path})
+            MERGE (proc:Process {datetime: $date_t,
+            slurm_id: $slurm_id,
+            status: "submitted"})
+            MERGE (pgs_proc:PGSProcessed {path: $output_ds_path})
+            MERGE (pgs)-[:INPUT]->(proc)-[:OUTPUT]->(pgs_proc)
+            MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
+            MERGE (proc)-[:STAGE_OF]->(ppline)
+            RETURN proc
+            """
+
+        elif op_type == "SPEC":
+
+            query = """
+            MATCH (:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(spectral:SpectralRaw {path: $input_ds_path})
+            MERGE (proc:Process {datetime: $date_t,
+            slurm_id: $slurm_id,
+            status: "submitted"})
+            MERGE (spec_proc:SpectralProcessed {path: $output_ds_path})
+            MERGE (spectral)-[:INPUT]->(proc)-[:OUTPUT]->(spec_proc)
+            MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
+            MERGE (proc)-[:STAGE_OF]->(ppline)
+            RETURN proc
+            """
+
+        elif op_type == "WEB":
+            # In this case, find the registered image node using the pipeline_id instead of EduceLabID(uuid)
+            query = """
+            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})--(:Process)--(reg:Registered {path: $input_ds_path})
+            MERGE (proc:Process {datetime: $date_t,
+            slurm_id: $slurm_id,
+            status: "submitted"})
+            MERGE (web:WebProcessed {path: $output_ds_path})
+            MERGE (reg)-[:INPUT]->(proc)-[:OUTPUT]->(web)
+            MERGE (proc)-[:STAGE_OF]->(ppline)
+            RETURN proc
+            """
+            
+        params = {
+            "artifact_uuid": artifact_uuid,
+            "input_ds_path": input_ds_path,
+            "date_t": date_time,
+            "slurm_id": slurm_id,
+            "output_ds_path": output_ds_path,
+            "pipeline_id": pipeline_id
+        }
+          
+        proc_node = self._run_query(query, **params)
+        
+        return proc_node
+        
+    def add_registration_processing_node(self, artifact_uuid, date_time, slurm_id, input_pgs_path, input_spectral_path,
+                                         registered_img_path, pipeline_id):
+        query = """
+        MATCH (:EduceLabID {uuid: $artifact_uuid})--(:PGSRaw)--(:Process)--(pg_proc:PGSProcessed {path: $input_pg_path})
+        MATCH (:EduceLabID {uuid: $artifact_uuid})--(:SpectralRaw)--(:Process)--(spec_proc:SpectralProcessed {path: $input_spectral_path})
+        MERGE (proc:Process {datetime: $date_t,
+        slurm_id: $slurm_id,
+        status: "submitted"})
+        MERGE (reg:Registered {path: $registered_img_path})
+        MERGE (pg_proc)-[:INPUT]->(proc)<-[:INPUT]-(spec_proc)
+        MERGE (proc)-[:OUTPUT]->(reg)
+        WITH proc
+        MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})
+        MERGE (proc)-[:STAGE_OF]->(ppline)
+        RETURN proc
+            """    
+            
+        params = {
+            "artifact_uuid": artifact_uuid,
+            "input_pg_path": input_pgs_path,
+            "input_spectral_path": input_spectral_path,
+            "date_t": date_time,
+            "slurm_id": slurm_id,
+            "registered_img_path": registered_img_path,
+            "pipeline_id": pipeline_id
+        }
+          
+        proc_node = self._run_query(query, **params)
+
+        return proc_node
+
+    def update_process_status(self, pipeline_id, slurm_id, property_name, value):
+        """
+        Updates a property of a Process node identified by pipeline_id and slurm_id.
+
+        Args:
+            pipeline_id: The pipeline ID to identify the process
+            slurm_id: The SLURM job ID to identify the process
+            property_name: The name of the property to update (e.g., "status", "slurm_id")
+            value: The new value for the property
+
+        Returns:
+            The updated process node
+        """
+        query = f"""
+        MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:STAGE_OF]-(proc:Process {{slurm_id: $slurm_id}})
+        SET proc.{property_name} = $value
+        RETURN proc
+        """
+
+        params = {
+            "pipeline_id": pipeline_id,
+            "slurm_id": slurm_id,
+            "value": value
+        }
+
+        proc_node = self._run_query(query, **params)
+
+        return proc_node
