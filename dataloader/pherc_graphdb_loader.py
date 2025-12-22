@@ -584,7 +584,8 @@ class PhercGraphDatabaseLoader:
         
             query = """
             MATCH (:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(pgs:PGSRaw {path: $input_ds_path})
-            MERGE (proc:Process {datetime: $date_t,
+            MERGE (proc:Process {stage: "PGS",
+            datetime: $date_t,
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (pgs_proc:PGSProcessed {path: $output_ds_path})
@@ -598,7 +599,8 @@ class PhercGraphDatabaseLoader:
 
             query = """
             MATCH (:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(spectral:SpectralRaw {path: $input_ds_path})
-            MERGE (proc:Process {datetime: $date_t,
+            MERGE (proc:Process {stage: "SPEC",
+            datetime: $date_t,
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (spec_proc:SpectralProcessed {path: $output_ds_path})
@@ -612,7 +614,8 @@ class PhercGraphDatabaseLoader:
             # In this case, find the registered image node using the pipeline_id instead of EduceLabID(uuid)
             query = """
             MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})--(:Process)--(reg:Registered {path: $input_ds_path})
-            MERGE (proc:Process {datetime: $date_t,
+            MERGE (proc:Process {stage: "WEB",
+            datetime: $date_t,
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (web:WebProcessed {path: $output_ds_path})
@@ -639,7 +642,8 @@ class PhercGraphDatabaseLoader:
         query = """
         MATCH (:EduceLabID {uuid: $artifact_uuid})--(:PGSRaw)--(:Process)--(pg_proc:PGSProcessed {path: $input_pg_path})
         MATCH (:EduceLabID {uuid: $artifact_uuid})--(:SpectralRaw)--(:Process)--(spec_proc:SpectralProcessed {path: $input_spectral_path})
-        MERGE (proc:Process {datetime: $date_t,
+        MERGE (proc:Process {stage: "REG",
+        datetime: $date_t,
         slurm_id: $slurm_id,
         status: "submitted"})
         MERGE (reg:Registered {path: $registered_img_path})
@@ -665,13 +669,13 @@ class PhercGraphDatabaseLoader:
 
         return proc_node
 
-    def update_process_status(self, pipeline_id, slurm_id, property_name, value):
+    def update_process_status(self, pipeline_id, stage, property_name, value):
         """
         Updates a property of a Process node identified by pipeline_id and slurm_id.
 
         Args:
             pipeline_id: The pipeline ID to identify the process
-            slurm_id: The SLURM job ID to identify the process
+            stage: The process stage ("PGS", "SPEC", "WEB", or "REG")
             property_name: The name of the property to update (e.g., "status", "slurm_id")
             value: The new value for the property
 
@@ -679,14 +683,14 @@ class PhercGraphDatabaseLoader:
             The updated process node
         """
         query = f"""
-        MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:STAGE_OF]-(proc:Process {{slurm_id: $slurm_id}})
+        MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:STAGE_OF]-(proc:Process {{stage: $stage}})
         SET proc.{property_name} = $value
         RETURN proc
         """
 
         params = {
             "pipeline_id": pipeline_id,
-            "slurm_id": slurm_id,
+            "stage": stage,
             "value": value
         }
 

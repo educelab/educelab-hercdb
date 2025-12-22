@@ -196,56 +196,50 @@ def test_update_process_status():
 
     pipeline_id = "20251218-124"
 
-    # Update process statuses
-    pgs_slurm_id = "40506"
-    spec_slurm_id = "40519"
-    reg_slurm_id = "40526"
-    web_slurm_id = "40537"
-
     try:
         # Update PGS process status to "completed"
         result = loader.update_process_status(
             pipeline_id=pipeline_id,
-            slurm_id=pgs_slurm_id,
+            stage="PGS",
             property_name="status",
             value="completed"
         )
         print(f"✓ PGS Process status updated to 'completed'")
         print(f"  - Pipeline ID: {pipeline_id}")
-        print(f"  - SLURM ID: {pgs_slurm_id}")
+        print(f"  - Stage: PGS")
 
         # Update Spectral process status to "completed"
         result = loader.update_process_status(
             pipeline_id=pipeline_id,
-            slurm_id=spec_slurm_id,
+            stage="SPEC",
             property_name="status",
             value="completed"
         )
         print(f"✓ Spectral Process status updated to 'completed'")
         print(f"  - Pipeline ID: {pipeline_id}")
-        print(f"  - SLURM ID: {spec_slurm_id}")
+        print(f"  - Stage: SPEC")
 
         # Update Registration process status to "completed"
         result = loader.update_process_status(
             pipeline_id=pipeline_id,
-            slurm_id=reg_slurm_id,
+            stage="REG",
             property_name="status",
             value="completed"
         )
         print(f"✓ Registration Process status updated to 'completed'")
         print(f"  - Pipeline ID: {pipeline_id}")
-        print(f"  - SLURM ID: {reg_slurm_id}")
+        print(f"  - Stage: REG")
 
         # Update Web process status to "completed"
         result = loader.update_process_status(
             pipeline_id=pipeline_id,
-            slurm_id=web_slurm_id,
+            stage="WEB",
             property_name="status",
             value="completed"
         )
         print(f"✓ Web Process status updated to 'completed'")
         print(f"  - Pipeline ID: {pipeline_id}")
-        print(f"  - SLURM ID: {web_slurm_id}")
+        print(f"  - Stage: WEB")
         return True
     except Exception as e:
         print(f"✗ Failed to update process status: {e}")
