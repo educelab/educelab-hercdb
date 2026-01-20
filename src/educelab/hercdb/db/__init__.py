@@ -1,7 +1,8 @@
-from educelab.hercdb import config
-from educelab.hercdb.db import (
-    connect,
+"""Database layer for hercdb - Neo4j graph database operations."""
+
+from .connection import (
     GraphDBConnection,
+    connect,
     DatasetType,
     FlatbedScanType,
     PGSRawType,
@@ -9,9 +10,8 @@ from educelab.hercdb.db import (
 )
 
 __all__ = [
-    "config",
-    "connect",
     "GraphDBConnection",
+    "connect",
     "DatasetType",
     "FlatbedScanType",
     "PGSRawType",

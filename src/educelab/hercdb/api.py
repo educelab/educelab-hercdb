@@ -1,7 +1,9 @@
-from educelab.hercdb import config
+"""Backward compatibility shim - use educelab.hercdb.db instead."""
+
+# Re-export everything from db module for backward compatibility
 from educelab.hercdb.db import (
-    connect,
     GraphDBConnection,
+    connect,
     DatasetType,
     FlatbedScanType,
     PGSRawType,
@@ -9,9 +11,8 @@ from educelab.hercdb.db import (
 )
 
 __all__ = [
-    "config",
-    "connect",
     "GraphDBConnection",
+    "connect",
     "DatasetType",
     "FlatbedScanType",
     "PGSRawType",

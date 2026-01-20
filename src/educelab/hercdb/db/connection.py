@@ -548,7 +548,40 @@ class GraphDBConnection:
         else:
             return records, summary, keys
    
+    def find_pipelines(self):
+        """
+        Finds all pipelines and returns their pipeline_id and associated artifact_uuid.
 
+        Returns:
+            list: A list of dictionaries, each containing:
+                - pipeline_id: The pipeline identifier
+                - artifact_uuid: The UUID of the associated EduceLabID
+        """
+        records, _, _ = self._run_query("""
+            MATCH (p:Pipeline)<-[:STAGE_OF]-(proc:Process)<-[:INPUT]-(input)
+            WHERE 'PGSRaw' IN LABELS(input) OR 'SpectralRaw' IN LABELS(input)
+            MATCH (input)-[:BELONGS_TO]->(e:EduceLabID)
+            RETURN DISTINCT p.pipeline_id AS pipeline_id, e.uuid AS artifact_uuid
+            ORDER BY p.pipeline_id
+            """)
+
+        if records:
+            pipelines = []
+            for record in records:
+                pipelines.append({
+                    "pipeline_id": record["pipeline_id"],
+                    "artifact_uuid": record["artifact_uuid"]
+                })
+            return pipelines
+
+        return []
+    
+    def get_pipeline(self, pipeline_id):
+        # Returns a tuple (#1, #2) below
+        # 1) [pipeline_id, artifact_id] 
+        # 2)list of dictionaries for each stage[{"stage": " ", "status": " ", "date_time": DateTime, "slrum_id": int, input_data_paths: [ ], output_data_path: ""}]
+        pass
+            
     @staticmethod
     def records_to_label_json(records):
         #result = {}

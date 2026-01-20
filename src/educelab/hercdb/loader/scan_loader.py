@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 import csv
-import pherc_graphdb_loader as db_loader
+from educelab.hercdb.loader import PhercGraphDatabaseLoader
 
-loader = db_loader.PhercGraphDatabaseLoader.from_config()
+loader = PhercGraphDatabaseLoader()
 loader.verify_conn()
 
 # File paths. Edit as needed.
