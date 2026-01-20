@@ -38,7 +38,7 @@ classifiers = [
 Repository = "https://gitlab.com/educelab/educelab-hercdb"
 
 [project.scripts]
-el-hercdb-search = "educelab.hercdb.apps.search:main"
+el-hercdb-search = "educelab.hercdb.cli.search:main"
 
 [dependency-groups]
 dev = [
