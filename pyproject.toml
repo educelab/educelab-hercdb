@@ -16,6 +16,7 @@ dependencies = [
     "pandas>=2.2",
     "prompt-toolkit",
     "requests>=2.32.5",
+    "uvicorn>=0.40.0",
 ]
 requires-python = ">= 3.10"
 authors = [

@@ -14,6 +14,13 @@ class TestPhercDbQueries(unittest.TestCase):
         display_names = [record.data()['ph']['displayName'] for record in records]
         print(display_names)
 
+    def test_find_artifact_name_by_uuid(self):
+        result = self.query_runner.find_artifact_name_by_uuid("d65a2db0-ffec-5c15-8d3e-b28cf9326a32")
+        self.assertIsNotNone(result)
+        self.assertIn('pherc', result)
+        self.assertIsNotNone(result['pherc'])
+        print(result)
+
     def test_find_pherc_by_display_name(self):
         records, summary, keys = self.query_runner.find_pherc_by_display_name("421")
         display_names = [record.data()['ph']['displayName'] for record in records]
@@ -92,7 +99,13 @@ class TestPhercDbQueries(unittest.TestCase):
         pezzi = records[0].data()['pz']
         print("Cornici:", cornici)
         print("Pezzi:", pezzi)
-              
-         
+
+    def test_get_pipeline_status(self):
+        result = self.query_runner.get_pipeline_status("20251222-389")
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, list)
+        print(result)
+
+
 if __name__ == "__main__":
     unittest.main()

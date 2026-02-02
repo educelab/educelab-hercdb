@@ -326,16 +326,59 @@ class GraphDBConnection:
             uuid (str): The UUID of the PHerc to find.
         Returns:
             tuple: A tuple containing records, summary, and keys of the query result.
-        
+
         Note:
-            This currenly only returns the PHerc node, not Cornice/Pezzo. 
+            This currenly only returns the PHerc node, not Cornice/Pezzo.
         """
-        
+
         records, summary, keys = self._run_query("""
             MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)<-[:HAS*0..2]-(ph:PHerc)
             RETURN ph
             """, uuid=uuid)
         return records, summary, keys
+
+    def find_artifact_name_by_uuid(self, uuid):
+        """
+        Looks up the PHerc, Cornice, and Pezzo display names for a given UUID.
+
+        Args:
+            uuid (str): The UUID to look up.
+
+        Returns:
+            dict: A dictionary with keys 'pherc', 'cornice', and 'pezzo'.
+                  Values are the display names or None if not applicable.
+                  Returns None if the UUID is not found.
+        """
+        records, summary, keys = self._run_query("""
+            MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)
+            OPTIONAL MATCH (n)<-[:HAS]-(parent1)
+            OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
+            WITH n, parent1, parent2,
+                 CASE
+                     WHEN 'PHerc' IN labels(n) THEN n
+                     WHEN 'PHerc' IN labels(parent1) THEN parent1
+                     WHEN 'PHerc' IN labels(parent2) THEN parent2
+                 END AS pherc,
+                 CASE
+                     WHEN 'Cornice' IN labels(n) THEN n
+                     WHEN 'Cornice' IN labels(parent1) THEN parent1
+                 END AS cornice,
+                 CASE
+                     WHEN 'Pezzo' IN labels(n) THEN n
+                 END AS pezzo
+            RETURN pherc.displayName AS pherc_name,
+                   cornice.displayName AS cornice_name,
+                   pezzo.displayName AS pezzo_name
+            """, uuid=uuid)
+
+        if records and len(records) > 0:
+            record = records[0]
+            return {
+                'pherc': record['pherc_name'],
+                'cornice': record['cornice_name'],
+                'pezzo': record['pezzo_name']
+            }
+        return None
 
     def find_pherc_by_display_name(self, display_name):
         """
@@ -576,11 +619,41 @@ class GraphDBConnection:
 
         return []
     
-    def get_pipeline(self, pipeline_id):
-        # Returns a tuple (#1, #2) below
-        # 1) [pipeline_id, artifact_id] 
-        # 2)list of dictionaries for each stage[{"stage": " ", "status": " ", "date_time": DateTime, "slrum_id": int, input_data_paths: [ ], output_data_path: ""}]
-        pass
+    def get_pipeline_status(self, pipeline_id):
+        """
+        Returns the status of all processes in a pipeline.
+
+        Args:
+            pipeline_id (str): The pipeline identifier.
+
+        Returns:
+            list: A list of process dictionaries. Each process dict contains:
+                  - datetime: The process timestamp
+                  - stage: The process stage (e.g., "PGS", "SPEC", "REG")
+                  - status: The process status (e.g., "completed", "failed")
+                  - slurm_id: The SLURM job ID
+                  Returns None if pipeline not found.
+        """
+        records, _, _ = self._run_query("""
+            MATCH (p:Pipeline {pipeline_id: $pipeline_id})<-[:STAGE_OF]-(proc:Process)
+            RETURN proc
+            ORDER BY proc.datetime
+            """, pipeline_id=pipeline_id)
+
+        if not records:
+            return None
+
+        processes = []
+        for record in records:
+            proc = record['proc']
+            processes.append({
+                'datetime': str(proc.get('datetime', '')),
+                'stage': proc.get('stage', ''),
+                'status': proc.get('status', ''),
+                'slurm_id': str(proc.get('slurm_id', ''))
+            })
+
+        return processes
             
     @staticmethod
     def records_to_label_json(records):

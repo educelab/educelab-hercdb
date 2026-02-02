@@ -26,7 +26,7 @@ if db.verify_connection():
 ### Server configuration
 
 If not provided when calling `hercdb.connect()`, this package will attempt to 
-read the URI, username, and password from the configuration file at `~/.hercdb`. 
+read the URI, username, and password from the configuration file at `~/.educedb`. 
 This file is expected to be in the [TOML](https://toml.io/) format:
 ```toml
 [database]
