@@ -246,3 +246,10 @@ async def get_pipeline_stages(pipeline_id: str, user: str = Depends(get_current_
         return JSONResponse(content=result, status_code=200)
     else:
         raise HTTPException(status_code=404, detail=f"No pipeline found with ID '{pipeline_id}'")
+
+
+@app.get("/pipelines")
+async def get_pipelines(user: str = Depends(get_current_user)):
+    logger.info(f"User {user} requested all pipelines")
+    result = db.get_all_pipeline_summaries()
+    return JSONResponse(content=result, status_code=200)

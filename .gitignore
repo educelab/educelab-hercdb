@@ -131,3 +131,6 @@ input_data/
 
 # Jupyter notebooks
 *.ipynb_checkpoints
+
+# Claude Code plans and drafts
+.claude/

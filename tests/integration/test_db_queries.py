@@ -106,6 +106,105 @@ class TestPhercDbQueries(unittest.TestCase):
         self.assertIsInstance(result, list)
         print(result)
 
+    def test_get_all_pipeline_summaries(self):
+        result = self.query_runner.get_all_pipeline_summaries()
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, list)
+        # Check structure of each summary
+        for summary in result:
+            self.assertIn('datetime', summary)
+            self.assertIn('dataset_name', summary)
+            self.assertIn('artifact_uuid', summary)
+            self.assertIn('pipeline_id', summary)
+            self.assertIn('status', summary)
+            # Status should be one of the expected values
+            self.assertIn(summary['status'], [
+                'completed', 'partially_completed', 'submitted', 'failed', 'unknown(error)'
+            ])
+        print(result)
+
+
+class TestComputePipelineStatus(unittest.TestCase):
+    """Unit tests for _compute_pipeline_status helper method."""
+
+    def test_empty_processes_returns_unknown(self):
+        status = hercdb.GraphDBConnection._compute_pipeline_status([])
+        self.assertEqual(status, 'unknown(error)')
+
+    def test_all_stages_completed(self):
+        processes = [
+            {'stage': 'PGS', 'status': 'completed'},
+            {'stage': 'SPEC', 'status': 'completed'},
+            {'stage': 'REG', 'status': 'completed'},
+            {'stage': 'WEB', 'status': 'completed'},
+        ]
+        status = hercdb.GraphDBConnection._compute_pipeline_status(processes)
+        self.assertEqual(status, 'completed')
+
+    def test_first_stage_completed_partially_completed(self):
+        processes = [
+            {'stage': 'PGS', 'status': 'completed'},
+            {'stage': 'SPEC', 'status': 'submitted'},
+        ]
+        status = hercdb.GraphDBConnection._compute_pipeline_status(processes)
+        self.assertEqual(status, 'partially_completed')
+
+    def test_spec_completed_partially_completed(self):
+        processes = [
+            {'stage': 'SPEC', 'status': 'completed'},
+            {'stage': 'REG', 'status': 'submitted'},
+        ]
+        status = hercdb.GraphDBConnection._compute_pipeline_status(processes)
+        self.assertEqual(status, 'partially_completed')
+
+    def test_all_stages_failed(self):
+        processes = [
+            {'stage': 'PGS', 'status': 'failed'},
+            {'stage': 'SPEC', 'status': 'failed'},
+        ]
+        status = hercdb.GraphDBConnection._compute_pipeline_status(processes)
+        self.assertEqual(status, 'failed')
+
+    def test_submitted_status(self):
+        processes = [
+            {'stage': 'PGS', 'status': 'submitted'},
+            {'stage': 'SPEC', 'status': 'submitted'},
+        ]
+        status = hercdb.GraphDBConnection._compute_pipeline_status(processes)
+        self.assertEqual(status, 'submitted')
+
+
+class TestFormatDatasetName(unittest.TestCase):
+    """Unit tests for _format_dataset_name helper method."""
+
+    @classmethod
+    def setUpClass(cls):
+        hercdb.config._load_config()
+        cls.db = hercdb.connect()
+
+    def test_full_artifact_info(self):
+        artifact_info = {'pherc': '421', 'cornice': 'A', 'pezzo': '1'}
+        result = self.db._format_dataset_name(artifact_info)
+        self.assertEqual(result, 'PHerc421 Cornice A Pezzo 1')
+
+    def test_pherc_and_cornice_only(self):
+        artifact_info = {'pherc': '421', 'cornice': 'A', 'pezzo': None}
+        result = self.db._format_dataset_name(artifact_info)
+        self.assertEqual(result, 'PHerc421 Cornice A')
+
+    def test_pherc_only(self):
+        artifact_info = {'pherc': '421', 'cornice': None, 'pezzo': None}
+        result = self.db._format_dataset_name(artifact_info)
+        self.assertEqual(result, 'PHerc421')
+
+    def test_empty_artifact_info(self):
+        result = self.db._format_dataset_name({})
+        self.assertEqual(result, '')
+
+    def test_none_artifact_info(self):
+        result = self.db._format_dataset_name(None)
+        self.assertEqual(result, '')
+
 
 if __name__ == "__main__":
     unittest.main()

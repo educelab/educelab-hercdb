@@ -193,6 +193,31 @@ def test_update_process_status(params, stage, property_name="status", value="com
         return False
 
 
+def create_empty_pipeline(pipeline_id):
+    """
+    Create a Pipeline node with no Process nodes attached.
+    Used to test the 'unknown(error)' status case.
+
+    Args:
+        pipeline_id: The pipeline ID to create
+    """
+    print(f"\n=== Creating Empty Pipeline Node ===")
+
+    try:
+        loader._run_query("""
+            MERGE (p:Pipeline {pipeline_id: $pipeline_id})
+        """, pipeline_id=pipeline_id)
+        print(f"✓ Empty Pipeline node created successfully")
+        print(f"  - Pipeline ID: {pipeline_id}")
+        print(f"  - No Process nodes attached")
+        return True
+    except Exception as e:
+        print(f"✗ Failed to create empty pipeline: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def cleanup_test_data(pipeline_id, interactive=True):
     """
     Clean up the test processing nodes created during the test.
@@ -222,11 +247,11 @@ def cleanup_test_data(pipeline_id, interactive=True):
     print("  (Original data nodes like EduceLabID, PHerc, PGSRaw, SpectralRaw remain intact)")
 
 
-def run_create_tests(test1_params, test2_params):
-    """Run all the creation tests for both test parameter sets."""
+def run_create_tests(test1_params, test2_params, test3_params, test4_params, test5_params):
+    """Run all the creation tests for all test parameter sets."""
     # Run tests with test1_params - Full pipeline success
     print("\n" + "="*60)
-    print("TEST 1: Full Pipeline Success")
+    print("TEST 1: Full Pipeline Success (expected status: completed)")
     print("="*60)
     # PGS processing and status update
     test_pgs_processing(test1_params)
@@ -246,7 +271,7 @@ def run_create_tests(test1_params, test2_params):
 
     # Run tests with test2_params - Registration fails, no Web processing
     print("\n" + "="*60)
-    print("TEST 2: PGS and Spectral succeed, Registration fails")
+    print("TEST 2: PGS and Spectral succeed, Registration fails (expected status: partially_completed)")
     print("="*60)
     # PGS processing and status update
     test_pgs_processing(test2_params)
@@ -260,6 +285,35 @@ def run_create_tests(test1_params, test2_params):
     test_registration_processing(test2_params)
     test_update_process_status(test2_params, "REG", "status", "failed")
     print("\n  Note: Registration failed - skipping Web processing")
+
+    # Run tests with test3_params - All stages submitted, none completed
+    print("\n" + "="*60)
+    print("TEST 3: All stages submitted, none completed (expected status: submitted)")
+    print("="*60)
+    # PGS processing - do NOT update status (leave as "submitted")
+    test_pgs_processing(test3_params)
+    # Spectral processing - do NOT update status (leave as "submitted")
+    test_spectral_processing(test3_params)
+    print("\n  Note: Both stages left in 'submitted' status")
+
+    # Run tests with test4_params - All stages failed
+    print("\n" + "="*60)
+    print("TEST 4: All stages failed (expected status: failed)")
+    print("="*60)
+    # PGS processing and mark as failed
+    test_pgs_processing(test4_params)
+    test_update_process_status(test4_params, "PGS", "status", "failed")
+    # Spectral processing and mark as failed
+    test_spectral_processing(test4_params)
+    test_update_process_status(test4_params, "SPEC", "status", "failed")
+    print("\n  Note: Both stages marked as 'failed'")
+
+    # Run tests with test5_params - Pipeline with no Process nodes
+    print("\n" + "="*60)
+    print("TEST 5: Pipeline with no Process nodes (expected status: unknown(error))")
+    print("="*60)
+    create_empty_pipeline(test5_params['pipeline_id'])
+    print("\n  Note: Pipeline has no Process nodes attached")
 
 
 if __name__ == "__main__":
@@ -335,6 +389,57 @@ Examples:
         'reg_slurm_id': '51344'
     }
 
+    # Test parameters for test 3
+    # All stages submitted, none completed -> status = "submitted"
+    test3_params = {
+        'artifact_uuid': '6e31467a-7557-504b-a2ee-bd25c9318f86',  # Reuse from TEST 1
+        'pipeline_id': '20260203-TEST3',
+        'date_time': datetime.now().isoformat(),
+
+        # PGS parameters
+        'pgs_input_path': 'Dailies/20220908/pgs/Bod_PHerc0118Cn10_021010e5',
+        'pgs_output_path': '/Tests/ProcessedPGS/20260203-TEST3',
+        'pgs_slurm_id': '60001',
+
+        # Spectral parameters
+        'spectral_input_path': 'Dailies/Spectral/MVDaily_20220908/Bod_PHerc0118Cn10',
+        'spectral_output_path': '/Tests/ProcessedSpectral/20260203-TEST3',
+        'spectral_slurm_id': '60002',
+    }
+
+    # Test parameters for test 4
+    # All stages failed -> status = "failed"
+    test4_params = {
+        'artifact_uuid': 'dc67b901-4663-503b-8966-c8a111bcc5c5',  # Reuse from TEST 2
+        'pipeline_id': '20260203-TEST4',
+        'date_time': datetime.now().isoformat(),
+
+        # PGS parameters
+        'pgs_input_path': 'Dailies/20221102/20221102_094008_PHerc1044Cr04_29388c5b',
+        'pgs_output_path': '/Tests/ProcessedPGS/20260203-TEST4',
+        'pgs_slurm_id': '60003',
+
+        # Spectral parameters
+        'spectral_input_path': 'Dailies/Spectral/MVDaily_20221102/PHerc1044Cr04',
+        'spectral_output_path': '/Tests/ProcessedSpectral/20260203-TEST4',
+        'spectral_slurm_id': '60004',
+    }
+
+    # Test parameters for test 5
+    # Pipeline with no Process nodes -> status = "unknown(error)"
+    test5_params = {
+        'pipeline_id': '20260203-TEST5',
+    }
+
+    # Collect all pipeline IDs for cleanup
+    all_pipeline_ids = [
+        test1_params['pipeline_id'],
+        test2_params['pipeline_id'],
+        test3_params['pipeline_id'],
+        test4_params['pipeline_id'],
+        test5_params['pipeline_id'],
+    ]
+
     try:
         # Verify connection
         loader.verify_conn()
@@ -342,24 +447,26 @@ Examples:
         if args.cleanup:
             # Cleanup only mode
             print("\nRunning in CLEANUP ONLY mode")
-            cleanup_test_data(test1_params['pipeline_id'], interactive=False)
-            cleanup_test_data(test2_params['pipeline_id'], interactive=False)
+            for pipeline_id in all_pipeline_ids:
+                cleanup_test_data(pipeline_id, interactive=False)
 
         elif args.create:
             # Create only mode
             print("\nRunning in CREATE ONLY mode (no cleanup)")
-            run_create_tests(test1_params, test2_params)
+            run_create_tests(test1_params, test2_params, test3_params, test4_params, test5_params)
             print("\n" + "="*60)
             print("Test nodes created and preserved for inspection.")
-            print(f"Run with --cleanup to remove: pipeline IDs {test1_params['pipeline_id']}, {test2_params['pipeline_id']}")
+            print(f"Run with --cleanup to remove pipeline IDs:")
+            for pipeline_id in all_pipeline_ids:
+                print(f"  - {pipeline_id}")
             print("="*60)
 
         else:
             # Interactive mode (default): create then ask to cleanup
             print("\nRunning in INTERACTIVE mode (create + ask to cleanup)")
-            run_create_tests(test1_params, test2_params)
-            cleanup_test_data(test1_params['pipeline_id'], interactive=True)
-            cleanup_test_data(test2_params['pipeline_id'], interactive=True)
+            run_create_tests(test1_params, test2_params, test3_params, test4_params, test5_params)
+            for pipeline_id in all_pipeline_ids:
+                cleanup_test_data(pipeline_id, interactive=True)
 
     except Exception as e:
         print(f"\n✗ Test failed with error: {e}")

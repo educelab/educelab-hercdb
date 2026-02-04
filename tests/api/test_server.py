@@ -61,3 +61,7 @@ print(requests.post(f"http://{host_ip}:8000/search", json=payload, headers=heade
 # /pipelines/<pipeline_id>/stages endpoint
 print("/pipelines/<pipeline_id>/stages endpoint:")
 print(requests.get(f"http://{host_ip}:8000/pipelines/20251222-389/stages", headers=headers).json())
+
+# /pipelines endpoint
+print("/pipelines endpoint:")
+print(requests.get(f"http://{host_ip}:8000/pipelines", headers=headers).json())

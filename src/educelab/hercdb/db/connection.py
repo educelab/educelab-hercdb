@@ -654,6 +654,166 @@ class GraphDBConnection:
             })
 
         return processes
+
+    @staticmethod
+    def _compute_pipeline_status(processes: list[dict]) -> str:
+        """
+        Compute overall pipeline status from process list.
+
+        Args:
+            processes: List of process dicts with 'stage' and 'status' keys.
+
+        Returns:
+            str: One of 'completed', 'partially_completed', 'submitted', 'failed', 'unknown(error)'
+        """
+        if not processes:
+            return 'unknown(error)'
+
+        # Extract statuses by stage
+        stage_statuses = {}
+        for proc in processes:
+            stage = proc.get('stage', '')
+            status = proc.get('status', '')
+            if stage:
+                stage_statuses[stage] = status
+
+        # Check if all required stages (PGS, SPEC, REG, WEB) are completed
+        required_stages = ['PGS', 'SPEC', 'REG', 'WEB']
+        all_completed = all(
+            stage_statuses.get(stage) == 'completed'
+            for stage in required_stages
+            if stage in stage_statuses
+        )
+        # For "completed" status, all required stages must exist and be completed
+        has_all_required = all(stage in stage_statuses for stage in required_stages)
+        if has_all_required and all_completed:
+            return 'completed'
+
+        # Check if at least first stage (PGS or SPEC) is completed
+        first_stages = ['PGS', 'SPEC']
+        has_first_completed = any(
+            stage_statuses.get(stage) == 'completed'
+            for stage in first_stages
+        )
+        if has_first_completed:
+            return 'partially_completed'
+
+        # Check if all stages are failed
+        all_failed = all(
+            status == 'failed'
+            for status in stage_statuses.values()
+        ) if stage_statuses else False
+        if all_failed:
+            return 'failed'
+
+        # Check if at least one stage is submitted
+        has_submitted = any(
+            status == 'submitted'
+            for status in stage_statuses.values()
+        )
+        if has_submitted:
+            return 'submitted'
+
+        return 'unknown(error)'
+
+    def _format_dataset_name(self, artifact_info: dict) -> str:
+        """
+        Format artifact info dict as single string.
+
+        Args:
+            artifact_info: Dict with 'pherc', 'cornice', 'pezzo' keys.
+
+        Returns:
+            str: Formatted dataset name.
+
+        Examples:
+            - {'pherc': '421', 'cornice': 'A', 'pezzo': '1'} -> "PHerc421 Cornice A Pezzo 1"
+            - {'pherc': '421', 'cornice': 'A', 'pezzo': None} -> "PHerc421 Cornice A"
+            - {'pherc': '421', 'cornice': None, 'pezzo': None} -> "PHerc421"
+        """
+        if not artifact_info:
+            return ''
+
+        parts = []
+        pherc = artifact_info.get('pherc')
+        cornice = artifact_info.get('cornice')
+        pezzo = artifact_info.get('pezzo')
+
+        if pherc:
+            parts.append(f'PHerc{pherc}')
+        if cornice:
+            parts.append(f'Cornice {cornice}')
+        if pezzo:
+            parts.append(f'Pezzo {pezzo}')
+
+        return ' '.join(parts)
+
+    def get_all_pipeline_summaries(self) -> list[dict]:
+        """
+        Returns list of all pipelines with their status summaries.
+
+        Returns:
+            list: List of dicts with keys:
+                - datetime: Most recent process timestamp
+                - dataset_name: Human-readable artifact name
+                - artifact_uuid: UUID of the associated EduceLabID
+                - pipeline_id: Pipeline identifier
+                - status: Computed status (completed/partially_completed/submitted/failed/unknown(error))
+        """
+        # Get pipelines with their artifact UUIDs (only those with Process nodes)
+        pipelines_with_processes = self.find_pipelines()
+
+        # Build a dict of pipeline_id -> artifact_uuid for quick lookup
+        pipeline_artifacts = {p['pipeline_id']: p['artifact_uuid'] for p in pipelines_with_processes}
+
+        # Also find ALL pipeline nodes (including those without Process nodes)
+        records, _, _ = self._run_query("""
+            MATCH (p:Pipeline)
+            RETURN p.pipeline_id AS pipeline_id
+            ORDER BY p.pipeline_id
+            """)
+
+        all_pipeline_ids = [r['pipeline_id'] for r in records] if records else []
+
+        if not all_pipeline_ids:
+            return []
+
+        # For each pipeline, get all processes and compute summary
+        summaries = []
+        for pipeline_id in all_pipeline_ids:
+            artifact_uuid = pipeline_artifacts.get(pipeline_id)
+
+            # Get all processes for this pipeline
+            processes = self.get_pipeline_status(pipeline_id)
+            if processes is None:
+                processes = []
+
+            # Get dataset name from artifact UUID
+            dataset_name = ''
+            if artifact_uuid:
+                artifact_info = self.find_artifact_name_by_uuid(artifact_uuid)
+                if artifact_info:
+                    dataset_name = self._format_dataset_name(artifact_info)
+
+            # Compute overall status
+            status = self._compute_pipeline_status(processes)
+
+            # Find most recent datetime
+            most_recent_datetime = ''
+            for proc in processes:
+                dt = proc.get('datetime', '')
+                if dt and (not most_recent_datetime or str(dt) > most_recent_datetime):
+                    most_recent_datetime = str(dt)
+
+            summaries.append({
+                'datetime': most_recent_datetime,
+                'dataset_name': dataset_name,
+                'artifact_uuid': artifact_uuid or '',
+                'pipeline_id': pipeline_id,
+                'status': status
+            })
+
+        return summaries
             
     @staticmethod
     def records_to_label_json(records):
