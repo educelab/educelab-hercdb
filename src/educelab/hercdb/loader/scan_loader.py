@@ -1,14 +1,23 @@
+import argparse
 from datetime import datetime, timezone
 import csv
 from educelab.hercdb.loader import PhercGraphDatabaseLoader
 
+parser = argparse.ArgumentParser(description='Load scan data into Neo4j')
+parser.add_argument('--negatives', default='input_data/negatives.csv',
+                    help='Path to negatives CSV file (default: input_data/negatives.csv)')
+parser.add_argument('--photogrammetry', default='input_data/photogrammetry-scans.csv',
+                    help='Path to photogrammetry scans CSV file (default: input_data/photogrammetry-scans.csv)')
+parser.add_argument('--spectral', default='input_data/spectral-scans.csv',
+                    help='Path to spectral scans CSV file (default: input_data/spectral-scans.csv)')
+args = parser.parse_args()
+
+negatives_file = args.negatives
+photogrammetry_file = args.photogrammetry
+spectral_file = args.spectral
+
 loader = PhercGraphDatabaseLoader()
 loader.verify_conn()
-
-# File paths. Edit as needed.
-negatives_file = 'input_data/negatives.csv'
-photogrammetry_file = 'input_data/photogrammetry-scans.csv'
-spectal_file = 'input_data/spectral-scans.csv'
 
 def clean_datetime(dt_str):
     if not dt_str:
@@ -62,7 +71,7 @@ with open(photogrammetry_file, 'r') as csvfile:
             sample_uuid=sample_uuid
         )
     
-with open(spectal_file, 'r') as csvfile:
+with open(spectral_file, 'r') as csvfile:
     reader = csv.DictReader(csvfile)
     for row in reader:
         path = row['path']

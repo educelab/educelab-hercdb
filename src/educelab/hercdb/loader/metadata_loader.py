@@ -1,12 +1,19 @@
+import argparse
 import csv
 from educelab.hercdb.loader import PhercGraphDatabaseLoader
 
+parser = argparse.ArgumentParser(description='Load metadata and UUID data into Neo4j')
+parser.add_argument('--metadata', default='input_data/metadata_file.csv',
+                    help='Path to metadata CSV file (default: input_data/metadata_file.csv)')
+parser.add_argument('--uuid', default='input_data/uuid_file.csv',
+                    help='Path to UUID CSV file (default: input_data/uuid_file.csv)')
+args = parser.parse_args()
+
+processed_metadata_csv = args.metadata
+uuid_csv = args.uuid
+
 loader = PhercGraphDatabaseLoader()
 loader.verify_conn()
-
-# File paths. Edit as needed.
-processed_metadata_csv = 'input_data/metadata_file.csv'
-uuid_csv = 'input_data/uuid_file.csv'
 
 def set_properties_from_row(obj_type, ph_name, cornice_name, pezzo_name, disegni_name, row, property_map):
     for csv_key, prop_name in property_map.items():

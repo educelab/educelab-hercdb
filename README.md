@@ -49,12 +49,64 @@ export EDUCEDB_PASSWORD=bar
 Environment variables take priority over the configuration file. 
 
 As a convenience, this package provides the `hercdb.config.request_required()`
-method, which will check for configuration values in the environment and 
+method, which will check for configuration values in the environment and
 the configuration file and prompt for any which have not been provided:
 ```
 >>> hercdb.config.request_required()
 
 Enter URI: neo4j://localhost:7687
 Enter username: foo
-Enter password: 
+Enter password:
+```
+
+## Loading Data
+
+Data loading is done in two steps using the loader scripts. Both read CSV files from `input_data/`.
+
+### 1. Load metadata and UUIDs
+
+```shell
+uv run python src/educelab/hercdb/loader/metadata_loader.py
+```
+
+Reads (defaults):
+- `input_data/metadata_file.csv` - Pre-processed metadata file. (PHerc, Cornice, Pezzo, Disegni nodes and properties.)
+- `input_data/uuid_file.csv` - Pre-processed uuid file. (all EduceLabID added)
+
+Optional arguments:
+```shell
+uv run python src/educelab/hercdb/loader/metadata_loader.py \
+  --metadata path/to/metadata.csv \
+  --uuid path/to/uuid.csv
+```
+
+### 2. Load scan data
+
+```shell
+uv run python src/educelab/hercdb/loader/scan_loader.py
+```
+
+Reads (defaults):
+- `input_data/negatives.csv` - FlatbedScanDataset nodes
+- `input_data/photogrammetry-scans.csv` - PGSRaw nodes
+- `input_data/spectral-scans.csv` - SpectralRaw nodes
+
+Optional arguments:
+```shell
+uv run python src/educelab/hercdb/loader/scan_loader.py \
+  --negatives path/to/negatives.csv \
+  --photogrammetry path/to/pgs.csv \
+  --spectral path/to/spectral.csv
+```
+
+**Note:** Run metadata_loader first since scan data links to EduceLabID nodes.
+
+### Delete all data
+
+To clear the database before reloading:
+
+```python
+from educelab.hercdb.loader import PhercGraphDatabaseLoader
+loader = PhercGraphDatabaseLoader()
+loader._delete_all_nodes()
 ```
