@@ -58,6 +58,14 @@ payload = {
 print(payload)
 print(requests.post(f"http://{host_ip}:8000/search", json=payload, headers=headers).json())
 
+# /pherc/<pherc_id>/datasets/<dataset_type> endpoint
+print("/pherc/<pherc_id>/datasets/<dataset_type> endpoint:")
+print(requests.get(f"http://{host_ip}:8000/pherc/1044/datasets/SpectralRaw?cornice=6", headers=headers).json())
+
+# /pherc/<pherc_id>/subdivisions endpoint
+print("/pherc/<pherc_id>/subdivisions endpoint:")
+print(requests.get(f"http://{host_ip}:8000/pherc/238/subdivisions", headers=headers).json())
+
 # /pipelines/<pipeline_id>/stages endpoint
 print("/pipelines/<pipeline_id>/stages endpoint:")
 print(requests.get(f"http://{host_ip}:8000/pipelines/20251222-389/stages", headers=headers).json())

@@ -59,6 +59,18 @@ Enter username: foo
 Enter password:
 ```
 
+## REST API
+
+A FastAPI-based REST API is available for querying the database over HTTP. All endpoints require Bearer token authentication.
+
+```shell
+uv run uvicorn educelab.hercdb.rest.server:app --reload
+```
+
+Interactive API docs are available at `/docs` (Swagger UI) and `/redoc` (ReDoc) once the server is running.
+
+See [src/educelab/hercdb/rest/README.md](src/educelab/hercdb/rest/README.md) for full endpoint documentation.
+
 ## Loading Data
 
 Data loading is done in two steps using the loader scripts. Both read CSV files from `input_data/`.

@@ -1,9 +1,11 @@
 import logging
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request, Depends, status
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Request, Depends, Query, status
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from educelab import hercdb
+from educelab.hercdb.db import DatasetType
 
 # Load tokens from tokens file
 TOKENS = {}
@@ -28,7 +30,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api-auth")
 
 # --- App and Auth ---
-app = FastAPI()
+app = FastAPI(
+    title="EduceLab HercDB API",
+    description="REST API for the Herculaneum Papyrus Scroll Database",
+    version="0.1.0",
+)
 security = HTTPBearer()
 
 
@@ -76,6 +82,7 @@ async def check_token(user: str = Depends(get_current_user)):
 
 @app.get('/pherc/{pherc_id}')
 async def get_pherc_by_id(pherc_id: str, user: str = Depends(get_current_user)):
+    """Get a PHerc and all its directly attached nodes by display name."""
     logger.info(f"User {user} requested PHerc with ID: {pherc_id}")
     records,_,_ = db.get_directly_attached_nodes(node_type="PHerc", pherc_display_name=pherc_id)
     logger.debug(f"Found records: {records}")
@@ -87,6 +94,7 @@ async def get_pherc_by_id(pherc_id: str, user: str = Depends(get_current_user)):
 
 @app.get("/pherc/{pherc_id}/cornice/{cornice_id}")
 async def get_cornice_by_id(pherc_id: str, cornice_id: str, user: str = Depends(get_current_user)):
+    """Get a Cornice and all its directly attached nodes (excluding the parent PHerc)."""
     logger.info(f"User {user} called /pherc/{pherc_id}/cornice/{cornice_id}")
     records, _, _ = db.get_directly_attached_nodes(node_type="Cornice", pherc_display_name=pherc_id, cornice_display_name=cornice_id)
     if records and len(records) > 0:
@@ -100,6 +108,7 @@ async def get_cornice_by_id(pherc_id: str, cornice_id: str, user: str = Depends(
 
 @app.get("/pherc/{pherc_id}/cornice/{cornice_id}/pezzo/{pezzo_id}")
 async def get_pezzo_by_pherc_cornice(pherc_id: str, cornice_id: str, pezzo_id: str, user: str = Depends(get_current_user)):
+    """Get a Pezzo under a specific Cornice and all its directly attached nodes."""
     logger.info(f"User {user} called /pherc/{pherc_id}/cornice/{cornice_id}/pezzo/{pezzo_id}")
     records, _, _ = db.get_directly_attached_nodes(
         node_type="Pezzo",
@@ -117,8 +126,9 @@ async def get_pezzo_by_pherc_cornice(pherc_id: str, cornice_id: str, pezzo_id: s
         raise HTTPException(status_code=404, detail=f"No Pezzo found with displayName '{pezzo_id}' in Cornice '{cornice_id}' of PHerc '{pherc_id}'")
 
 
-@app.get("/pherc/{pherc_id}/pezzo/{pezzo_id}")  
+@app.get("/pherc/{pherc_id}/pezzo/{pezzo_id}")
 async def get_pezzo_by_pherc(pherc_id, pezzo_id, user: str = Depends(get_current_user)):
+    """Get a Pezzo directly under a PHerc and all its directly attached nodes."""
     logger.info(f"User {user} called /pherc/{pherc_id}/pezzo/{pezzo_id}")
     records,_,_ = db.get_directly_attached_nodes(node_type="Pezzo", pherc_display_name=pherc_id, pezzo_display_name=pezzo_id)
     if records and len(records) > 0:
@@ -132,14 +142,88 @@ async def get_pezzo_by_pherc(pherc_id, pezzo_id, user: str = Depends(get_current
         raise HTTPException(status_code=404, detail=f"No Pezzo found with displayName '{pezzo_id}' in PHerc '{pherc_id}'")
 
 
+@app.get("/pherc/{pherc_id}/datasets/{dataset_type}")
+async def get_datasets(
+    pherc_id: str,
+    dataset_type: str,
+    cornice: Optional[str] = Query(None),
+    pezzo: Optional[str] = Query(None),
+    newest_completed: bool = Query(False),
+    user: str = Depends(get_current_user),
+):
+    """Get imaging datasets for a PHerc, optionally filtered by Cornice or Pezzo.
+
+    Valid dataset types: FlatbedScan, PGSRaw, SpectralRaw.
+    """
+    logger.info(f"User {user} called /pherc/{pherc_id}/datasets/{dataset_type}")
+
+    # Validate dataset_type against the DatasetType enum
+    try:
+        ds_type = DatasetType[dataset_type]
+    except KeyError:
+        valid_types = [t.name for t in DatasetType]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid dataset type '{dataset_type}'. Must be one of: {valid_types}",
+        )
+
+    datasets = db.find_datasets(
+        ds_type, pherc_id, cornice=cornice, pezzo=pezzo,
+        newest_completed=newest_completed, properties_only=True,
+    )
+
+    if not datasets:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {dataset_type} datasets found for PHerc '{pherc_id}'",
+        )
+
+    # Convert any non-serializable values (e.g. Neo4j DateTime) to strings
+    for dataset in datasets:
+        for key, value in dataset.items():
+            if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
+                dataset[key] = str(value)
+
+    return JSONResponse(content=datasets, status_code=200)
+
+
+@app.get("/pherc/{pherc_id}/subdivisions")
+async def get_subdivisions(pherc_id: str, user: str = Depends(get_current_user)):
+    """List all Cornici and Pezzi for a given PHerc."""
+    logger.info(f"User {user} called /pherc/{pherc_id}/subdivisions")
+    records = db.list_cornici_and_pezzi_for_pherc(pherc_id)
+
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No PHerc found with displayName '{pherc_id}'",
+        )
+
+    record = records[0].data()
+    result = {
+        "pherc": dict(record["ph"]) if record["ph"] else {},
+        "cornici": [
+            {"name": c.get("name"), "displayName": c.get("displayName")}
+            for c in record.get("cr", [])
+        ],
+        "pezzi": [
+            {"name": p.get("name"), "displayName": p.get("displayName")}
+            for p in record.get("pz", [])
+        ],
+    }
+    return JSONResponse(content=result, status_code=200)
+
+
 @app.get("/home")
 async def home(user: str = Depends(get_current_user)):
+    """Welcome endpoint."""
     logger.info(f"User {user} called /home")
     return {"message": "Welcome to the Educelab Herculaneum Database"}
 
 
 @app.post("/search")
 async def search_pherc(request: Request, user: str = Depends(get_current_user)):
+    """Search for PHercs using multiple criteria. Results are the intersection of all provided filters."""
     data =await request.json()
     logger.info(f"User {user} called /search with data: {data}")
     logger.debug(f"Search parameters: {data}")
@@ -240,6 +324,7 @@ async def search_pherc(request: Request, user: str = Depends(get_current_user)):
 
 @app.get("/pipelines/{pipeline_id}/stages")
 async def get_pipeline_stages(pipeline_id: str, user: str = Depends(get_current_user)):
+    """Get all process stages for a given pipeline."""
     logger.info(f"User {user} requested pipeline stages for: {pipeline_id}")
     result = db.get_pipeline_status(pipeline_id)
     if result:
@@ -250,6 +335,7 @@ async def get_pipeline_stages(pipeline_id: str, user: str = Depends(get_current_
 
 @app.get("/pipelines")
 async def get_pipelines(user: str = Depends(get_current_user)):
+    """Get all pipelines with their status summaries."""
     logger.info(f"User {user} requested all pipelines")
     result = db.get_all_pipeline_summaries()
     return JSONResponse(content=result, status_code=200)
