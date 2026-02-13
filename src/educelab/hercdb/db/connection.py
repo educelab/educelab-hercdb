@@ -579,7 +579,10 @@ class GraphDBConnection:
             """
         
         records, summary, keys = self._run_query(query, **params)
-        
+
+        if not records:
+            return [] if properties_only else ([], summary, keys)
+
         if properties_only:
             properties = []
             for record in records:
@@ -587,7 +590,7 @@ class GraphDBConnection:
                 properties.append(dict(dataset))
 
             return properties
-        
+
         else:
             return records, summary, keys
    

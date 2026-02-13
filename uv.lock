@@ -310,13 +310,17 @@ name = "educelab-hercdb"
 version = "0.1.1"
 source = { editable = "." }
 dependencies = [
+    { name = "requests" },
+]
+
+[package.optional-dependencies]
+server = [
     { name = "fastapi" },
     { name = "neo4j" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pandas" },
     { name = "prompt-toolkit" },
-    { name = "requests" },
     { name = "uvicorn" },
 ]
 
@@ -328,14 +332,15 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", specifier = ">=0.124.4" },
-    { name = "neo4j", specifier = ">=5.20" },
-    { name = "numpy", specifier = ">=2.0" },
-    { name = "pandas", specifier = ">=2.2" },
-    { name = "prompt-toolkit" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.124.4" },
+    { name = "neo4j", marker = "extra == 'server'", specifier = ">=5.20" },
+    { name = "numpy", marker = "extra == 'server'", specifier = ">=2.0" },
+    { name = "pandas", marker = "extra == 'server'", specifier = ">=2.2" },
+    { name = "prompt-toolkit", marker = "extra == 'server'" },
     { name = "requests", specifier = ">=2.32.5" },
-    { name = "uvicorn", specifier = ">=0.40.0" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.40.0" },
 ]
+provides-extras = ["server"]
 
 [package.metadata.requires-dev]
 dev = [

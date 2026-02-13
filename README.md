@@ -4,13 +4,58 @@ This API is considered a work in progress and can change at any moment.
 
 ## Installation
 
-The latest release is available on PyPI:
+This package supports two install modes:
+
+### Client only (lightweight)
+
+For remote machines that only need to call the REST API:
 
 ```shell
-python3 -m pip install educelab-hercdb
+pip install educelab-hercdb
 ```
 
-## Connect to a server
+This installs only the `requests` library. See [src/educelab/hercdb/client/README.md](src/educelab/hercdb/client/README.md) for client usage.
+
+### Server (full)
+
+For running the REST API server, loading data, or querying Neo4j directly:
+
+```shell
+pip install educelab-hercdb[server]
+```
+
+This adds `fastapi`, `neo4j`, `numpy`, `pandas`, `prompt-toolkit`, and `uvicorn`.
+
+## Development Setup
+
+```shell
+# Install base dependencies
+uv sync
+
+# Or with server extras (fastapi, neo4j, etc.)
+uv sync --extra server
+
+# Run commands in the environment
+uv run python -c "from educelab.hercdb.client import HercClient"
+
+# Or activate the venv directly
+source .venv/bin/activate
+```
+
+## Client Library
+
+```python
+from educelab.hercdb.client import HercClient
+
+client = HercClient(host="api.example.com", token="my-token")
+pherc = client.get_pherc("211")
+```
+
+See [src/educelab/hercdb/client/README.md](src/educelab/hercdb/client/README.md) for the full API reference.
+
+## Direct Database Connection
+
+For environments with the `server` extra installed, you can connect to Neo4j directly:
 
 ```python
 from educelab import hercdb
