@@ -53,6 +53,9 @@ HercClient(host, token, port=8000, scheme="http")
 | `get_pezzo(pherc_id, pezzo_id, cornice_id=None)` | Get a Pezzo. If `cornice_id` is given, looks up the Pezzo under that Cornice. |
 | `get_subdivisions(pherc_id)` | List all Cornici and Pezzi for a PHerc. |
 | `get_datasets(pherc_id, dataset_type, ...)` | Get imaging datasets. `dataset_type` is one of `"FlatbedScan"`, `"PGSRaw"`, `"SpectralRaw"`. |
+| `get_all_datasets_for_pherc(pherc_id, ...)` | Get all datasets under a PHerc, grouped by EduceLabID. |
+| `get_educelabids_for_pherc(pherc_id)` | List all EduceLabIDs under a PHerc umbrella. |
+| `get_datasets_for_educelabid(uuid, ...)` | Get all datasets for a specific EduceLabID. |
 | `search(**criteria)` | Search for PHercs using multiple criteria (AND logic). |
 
 ### Pipelines
@@ -81,6 +84,33 @@ for ds in datasets:
 
 # Get only the newest completed dataset
 newest = client.get_datasets("1044", "PGSRaw", newest_completed=True)
+```
+
+### Get all datasets under a PHerc
+
+```python
+result = client.get_all_datasets_for_pherc("1044")
+for artifact in result["artifacts"]:
+    print(f"{artifact['artifact_name']} ({artifact['uuid']})")
+    for ds in artifact["datasets"]:
+        print(f"  [{ds['type']}] {ds.get('path', '')}")
+
+# Filter to only PGSRaw datasets
+result = client.get_all_datasets_for_pherc("1044", dataset_type="PGSRaw")
+
+# Get only the newest completed dataset per type per artifact
+result = client.get_all_datasets_for_pherc("1044", newest_completed=True)
+```
+
+### Two-step approach (EduceLabIDs then datasets)
+
+```python
+eids = client.get_educelabids_for_pherc("1044")
+for eid in eids:
+    print(f"{eid['artifact_name']} ({eid['uuid']})")
+    datasets = client.get_datasets_for_educelabid(eid["uuid"])
+    for ds in datasets:
+        print(f"  [{ds['type']}] {ds.get('path', '')}")
 ```
 
 ### Search with multiple criteria

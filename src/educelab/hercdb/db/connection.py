@@ -817,7 +817,231 @@ class GraphDBConnection:
             })
 
         return summaries
-            
+
+    def find_educelabids_for_pherc(self, pherc_display_name: str) -> list[dict]:
+        """
+        Find all EduceLabIDs under a PHerc umbrella (PHerc itself, its Cornici, and all Pezzi).
+
+        Args:
+            pherc_display_name: Display name of the PHerc.
+
+        Returns:
+            list: List of dicts with keys: uuid, pherc, cornice, pezzo, artifact_name.
+        """
+        records, _, _ = self._run_query("""
+            MATCH (ph:PHerc {displayName: $pherc_display_name})
+            MATCH (ph)-[:HAS*0..2]->(artifact)
+            WHERE artifact:PHerc OR artifact:Cornice OR artifact:Pezzo
+            MATCH (eid:EduceLabID)-[:ASSIGNED_TO]->(artifact)
+            OPTIONAL MATCH (artifact)<-[:HAS]-(parent1)
+            OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
+            WITH eid, artifact, parent1, parent2,
+                 CASE
+                     WHEN 'PHerc' IN labels(artifact) THEN artifact
+                     WHEN 'PHerc' IN labels(parent1) THEN parent1
+                     WHEN 'PHerc' IN labels(parent2) THEN parent2
+                 END AS pherc_node,
+                 CASE
+                     WHEN 'Cornice' IN labels(artifact) THEN artifact
+                     WHEN 'Cornice' IN labels(parent1) THEN parent1
+                 END AS cornice_node,
+                 CASE
+                     WHEN 'Pezzo' IN labels(artifact) THEN artifact
+                 END AS pezzo_node
+            RETURN DISTINCT eid.uuid AS uuid,
+                   pherc_node.displayName AS pherc_name,
+                   cornice_node.displayName AS cornice_name,
+                   pezzo_node.displayName AS pezzo_name
+            ORDER BY pherc_name, cornice_name, pezzo_name
+            """, pherc_display_name=pherc_display_name)
+
+        if not records:
+            return []
+
+        results = []
+        for record in records:
+            info = {
+                'pherc': record['pherc_name'],
+                'cornice': record['cornice_name'],
+                'pezzo': record['pezzo_name'],
+            }
+            results.append({
+                'uuid': record['uuid'],
+                'pherc': record['pherc_name'],
+                'cornice': record['cornice_name'],
+                'pezzo': record['pezzo_name'],
+                'artifact_name': self._format_dataset_name(info),
+            })
+        return results
+
+    def find_datasets_for_educelabid(self, uuid: str, ds_type: DatasetType = None, newest_completed: bool = False) -> list[dict]:
+        """
+        Find all datasets for a specific EduceLabID.
+
+        Args:
+            uuid: The UUID of the EduceLabID.
+            ds_type: Optional DatasetType filter.
+            newest_completed: If True, return only the newest completed dataset per type.
+
+        Returns:
+            list: List of dataset dicts with a 'type' field indicating the dataset label.
+        """
+        dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
+
+        if newest_completed:
+            type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
+            query = f"""
+                MATCH (e:EduceLabID {{uuid: $uuid}})<-[:BELONGS_TO]-(d)
+                WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
+                AND d.complete = "True"
+                {type_filter}
+                WITH d,
+                     [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
+                ORDER BY datetime(d.date_end) DESC
+                WITH ds_type, collect(d)[0] AS d
+                RETURN d, ds_type
+            """
+        else:
+            type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
+            query = f"""
+                MATCH (e:EduceLabID {{uuid: $uuid}})<-[:BELONGS_TO]-(d)
+                WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
+                {type_filter}
+                WITH d,
+                     [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
+                RETURN d, ds_type
+            """
+
+        params = {"uuid": uuid, "dataset_labels": dataset_labels}
+        if ds_type:
+            params["data_t"] = str(ds_type)
+
+        records, _, _ = self._run_query(query, **params)
+
+        if not records:
+            return []
+
+        results = []
+        for record in records:
+            ds = dict(record['d'])
+            ds['type'] = record['ds_type']
+            # Convert non-primitive values (e.g. Neo4j DateTime) to strings
+            for key, value in ds.items():
+                if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
+                    ds[key] = str(value)
+            results.append(ds)
+        return results
+
+    def find_all_datasets_for_pherc(self, pherc_display_name: str, ds_type: DatasetType = None, newest_completed: bool = False) -> list[dict]:
+        """
+        Find all datasets under a PHerc umbrella, grouped by EduceLabID.
+
+        Traverses the full PHerc hierarchy (PHerc, Cornici, Pezzi) and returns
+        all datasets, nested by the physical artifact they belong to.
+
+        Args:
+            pherc_display_name: Display name of the PHerc.
+            ds_type: Optional DatasetType filter.
+            newest_completed: If True, return only the newest completed dataset
+                per type per artifact.
+
+        Returns:
+            list: List of artifact dicts, each with keys: uuid, artifact_name,
+                pherc, cornice, pezzo, datasets.
+        """
+        dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
+        type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
+        completed_filter = 'AND d.complete = "True"' if newest_completed else ""
+
+        query = f"""
+            MATCH (ph:PHerc {{displayName: $pherc_display_name}})
+            MATCH (ph)-[:HAS*0..2]->(artifact)
+            WHERE artifact:PHerc OR artifact:Cornice OR artifact:Pezzo
+            MATCH (eid:EduceLabID)-[:ASSIGNED_TO]->(artifact)
+            MATCH (eid)<-[:BELONGS_TO]-(d)
+            WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
+            {type_filter}
+            {completed_filter}
+            OPTIONAL MATCH (artifact)<-[:HAS]-(parent1)
+            OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
+            WITH eid, d, artifact, parent1, parent2,
+                 [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type,
+                 CASE
+                     WHEN 'PHerc' IN labels(artifact) THEN artifact
+                     WHEN 'PHerc' IN labels(parent1) THEN parent1
+                     WHEN 'PHerc' IN labels(parent2) THEN parent2
+                 END AS pherc_node,
+                 CASE
+                     WHEN 'Cornice' IN labels(artifact) THEN artifact
+                     WHEN 'Cornice' IN labels(parent1) THEN parent1
+                 END AS cornice_node,
+                 CASE
+                     WHEN 'Pezzo' IN labels(artifact) THEN artifact
+                 END AS pezzo_node
+            RETURN eid.uuid AS uuid,
+                   pherc_node.displayName AS pherc_name,
+                   cornice_node.displayName AS cornice_name,
+                   pezzo_node.displayName AS pezzo_name,
+                   d AS dataset,
+                   ds_type AS dataset_type
+            ORDER BY pherc_name, cornice_name, pezzo_name
+        """
+
+        params = {
+            "pherc_display_name": pherc_display_name,
+            "dataset_labels": dataset_labels,
+        }
+        if ds_type:
+            params["data_t"] = str(ds_type)
+
+        records, _, _ = self._run_query(query, **params)
+
+        if not records:
+            return []
+
+        # Group by EduceLabID UUID
+        from collections import OrderedDict
+        grouped = OrderedDict()
+        for record in records:
+            uuid = record['uuid']
+            if uuid not in grouped:
+                info = {
+                    'pherc': record['pherc_name'],
+                    'cornice': record['cornice_name'],
+                    'pezzo': record['pezzo_name'],
+                }
+                grouped[uuid] = {
+                    'uuid': uuid,
+                    'artifact_name': self._format_dataset_name(info),
+                    'pherc': record['pherc_name'],
+                    'cornice': record['cornice_name'],
+                    'pezzo': record['pezzo_name'],
+                    'datasets': [],
+                }
+
+            ds = dict(record['dataset'])
+            ds['type'] = record['dataset_type']
+            # Convert non-primitive values (e.g. Neo4j DateTime) to strings
+            for key, value in ds.items():
+                if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
+                    ds[key] = str(value)
+            grouped[uuid]['datasets'].append(ds)
+
+        results = list(grouped.values())
+
+        # If newest_completed, keep only the newest dataset per type per artifact
+        if newest_completed:
+            for artifact in results:
+                newest_by_type = {}
+                for ds in artifact['datasets']:
+                    dt = ds.get('type', '')
+                    existing = newest_by_type.get(dt)
+                    if existing is None or ds.get('date_end', '') > existing.get('date_end', ''):
+                        newest_by_type[dt] = ds
+                artifact['datasets'] = list(newest_by_type.values())
+
+        return results
+
     @staticmethod
     def records_to_label_json(records):
         #result = {}

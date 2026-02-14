@@ -103,6 +103,77 @@ class HercClient:
         resp.raise_for_status()
         return resp.json()
 
+    def get_all_datasets_for_pherc(
+        self,
+        pherc_id: str,
+        dataset_type: str = None,
+        newest_completed: bool = False,
+    ) -> dict:
+        """Get all datasets under a PHerc, grouped by EduceLabID.
+
+        Traverses the full hierarchy (PHerc, Cornici, Pezzi) and returns
+        all datasets nested by physical artifact.
+
+        Args:
+            pherc_id: PHerc display name.
+            dataset_type: Optional filter. One of "FlatbedScan", "PGSRaw", "SpectralRaw".
+            newest_completed: If True, return only the newest completed dataset
+                per type per artifact.
+        """
+        params: dict = {}
+        if dataset_type is not None:
+            params["dataset_type"] = dataset_type
+        if newest_completed:
+            params["newest_completed"] = "true"
+        resp = requests.get(
+            f"{self._base_url}/pherc/{pherc_id}/all-datasets",
+            headers=self._headers(),
+            params=params,
+        )
+        if resp.status_code == 404:
+            return {"pherc": pherc_id, "artifacts": []}
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_educelabids_for_pherc(self, pherc_id: str) -> list[dict]:
+        """List all EduceLabIDs under a PHerc umbrella."""
+        resp = requests.get(
+            f"{self._base_url}/pherc/{pherc_id}/educelabids",
+            headers=self._headers(),
+        )
+        if resp.status_code == 404:
+            return []
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_datasets_for_educelabid(
+        self,
+        uuid: str,
+        dataset_type: str = None,
+        newest_completed: bool = False,
+    ) -> list[dict]:
+        """Get all datasets for a specific EduceLabID.
+
+        Args:
+            uuid: The EduceLabID UUID.
+            dataset_type: Optional filter. One of "FlatbedScan", "PGSRaw", "SpectralRaw".
+            newest_completed: If True, return only the newest completed dataset per type.
+        """
+        params: dict = {}
+        if dataset_type is not None:
+            params["dataset_type"] = dataset_type
+        if newest_completed:
+            params["newest_completed"] = "true"
+        resp = requests.get(
+            f"{self._base_url}/educelabid/{uuid}/datasets",
+            headers=self._headers(),
+            params=params,
+        )
+        if resp.status_code == 404:
+            return []
+        resp.raise_for_status()
+        return resp.json()
+
     def search(self, **criteria) -> dict:
         """Search for PHercs using multiple criteria.
 

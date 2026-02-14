@@ -322,6 +322,104 @@ async def search_pherc(request: Request, user: str = Depends(get_current_user)):
     return JSONResponse(status_code=200, content={"PHercs": list(matching_names)})
 
 
+@app.get("/pherc/{pherc_id}/all-datasets")
+async def get_all_datasets_for_pherc(
+    pherc_id: str,
+    dataset_type: Optional[str] = Query(None),
+    newest_completed: bool = Query(False),
+    user: str = Depends(get_current_user),
+):
+    """Get all datasets under a PHerc, grouped by EduceLabID.
+
+    Traverses the full hierarchy (PHerc, Cornici, Pezzi) and returns all
+    datasets nested by physical artifact.
+
+    Optional query parameters:
+    - dataset_type: One of "FlatbedScan", "PGSRaw", "SpectralRaw"
+    - newest_completed: If true, return only the newest completed dataset per type per artifact
+    """
+    logger.info(f"User {user} called /pherc/{pherc_id}/all-datasets")
+
+    ds_type = None
+    if dataset_type:
+        try:
+            ds_type = DatasetType[dataset_type]
+        except KeyError:
+            valid_types = [t.name for t in DatasetType]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid dataset type '{dataset_type}'. Must be one of: {valid_types}",
+            )
+
+    artifacts = db.find_all_datasets_for_pherc(
+        pherc_id, ds_type=ds_type, newest_completed=newest_completed
+    )
+
+    if not artifacts:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No datasets found under PHerc '{pherc_id}'",
+        )
+
+    return JSONResponse(
+        content={"pherc": pherc_id, "artifacts": artifacts},
+        status_code=200,
+    )
+
+
+@app.get("/pherc/{pherc_id}/educelabids")
+async def get_educelabids_for_pherc(
+    pherc_id: str,
+    user: str = Depends(get_current_user),
+):
+    """List all EduceLabIDs under a PHerc umbrella."""
+    logger.info(f"User {user} called /pherc/{pherc_id}/educelabids")
+
+    educelabids = db.find_educelabids_for_pherc(pherc_id)
+
+    if not educelabids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No EduceLabIDs found under PHerc '{pherc_id}'",
+        )
+
+    return JSONResponse(content=educelabids, status_code=200)
+
+
+@app.get("/educelabid/{uuid}/datasets")
+async def get_datasets_for_educelabid(
+    uuid: str,
+    dataset_type: Optional[str] = Query(None),
+    newest_completed: bool = Query(False),
+    user: str = Depends(get_current_user),
+):
+    """Get all datasets for a specific EduceLabID."""
+    logger.info(f"User {user} called /educelabid/{uuid}/datasets")
+
+    ds_type = None
+    if dataset_type:
+        try:
+            ds_type = DatasetType[dataset_type]
+        except KeyError:
+            valid_types = [t.name for t in DatasetType]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid dataset type '{dataset_type}'. Must be one of: {valid_types}",
+            )
+
+    datasets = db.find_datasets_for_educelabid(
+        uuid, ds_type=ds_type, newest_completed=newest_completed
+    )
+
+    if not datasets:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No datasets found for EduceLabID '{uuid}'",
+        )
+
+    return JSONResponse(content=datasets, status_code=200)
+
+
 @app.get("/pipelines/{pipeline_id}/stages")
 async def get_pipeline_stages(pipeline_id: str, user: str = Depends(get_current_user)):
     """Get all process stages for a given pipeline."""

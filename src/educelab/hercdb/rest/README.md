@@ -38,6 +38,9 @@ Tokens are loaded from `~/.tokens`. Each line has the format `username = token`.
 | GET | `/pherc/{pherc_id}/cornice/{cornice_id}/pezzo/{pezzo_id}` | Get a Pezzo under a specific Cornice |
 | GET | `/pherc/{pherc_id}/pezzo/{pezzo_id}` | Get a Pezzo directly under a PHerc |
 | GET | `/pherc/{pherc_id}/datasets/{dataset_type}` | Get imaging datasets for a PHerc |
+| GET | `/pherc/{pherc_id}/all-datasets` | Get all datasets under a PHerc, grouped by artifact |
+| GET | `/pherc/{pherc_id}/educelabids` | List all EduceLabIDs under a PHerc |
+| GET | `/educelabid/{uuid}/datasets` | Get datasets for a specific EduceLabID |
 | POST | `/search` | Search for PHercs using multiple criteria |
 
 ### Pipelines
@@ -106,6 +109,96 @@ GET /pherc/1044/datasets/SpectralRaw?cornice=4
     "date_end": "2022-11-02T09:38:30.000000000+00:00",
     "complete": "True",
     "uuid": "331cf7c0-631c-41cd-9be4-fa6fbd6b1288"
+  }
+]
+```
+
+### GET /pherc/{pherc_id}/all-datasets
+
+Returns all datasets under a PHerc umbrella, grouped by EduceLabID (physical artifact). Traverses the full hierarchy: PHerc itself, its Cornici, and all Pezzi.
+
+**Query parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dataset_type` | string | - | Filter by type: `FlatbedScan`, `PGSRaw`, or `SpectralRaw` |
+| `newest_completed` | bool | false | Return only the newest completed dataset per type per artifact |
+
+**Example:**
+```
+GET /pherc/1044/all-datasets
+GET /pherc/1044/all-datasets?dataset_type=PGSRaw&newest_completed=true
+```
+
+**Response:**
+```json
+{
+  "pherc": "1044",
+  "artifacts": [
+    {
+      "uuid": "abc-123",
+      "artifact_name": "PHerc1044 Cornice 6",
+      "pherc": "1044",
+      "cornice": "6",
+      "pezzo": null,
+      "datasets": [
+        {
+          "type": "PGSRaw",
+          "path": "Dailies/PGS/...",
+          "complete": "True",
+          "date_end": "2022-11-02T09:38:30.000000000+00:00"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### GET /pherc/{pherc_id}/educelabids
+
+Lists all EduceLabIDs assigned to artifacts under a PHerc umbrella.
+
+**Example:**
+```
+GET /pherc/1044/educelabids
+```
+
+**Response:**
+```json
+[
+  {
+    "uuid": "abc-123",
+    "pherc": "1044",
+    "cornice": "6",
+    "pezzo": null,
+    "artifact_name": "PHerc1044 Cornice 6"
+  }
+]
+```
+
+### GET /educelabid/{uuid}/datasets
+
+Returns all datasets for a specific EduceLabID.
+
+**Query parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dataset_type` | string | - | Filter by type: `FlatbedScan`, `PGSRaw`, or `SpectralRaw` |
+| `newest_completed` | bool | false | Return only the newest completed dataset per type |
+
+**Example:**
+```
+GET /educelabid/abc-123/datasets
+GET /educelabid/abc-123/datasets?dataset_type=SpectralRaw&newest_completed=true
+```
+
+**Response:**
+```json
+[
+  {
+    "type": "PGSRaw",
+    "path": "Dailies/PGS/...",
+    "complete": "True",
+    "date_end": "2022-11-02T09:38:30.000000000+00:00"
   }
 ]
 ```
