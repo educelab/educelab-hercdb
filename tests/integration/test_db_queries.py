@@ -100,6 +100,96 @@ class TestPhercDbQueries(unittest.TestCase):
         print("Cornici:", cornici)
         print("Pezzi:", pezzi)
 
+    def test_find_educelabids_for_pherc(self):
+        results = self.query_runner.find_educelabids_for_pherc("1044")
+        self.assertIsInstance(results, list)
+        self.assertTrue(len(results) > 0)
+        for entry in results:
+            self.assertIn('uuid', entry)
+            self.assertIn('pherc', entry)
+            self.assertIn('cornice', entry)
+            self.assertIn('pezzo', entry)
+            self.assertIn('artifact_name', entry)
+            self.assertEqual(entry['pherc'], '1044')
+        print(f"Found {len(results)} EduceLabIDs for PHerc 1044:")
+        for entry in results:
+            print(f"  {entry['artifact_name']} ({entry['uuid']})")
+
+    def test_find_educelabids_for_pherc_not_found(self):
+        results = self.query_runner.find_educelabids_for_pherc("nonexistent_pherc")
+        self.assertIsInstance(results, list)
+        self.assertEqual(len(results), 0)
+
+    def test_find_datasets_for_educelabid(self):
+        # First get a UUID from a known PHerc
+        educelabids = self.query_runner.find_educelabids_for_pherc("1044")
+        self.assertTrue(len(educelabids) > 0, "Need at least one EduceLabID to test")
+        uuid = educelabids[0]['uuid']
+
+        datasets = self.query_runner.find_datasets_for_educelabid(uuid)
+        self.assertIsInstance(datasets, list)
+        self.assertTrue(len(datasets) > 0)
+        for ds in datasets:
+            self.assertIn('type', ds)
+            self.assertIn(ds['type'], ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw'])
+        print(f"Found {len(datasets)} datasets for UUID {uuid}")
+
+    def test_find_datasets_for_educelabid_with_type_filter(self):
+        educelabids = self.query_runner.find_educelabids_for_pherc("1044")
+        self.assertTrue(len(educelabids) > 0)
+        uuid = educelabids[0]['uuid']
+
+        datasets = self.query_runner.find_datasets_for_educelabid(uuid, ds_type=hercdb.PGSRawType)
+        self.assertIsInstance(datasets, list)
+        for ds in datasets:
+            self.assertEqual(ds['type'], 'PGSRaw')
+        print(f"Found {len(datasets)} PGSRaw datasets for UUID {uuid}")
+
+    def test_find_datasets_for_educelabid_not_found(self):
+        datasets = self.query_runner.find_datasets_for_educelabid("nonexistent-uuid")
+        self.assertIsInstance(datasets, list)
+        self.assertEqual(len(datasets), 0)
+
+    def test_find_all_datasets_for_pherc(self):
+        results = self.query_runner.find_all_datasets_for_pherc("1044")
+        self.assertIsInstance(results, list)
+        self.assertTrue(len(results) > 0)
+        for artifact in results:
+            self.assertIn('uuid', artifact)
+            self.assertIn('artifact_name', artifact)
+            self.assertIn('pherc', artifact)
+            self.assertIn('cornice', artifact)
+            self.assertIn('pezzo', artifact)
+            self.assertIn('datasets', artifact)
+            self.assertIsInstance(artifact['datasets'], list)
+            self.assertEqual(artifact['pherc'], '1044')
+            for ds in artifact['datasets']:
+                self.assertIn('type', ds)
+        print(f"Found {len(results)} artifacts with datasets for PHerc 1044")
+
+    def test_find_all_datasets_for_pherc_with_type_filter(self):
+        results = self.query_runner.find_all_datasets_for_pherc("1044", ds_type=hercdb.PGSRawType)
+        self.assertIsInstance(results, list)
+        for artifact in results:
+            for ds in artifact['datasets']:
+                self.assertEqual(ds['type'], 'PGSRaw')
+        print(f"Found {len(results)} artifacts with PGSRaw datasets for PHerc 1044")
+
+    def test_find_all_datasets_for_pherc_newest_completed(self):
+        results = self.query_runner.find_all_datasets_for_pherc("1044", newest_completed=True)
+        self.assertIsInstance(results, list)
+        # Each artifact should have at most one dataset per type
+        for artifact in results:
+            types_seen = [ds['type'] for ds in artifact['datasets']]
+            self.assertEqual(len(types_seen), len(set(types_seen)),
+                             f"Duplicate types in newest_completed for {artifact['artifact_name']}")
+        print(f"Found {len(results)} artifacts with newest completed datasets for PHerc 1044")
+
+    def test_find_all_datasets_for_pherc_not_found(self):
+        results = self.query_runner.find_all_datasets_for_pherc("nonexistent_pherc")
+        self.assertIsInstance(results, list)
+        self.assertEqual(len(results), 0)
+
     def test_get_pipeline_status(self):
         result = self.query_runner.get_pipeline_status("20251222-389")
         self.assertIsNotNone(result)

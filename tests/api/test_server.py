@@ -62,6 +62,45 @@ print(requests.post(f"http://{host_ip}:8000/search", json=payload, headers=heade
 print("/pherc/<pherc_id>/datasets/<dataset_type> endpoint:")
 print(requests.get(f"http://{host_ip}:8000/pherc/1044/datasets/SpectralRaw?cornice=6", headers=headers).json())
 
+# /pherc/<pherc_id>/all-datasets endpoint
+print("\n/pherc/<pherc_id>/all-datasets endpoint:")
+resp = requests.get(f"http://{host_ip}:8000/pherc/1044/all-datasets", headers=headers)
+print(f"  Status: {resp.status_code}")
+print(f"  Response: {resp.json()}")
+
+# /pherc/<pherc_id>/all-datasets with type filter
+print("\n/pherc/<pherc_id>/all-datasets?dataset_type=PGSRaw endpoint:")
+resp = requests.get(f"http://{host_ip}:8000/pherc/1044/all-datasets?dataset_type=PGSRaw", headers=headers)
+print(f"  Status: {resp.status_code}")
+print(f"  Response: {resp.json()}")
+
+# /pherc/<pherc_id>/all-datasets with newest_completed
+print("\n/pherc/<pherc_id>/all-datasets?newest_completed=true endpoint:")
+resp = requests.get(f"http://{host_ip}:8000/pherc/1044/all-datasets?newest_completed=true", headers=headers)
+print(f"  Status: {resp.status_code}")
+print(f"  Response: {resp.json()}")
+
+# /pherc/<pherc_id>/educelabids endpoint
+print("\n/pherc/<pherc_id>/educelabids endpoint:")
+resp = requests.get(f"http://{host_ip}:8000/pherc/1044/educelabids", headers=headers)
+print(f"  Status: {resp.status_code}")
+educelabids = resp.json()
+print(f"  Response: {educelabids}")
+
+# /educelabid/<uuid>/datasets endpoint (use first UUID from above)
+if educelabids and len(educelabids) > 0:
+    test_uuid = educelabids[0]['uuid']
+    print(f"\n/educelabid/{test_uuid}/datasets endpoint:")
+    resp = requests.get(f"http://{host_ip}:8000/educelabid/{test_uuid}/datasets", headers=headers)
+    print(f"  Status: {resp.status_code}")
+    print(f"  Response: {resp.json()}")
+
+    # With type filter
+    print(f"\n/educelabid/{test_uuid}/datasets?dataset_type=PGSRaw endpoint:")
+    resp = requests.get(f"http://{host_ip}:8000/educelabid/{test_uuid}/datasets?dataset_type=PGSRaw", headers=headers)
+    print(f"  Status: {resp.status_code}")
+    print(f"  Response: {resp.json()}")
+
 # /pherc/<pherc_id>/subdivisions endpoint
 print("/pherc/<pherc_id>/subdivisions endpoint:")
 print(requests.get(f"http://{host_ip}:8000/pherc/238/subdivisions", headers=headers).json())
