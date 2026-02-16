@@ -12,14 +12,14 @@ class TestPhercDbQueries(unittest.TestCase):
         records, summary, keys = self.query_runner.find_pherc_by_uuid("d65a2db0-ffec-5c15-8d3e-b28cf9326a32")
         self.assertTrue(len(records) > 0)
         display_names = [record.data()['ph']['displayName'] for record in records]
-        print(display_names)
+        print(f"[find_pherc_by_uuid] Found {len(display_names)} PHerc(s): {display_names}")
 
     def test_find_artifact_name_by_uuid(self):
         result = self.query_runner.find_artifact_name_by_uuid("d65a2db0-ffec-5c15-8d3e-b28cf9326a32")
         self.assertIsNotNone(result)
         self.assertIn('pherc', result)
         self.assertIsNotNone(result['pherc'])
-        print(result)
+        print(f"[find_artifact_name_by_uuid] Result: {result}")
 
     def test_find_pherc_by_display_name(self):
         records, summary, keys = self.query_runner.find_pherc_by_display_name("421")
@@ -33,43 +33,43 @@ class TestPhercDbQueries(unittest.TestCase):
         records, summary, keys = self.query_runner.find_pherc_by_language("grc?")
         display_names = [record.data()['ph']['displayName'] for record in records]
         self.assertIn("636", display_names)
-        print(display_names)
+        print(f"[find_pherc_by_language 'grc?'] Found {len(display_names)} PHerc(s): {display_names}")
 
     def test_find_unrolled_phercs(self):
         records, summary, keys = self.query_runner.find_pherc_by_property_value("unrolling_status", "Partially unrolled")
         display_names = [record.data()['ph']['displayName'] for record in records]
         self.assertTrue(len(display_names) > 0)
-        print(display_names)
+        print(f"[find_pherc unrolling_status='Partially unrolled'] Found {len(display_names)} PHerc(s): {display_names}")
 
     def test_find_pherc_by_scorze_value(self):
         records, summary, keys = self.query_runner.find_pherc_by_property_value("scorze", "yes")
         display_names = [record.data()['ph']['displayName'] for record in records]
         self.assertTrue(len(display_names) > 0)
-        print(display_names)
+        print(f"[find_pherc scorze='yes'] Found {len(display_names)} PHerc(s): {display_names}")
 
     def test_find_unroll_attempted_phercs(self):
         records, summary, keys = self.query_runner.find_pherc_by_property_value("unrolling_status", "Unrolling Attempted")
         display_names = [record.data()['ph']['displayName'] for record in records]
         self.assertTrue(len(display_names) > 0)
-        print(display_names)
-    
+        print(f"[find_pherc unrolling_status='Unrolling Attempted'] Found {len(display_names)} PHerc(s): {display_names}")
+
     def test_find_pherc_by_unroller_name(self):
         records, summary, keys = self.query_runner.find_pherc_by_unroller_name("H. Davy")
         display_names = [record.data()['ph']['displayName'] for record in records]
         self.assertTrue(len(display_names) > 0)
-        print(display_names)
+        print(f"[find_pherc_by_unroller_name 'H. Davy'] Found {len(display_names)} PHerc(s): {display_names}")
 
     def test_find_pherc_by_unrolled_date(self):
         records, summary, keys = self.query_runner.find_pherc_by_property_value("unrolled_date", "1863")
         display_names = [record.data()['ph']['displayName'] for record in records]
         self.assertTrue(len(display_names) > 0)
-        print(display_names)
-    
+        print(f"[find_pherc unrolled_date='1863'] Found {len(display_names)} PHerc(s): {display_names}")
+
     def test_find_pherc_by_literary_work(self):
         records, summary, keys = self.query_runner.find_pherc_by_property_value("literary_work", "Echelaus")
         display_names = [record.data()['ph']['displayName'] for record in records]
         self.assertTrue(len(display_names) > 0)
-        print(display_names)
+        print(f"[find_pherc literary_work='Echelaus'] Found {len(display_names)} PHerc(s): {display_names}")
 
     def test_find_newest_dataset(self):
         records, summary, keys = self.query_runner.find_datasets(hercdb.DatasetType.PGSRaw, "1044", cornice="6", newest_completed=False, properties_only=False)
@@ -80,25 +80,25 @@ class TestPhercDbQueries(unittest.TestCase):
         for record in records:
             dataset = record[0]
             properties.append(dict(dataset))
-        print("******* properties ******** \n", properties)
-    
+        print(f"[find_datasets PGSRaw, PHerc 1044 Cornice 6] Found {len(properties)} dataset(s):\n  {properties}")
+
     def test_find_newest_dataset_properties_only(self):
         properties = self.query_runner.find_datasets(hercdb.DatasetType.PGSRaw, "1044", cornice="6", newest_completed=False, properties_only=True)
         self.assertTrue(len(properties) > 0)
-        
-        print("******* properties ******** \n", properties)
+
+        print(f"[find_datasets PGSRaw, PHerc 1044 Cornice 6, properties_only] Found {len(properties)} dataset(s):\n  {properties}")
     
     def test_list_cornici_and_pezzi_for_pherc(self):
         records = self.query_runner.list_cornici_and_pezzi_for_pherc("238")
         self.assertTrue(len(records) > 0)
-        #print([record.data() for record in records])
+        print(f"[list_cornici_and_pezzi_for_pherc '238'] Found {len(records)} record(s):")
         for record in records:
-            print(record.data())
-        
+            print(f"  {record.data()}")
+
         cornici = records[0].data()['cr']
         pezzi = records[0].data()['pz']
-        print("Cornici:", cornici)
-        print("Pezzi:", pezzi)
+        print(f"  Cornici: {cornici}")
+        print(f"  Pezzi: {pezzi}")
 
     def test_find_educelabids_for_pherc(self):
         results = self.query_runner.find_educelabids_for_pherc("1044")
@@ -194,7 +194,7 @@ class TestPhercDbQueries(unittest.TestCase):
         result = self.query_runner.get_pipeline_status("20251222-389")
         self.assertIsNotNone(result)
         self.assertIsInstance(result, list)
-        print(result)
+        print(f"[get_pipeline_status '20251222-389'] Found {len(result)} stage(s): {result}")
 
     def test_get_all_pipeline_summaries(self):
         result = self.query_runner.get_all_pipeline_summaries()
@@ -211,7 +211,9 @@ class TestPhercDbQueries(unittest.TestCase):
             self.assertIn(summary['status'], [
                 'completed', 'partially_completed', 'submitted', 'failed', 'unknown(error)'
             ])
-        print(result)
+        print(f"[get_all_pipeline_summaries] Found {len(result)} pipeline(s):")
+        for s in result:
+            print(f"  {s['pipeline_id']}: {s['dataset_name']} - {s['status']}")
 
 
 class TestComputePipelineStatus(unittest.TestCase):
