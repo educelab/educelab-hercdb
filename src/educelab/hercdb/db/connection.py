@@ -1,4 +1,5 @@
 import logging
+from collections import OrderedDict
 from enum import Enum
 
 from neo4j import GraphDatabase
@@ -13,10 +14,6 @@ class DatasetType(Enum):
         return f'{self.value}'
 
 
-FlatbedScanType = DatasetType.FlatbedScan
-PGSRawType = DatasetType.PGSRaw
-SpectralRawType = DatasetType.SpectralRaw
-
 
 class GraphDBConnection:
     logger = logging.getLogger('educelab.hercdb')
@@ -24,32 +21,24 @@ class GraphDBConnection:
     user: str = None
     driver = None
 
-    def __init__(self, uri, user, password):
-        """
-        Create a new connection to the graph database.
-        """
+    def __init__(self, uri, user, password) -> None:
+        """Create a new connection to the graph database."""
         self.uri = uri
         self.user = user
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
         self.logger.info("Initialized GraphDBConnection to %s as user %s", uri, user)
 
-    def __del__(self):
-        """
-        Ensure the driver is closed on deletion of the instance.
-        """
+    def __del__(self) -> None:
+        """Ensure the driver is closed on deletion of the instance."""
         self.close()
 
-    def close(self):
-        """
-        Close the driver connection.
-        """
+    def close(self) -> None:
+        """Close the driver connection."""
         if self.driver is not None:
             self.driver.close()
 
-    def verify_connection(self):
-        """ 
-        Verify the connection to the database.
-        """
+    def verify_connection(self) -> bool:
+        """Verify the connection to the database."""
         try:
             self.driver.verify_connectivity()
             return True
@@ -57,7 +46,7 @@ class GraphDBConnection:
             self.logger.debug('failed to connect', exc_info=e)
             return False
     
-    def _run_query(self, query, **params):
+    def _run_query(self, query, **params) -> tuple:
         try:
             records, summary, keys = self.driver.execute_query(
                 query,
@@ -70,11 +59,8 @@ class GraphDBConnection:
             self.logger.error("Query failed: %s", query.strip().replace('\n', ' '), exc_info=e)
             return None, None, None
 
-    def _delete_all(self):
-        """
-        Delete all nodes and relationships in the database.
-        Use with caution!
-        """
+    def _delete_all(self) -> None:
+        """Delete all nodes and relationships in the database. Use with caution!"""
         records, summary, keys = self.driver.execute_query(
             """
             MATCH (n)
@@ -83,11 +69,8 @@ class GraphDBConnection:
             database_="neo4j",
         )
 
-    def _return_all(self):
-        """
-        Return all nodes in the database.
-        Use for debugging purposes only.
-        """
+    def _return_all(self) -> None:
+        """Return all nodes in the database. Use for debugging only."""
         records, summary, keys = self.driver.execute_query(
             """
             MATCH (n)
@@ -111,56 +94,8 @@ class GraphDBConnection:
         assert isinstance(count, int)
         return count
 
-    ######### Soon to be deprecated #########
-    def get_human_readable_name(self, pherc, cornice=None, pezzo=None):
-        print("Deprecated: use displayName property instead")
-        
-        pherc_n = None
-        corn_n = None
-        pezzo_n = None
-
-        if cornice:
-            records, summary, keys = self.driver.execute_query(
-                """
-                MATCH (ph:PHerc {name: $ph})-[:HAS]->(cr:Cornice {name: $cor})
-                RETURN ph.human_name, cr.human_name            
-                """, ph=pherc, cor=cornice,
-                database_="neo4j",
-            )
-            if records:
-                pherc_n = records[0]["ph.human_name"]
-                corn_n = records[0]["c.human_name"]
-
-        if pezzo is not None:
-            # Currently this is irrelevant since there are no pezzo with "names"
-            records, summary, keys = self.driver.execute_query(
-                """
-                MATCH (ph:PHerc {name: $ph})-[:HAS]->(:Cornice)
-                                                -[:HAS]->(pz:Pezzo {name: $pz})
-                RETURN ph.human_name, pz.human_name            
-                """, ph=pherc, pz=pezzo,
-                database_="neo4j",
-            )
-            if records:
-                pherc_n = records[0]["ph.human_name"]
-                pezzo_n = records[0]["pz.human_name"]
-
-        if not pherc_n:
-            # If there was neither cornice nor pezzo names given
-            records, summary, keys = self.driver.execute_query(
-                """
-                MATCH (ph:PHerc {name: $ph})
-                RETURN ph.human_name
-                """, ph=pherc,
-                database_="neo4j",
-            )
-            if records:
-                pherc_n = records[0]["ph.human_name"]
-
-        return pherc_n, corn_n, pezzo_n
-
-    ######### Soon to be deprecated #########
-    def list_cornici_pezzi(self, pherc):
+    # TODO: migrate cli/search.py to use list_cornici_and_pezzi_for_pherc, then remove this
+    def list_cornici_pezzi(self, pherc) -> list:
         print("Deprecated: use list_cornici_and_pezzi_for_pherc method instead")
         # Use display names
         records, summary, keys = self.driver.execute_query(
@@ -174,49 +109,26 @@ class GraphDBConnection:
         )
         return records
 
-    ######### Soon to be deprecated #########
-    # def find_datasets(self, ds_type: DatasetType, pherc, cornice=None,
-    #                   pezzo=None):
-    #     # Use display names
-    #     if cornice:
-    #         records, summary, keys = self.driver.execute_query(
-    #             """
-    #             MATCH (ph:PHerc {name: $ph})-[:HAS]-(cr:Cornice {name: $cor})
-    #             MATCH (cr)<-[:ASSIGNED_TO]-(e:EduceLabID)
-    #             MATCH (e)<-[:BELONGS_TO]-(n)
-    #             WHERE $data_t IN LABELS(n)
-    #             RETURN n
-    #             """, data_t=str(ds_type), ph=pherc, cor=cornice,
-    #             database_="neo4j",
-    #         )
+    def _find_pherc_by_related_node(self, rel_type, label, value) -> tuple:
+        """Find PHercs connected to a node via relationship, case-insensitive partial match."""
+        query = f"""
+            MATCH (ph:PHerc)-[:{rel_type}]->(n:{label})
+            WHERE n.name =~ '(?i).*' + $value + '.*'
+            RETURN ph ORDER BY ph.displayName
+        """
+        return self._run_query(query, value=value)
 
-    #     else:
-    #         # Pezzo
-    #         records, summary, keys = self.driver.execute_query(
-    #             """
-    #             MATCH (ph:PHerc {name: $ph})-[:HAS]->(:Cornice)
-    #                                     -[:HAS]->(pz:Pezzo {human_name: $pz})
-    #             MATCH (pz)<-[:ASSIGNED_TO]-(e:EduceLabID)
-    #             MATCH (e)<-[:BELONGS_TO]-(n)
-    #             WHERE $data_t IN LABELS(n)
-    #             RETURN n
-    #             """, data_t=str(ds_type), ph=pherc, pz=pezzo,
-    #             database_="neo4j",
-    #         )
+    @staticmethod
+    def _serialize_dataset(record) -> dict:
+        """Convert a Neo4j dataset record to a JSON-safe dict."""
+        ds = dict(record['d'])
+        ds['type'] = record['ds_type']
+        for key, value in ds.items():
+            if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
+                ds[key] = str(value)
+        return ds
 
-    #     properties = []
-    #     for record in records:
-    #         dataset = record[0]
-    #         properties.append(dict(dataset))
-
-    #     return properties
-    
-    
-########################## New methods #################################
-
-
-
-    def _get_node_id(self, node_type, pherc_display_name, cornice_display_name=None, pezzo_display_name=None, disegni_name=None):
+    def _get_node_id(self, node_type, pherc_display_name, cornice_display_name=None, pezzo_display_name=None, disegni_name=None) -> str | None:
         """
         Returns the Neo4j node id for PHerc, Cornice, or Pezzo node.
         
@@ -269,18 +181,8 @@ class GraphDBConnection:
             print("Error: Node not found")
             return None
 
-    def get_directly_attached_nodes(self, node_type, pherc_display_name, cornice_display_name=None, pezzo_display_name=None, disegni_name=None):
-        """
-        Retrieves all nodes directly attached to a specified node (PHerc, Cornice, Pezzo, or Disegni) based on the provided display names.
-        Args:
-            node_type (str): Type of the node ("PHerc", "Cornice", "Pezzo", or "Disegni").
-            pherc_display_name (str): Display name of the PHerc.
-            cornice_display_name (str, optional): Display name of the Cornice (required if node_type is "Cornice" or "Pezzo" under Cornice).
-            pezzo_display_name (str, optional): Display name of the Pezzo (required if node_type is "Pezzo").
-            disegni_name (str, optional): Name of the Disegni (required if node_type is "Disegni").
-        Returns:
-            tuple: A tuple containing records, summary, and keys of the query result.
-        """
+    def get_directly_attached_nodes(self, node_type, pherc_display_name, cornice_display_name=None, pezzo_display_name=None, disegni_name=None) -> tuple:
+        """Retrieve all nodes directly attached to a specified node."""
         node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
         if node_id is None:
             print(f"Error: Node of type {node_type} with specified names not found.")
@@ -296,16 +198,8 @@ class GraphDBConnection:
         return  self._run_query(query, **params)
 
     
-    def find_node_type_conntected_to_object_node(self, obj_node_type, display_name, connected_node_type:str):
-        """
-        Finds nodes of a specific type connected to a given object node type by its display name.
-        Args:
-            obj_node_type (str): The type of the object node (e.g., "PHerc", "Cornice", "Pezzo", "Disegni").
-            display_name (str): The display name of the object node.
-            connected_node_type (str): The type of the connected nodes to find (e.g., "Author", "Language").
-        Returns: 
-            tuple: A tuple containing records, summary, and keys of the query result.
-        """
+    def find_node_type_connected_to_object_node(self, obj_node_type, display_name, connected_node_type: str) -> tuple:
+        """Find nodes of a specific type connected to an object node by its display name."""
         query = f"""
             MATCH (n:{obj_node_type} {{displayName:$display_name}})--(c:{connected_node_type})
             RETURN c
@@ -316,28 +210,15 @@ class GraphDBConnection:
         )
         return records, summary, keys
     
-
-    ############################### Finding specific PHercs ##########################
-    
-    def find_pherc_by_uuid(self, uuid):
-        """
-        This method looks up a PHerc by its UUID
-        Args:
-            uuid (str): The UUID of the PHerc to find.
-        Returns:
-            tuple: A tuple containing records, summary, and keys of the query result.
-
-        Note:
-            This currenly only returns the PHerc node, not Cornice/Pezzo.
-        """
-
+    def find_pherc_by_uuid(self, uuid) -> tuple:
+        """Look up a PHerc by its UUID. Currently only returns the PHerc node."""
         records, summary, keys = self._run_query("""
             MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)<-[:HAS*0..2]-(ph:PHerc)
             RETURN ph
             """, uuid=uuid)
         return records, summary, keys
 
-    def find_artifact_name_by_uuid(self, uuid):
+    def find_artifact_name_by_uuid(self, uuid) -> dict | None:
         """
         Looks up the PHerc, Cornice, and Pezzo display names for a given UUID.
 
@@ -380,14 +261,8 @@ class GraphDBConnection:
             }
         return None
 
-    def find_pherc_by_display_name(self, display_name):
-        """
-        Looks up a PHerc by its display name.
-        Args:
-            display_name (str): The display name of the PHerc to find.
-        Returns:
-            tuple: A tuple containing records, summary, and keys of the query result.
-        """
+    def find_pherc_by_display_name(self, display_name) -> tuple:
+        """Look up a PHerc by its display name."""
         
         records, summary, keys = self._run_query("""
             MATCH (ph:PHerc {displayName:$display_name})
@@ -395,18 +270,8 @@ class GraphDBConnection:
             """, display_name=display_name)
         return records, summary, keys
 
-    def find_pherc_by_property_value(self, property_name, property_value):
-        """
-        Looks up a PHerc by a specific property value.
-        Args:
-            property_name (str): The name of the property to search (e.g., "displayName", "unrolling_status").
-            property_value (str): The value to search for within the specified property.
-        Returns:
-            tuple: A tuple containing records, summary, and keys of the query result.
-        Note:
-            This performs a case-insensitive partial match search.
-        """
-        # This method looks up a PHerc by a specific property value
+    def find_pherc_by_property_value(self, property_name, property_value) -> tuple:
+        """Look up a PHerc by a property value (case-insensitive partial match)."""
         records, summary, keys = self._run_query("""
             MATCH (ph:PHerc)
             WHERE ph[$property_name] =~ '(?i).*' + $property_value + '.*'
@@ -414,7 +279,7 @@ class GraphDBConnection:
             """, property_name=property_name, property_value=property_value)
         return records, summary, keys
     
-    def find_pherc_by_language(self, lang):
+    def find_pherc_by_language(self, lang) -> tuple:
         # names: "grc", "lat", "inc.", "grc?", "inc", "lat?"
         records, summary, keys = self._run_query("""
             MATCH (ph:PHerc)-[:HAS_LANGUAGE]->(l:Language)
@@ -423,53 +288,23 @@ class GraphDBConnection:
             """, language=lang)
         return records, summary, keys
     
-    def find_pherc_by_unroller_name(self, unroller_name):
-        # This method looks up a PHerc by the unroller's name
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc)-[:UNROLLED_BY]->(un:Unroller)
-            WHERE un.name =~ '(?i).*' + $unroller_name + '.*'
-            RETURN ph ORDER BY ph.displayName
-            """, unroller_name=unroller_name)
-        return records, summary, keys
-    
-    def find_pherc_by_unrolling_method(self, unrolling_method):
-        # This method looks up a PHerc by the unrolling method
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc)-[:UNROLLED_BY_METHOD]->(method:UnrollingMethod)
-            WHERE method.name =~ '(?i).*' + $unrolling_method + '.*'
-            RETURN ph ORDER BY ph.displayName
-            """, unrolling_method=unrolling_method)
-        return records, summary, keys
-    
-    def find_pherc_by_author(self, author_name):
-        # This method looks up a PHerc by the author's name
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc)-[:AUTHORED_BY]->(a:Author)
-            WHERE a.name =~ '(?i).*' + $author_name + '.*'
-            RETURN ph ORDER BY ph.displayName
-            """, author_name=author_name)
-        return records, summary, keys
-    
-    def find_pherc_by_cavallo_scribal_style(self, scribal_style):
-        # This method looks up a PHerc by the Cavallo scribal style
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc)-[:STYLE]->(c:CavalloScribalStyle)
-            WHERE c.name =~ '(?i).*' + $scribal_style + '.*'
-            RETURN ph ORDER BY ph.displayName
-            """, scribal_style=scribal_style)
-        return records, summary, keys
+    def find_pherc_by_unroller_name(self, unroller_name) -> tuple:
+        return self._find_pherc_by_related_node("UNROLLED_BY", "Unroller", unroller_name)
 
-    def find_pherc_by_custodial_institution(self, institution_name):
-        # This method looks up a PHerc by the custodial institution's name
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc)-[:STORED_AT]->(inst:CustodialInstitution)
-            WHERE inst.name =~ '(?i).*' + $institution_name + '.*'
-            RETURN ph ORDER BY ph.displayName
-            """, institution_name=institution_name)
-        return records, summary, keys
+    def find_pherc_by_unrolling_method(self, unrolling_method) -> tuple:
+        return self._find_pherc_by_related_node("UNROLLED_BY_METHOD", "UnrollingMethod", unrolling_method)
+
+    def find_pherc_by_author(self, author_name) -> tuple:
+        return self._find_pherc_by_related_node("AUTHORED_BY", "Author", author_name)
+
+    def find_pherc_by_cavallo_scribal_style(self, scribal_style) -> tuple:
+        return self._find_pherc_by_related_node("STYLE", "CavalloScribalStyle", scribal_style)
+
+    def find_pherc_by_custodial_institution(self, institution_name) -> tuple:
+        return self._find_pherc_by_related_node("STORED_AT", "CustodialInstitution", institution_name)
     
-    def find_pherc_by_numeric_property(self, property, operator, value):
-        # This method looks up numerical value properties such as width, weight
+    def find_pherc_by_numeric_property(self, property, operator, value) -> tuple:
+        """Look up PHercs by a numeric property (e.g. width, weight)."""
         query_string = f"""
             MATCH (ph:PHerc)
             WHERE toFloat(ph.{property}) {operator} {value}
@@ -480,9 +315,8 @@ class GraphDBConnection:
         )
         return records, summary, keys
     
-    def find_pherc_by_unrolled_year(self, operator, year):
-        # This method deals with unrolled date properties that are stored
-        # as "1420, 1820-1858" etc.
+    def find_pherc_by_unrolled_year(self, operator, year) -> tuple:
+        """Find PHercs by unrolled year, handling date ranges like '1420, 1820-1858'."""
         query_string = f"""
             WITH {year} AS targetYear
             MATCH (ph:PHerc)
@@ -510,8 +344,8 @@ class GraphDBConnection:
         records, summary, keys = self._run_query(query_string)
         return records, summary, keys
 
-    def find_pherc_with_any_property_value(self, property_name):
-        # This method looks up PHercs that have a specific property
+    def find_pherc_with_any_property_value(self, property_name) -> tuple:
+        """Find all PHercs that have a non-null value for the given property."""
         query_string = f"""
             MATCH (ph:PHerc)
             WHERE ph.{property_name} IS NOT NULL
@@ -522,10 +356,8 @@ class GraphDBConnection:
         )
         return records, summary, keys
 
-    def list_cornici_and_pezzi_for_pherc(self, pherc_display_name):
-        # lists all Cornici and Pezzi for a given PHerc displayName
-        # If there is a need to distinguish between Pezzo directly under PHerc vs under Cornice,
-        # we can split p1 and p2 in the output.
+    def list_cornici_and_pezzi_for_pherc(self, pherc_display_name) -> list:
+        """List all Cornici and Pezzi for a given PHerc displayName."""
         records, summary, keys = self._run_query("""
             MATCH (ph:PHerc {displayName:$pherc_display_name})
             OPTIONAL MATCH (ph)-[:HAS]->(c:Cornice)
@@ -537,14 +369,12 @@ class GraphDBConnection:
             """, pherc_display_name=pherc_display_name)
         return records
     
-    def find_datasets(self, ds_type: DatasetType, pherc, cornice=None, pezzo=None, newest_completed=False, properties_only=True):
-        # finds datasets of a specific type (FlatbedScan, PGSRaw, SpectralRaw)
-        # For Pezzo, it can be either directly under PHerc or under Cornice. If they need to be distinguished,
-        # we can modify the output accordingly.
+    def find_datasets(self, ds_type: DatasetType, pherc, cornice=None, pezzo=None, newest_completed=False, properties_only=True) -> list[dict] | tuple:
+        """Find datasets of a specific type for a PHerc, Cornice, or Pezzo."""
 
         if cornice:
             base_query = """
-                MATCH (ph:PHerc {displayName: $ph})-[:HAS]-(cr:Cornice {displayName: $cor})
+                MATCH (ph:PHerc {displayName: $ph})-[:HAS]->(cr:Cornice {displayName: $cor})
                 MATCH (cr)<-[:ASSIGNED_TO]-(e:EduceLabID)
                 MATCH (e)<-[:BELONGS_TO]-(n)
                 WHERE $data_t IN LABELS(n)
@@ -552,7 +382,7 @@ class GraphDBConnection:
             params = {"data_t": str(ds_type), "ph": pherc, "cor": cornice}
         elif pezzo:
             base_query = """
-                MATCH (ph:PHerc {displayName: $ph})-[:HAS1..2]->(pz:Pezzo {displayName: $pz})
+                MATCH (ph:PHerc {displayName: $ph})-[:HAS*1..2]->(pz:Pezzo {displayName: $pz})
                 MATCH (pz)<-[:ASSIGNED_TO]-(e:EduceLabID)
                 MATCH (e)<-[:BELONGS_TO]-(n)
                 WHERE $data_t IN LABELS(n)
@@ -565,8 +395,6 @@ class GraphDBConnection:
                 WHERE $data_t IN LABELS(n)
             """
             params = {"data_t": str(ds_type), "ph": pherc}
-        
-        # Add filtering and ordering if newest_completed is True
         if newest_completed:
             query = base_query + """
                 AND n.complete = "True"
@@ -594,49 +422,22 @@ class GraphDBConnection:
         else:
             return records, summary, keys
    
-    def find_pipelines(self):
-        """
-        Finds all pipelines and returns their pipeline_id and associated artifact_uuid.
-
-        Returns:
-            list: A list of dictionaries, each containing:
-                - pipeline_id: The pipeline identifier
-                - artifact_uuid: The UUID of the associated EduceLabID
-        """
+    def find_pipelines(self) -> list[dict]:
+        """Find all pipelines and return their pipeline_id and associated artifact_uuid."""
         records, _, _ = self._run_query("""
             MATCH (p:Pipeline)<-[:STAGE_OF]-(proc:Process)<-[:INPUT]-(input)
             WHERE 'PGSRaw' IN LABELS(input) OR 'SpectralRaw' IN LABELS(input)
-            MATCH (input)-[:BELONGS_TO]->(e:EduceLabID)
+            MATCH (e:EduceLabID)<-[:BELONGS_TO]-(input)
             RETURN DISTINCT p.pipeline_id AS pipeline_id, e.uuid AS artifact_uuid
             ORDER BY p.pipeline_id
             """)
 
-        if records:
-            pipelines = []
-            for record in records:
-                pipelines.append({
-                    "pipeline_id": record["pipeline_id"],
-                    "artifact_uuid": record["artifact_uuid"]
-                })
-            return pipelines
-
-        return []
+        if not records:
+            return []
+        return [{"pipeline_id": r["pipeline_id"], "artifact_uuid": r["artifact_uuid"]} for r in records]
     
-    def get_pipeline_status(self, pipeline_id):
-        """
-        Returns the status of all processes in a pipeline.
-
-        Args:
-            pipeline_id (str): The pipeline identifier.
-
-        Returns:
-            list: A list of process dictionaries. Each process dict contains:
-                  - datetime: The process timestamp
-                  - stage: The process stage (e.g., "PGS", "SPEC", "REG")
-                  - status: The process status (e.g., "completed", "failed")
-                  - slurm_id: The SLURM job ID
-                  Returns None if pipeline not found.
-        """
+    def get_pipeline_status(self, pipeline_id) -> list[dict] | None:
+        """Return the status of all processes in a pipeline, or None if not found."""
         records, _, _ = self._run_query("""
             MATCH (p:Pipeline {pipeline_id: $pipeline_id})<-[:STAGE_OF]-(proc:Process)
             RETURN proc
@@ -819,15 +620,7 @@ class GraphDBConnection:
         return summaries
 
     def find_educelabids_for_pherc(self, pherc_display_name: str) -> list[dict]:
-        """
-        Find all EduceLabIDs under a PHerc umbrella (PHerc itself, its Cornici, and all Pezzi).
-
-        Args:
-            pherc_display_name: Display name of the PHerc.
-
-        Returns:
-            list: List of dicts with keys: uuid, pherc, cornice, pezzo, artifact_name.
-        """
+        """Find all EduceLabIDs under a PHerc umbrella (PHerc, Cornici, Pezzi)."""
         records, _, _ = self._run_query("""
             MATCH (ph:PHerc {displayName: $pherc_display_name})
             MATCH (ph)-[:HAS*0..2]->(artifact)
@@ -875,42 +668,26 @@ class GraphDBConnection:
         return results
 
     def find_datasets_for_educelabid(self, uuid: str, ds_type: DatasetType = None, newest_completed: bool = False) -> list[dict]:
-        """
-        Find all datasets for a specific EduceLabID.
-
-        Args:
-            uuid: The UUID of the EduceLabID.
-            ds_type: Optional DatasetType filter.
-            newest_completed: If True, return only the newest completed dataset per type.
-
-        Returns:
-            list: List of dataset dicts with a 'type' field indicating the dataset label.
-        """
+        """Find all datasets for a specific EduceLabID."""
         dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
+        type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
+        completed_filter = 'AND d.complete = "True"' if newest_completed else ""
 
-        if newest_completed:
-            type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
-            query = f"""
-                MATCH (e:EduceLabID {{uuid: $uuid}})<-[:BELONGS_TO]-(d)
-                WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
-                AND d.complete = "True"
-                {type_filter}
-                WITH d,
-                     [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
-                ORDER BY datetime(d.date_end) DESC
-                WITH ds_type, collect(d)[0] AS d
-                RETURN d, ds_type
-            """
-        else:
-            type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
-            query = f"""
-                MATCH (e:EduceLabID {{uuid: $uuid}})<-[:BELONGS_TO]-(d)
-                WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
-                {type_filter}
-                WITH d,
-                     [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
-                RETURN d, ds_type
-            """
+        grouping = """
+            ORDER BY datetime(d.date_end) DESC
+            WITH ds_type, collect(d)[0] AS d
+            RETURN d, ds_type
+        """ if newest_completed else "RETURN d, ds_type"
+
+        query = f"""
+            MATCH (e:EduceLabID {{uuid: $uuid}})<-[:BELONGS_TO]-(d)
+            WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
+            {completed_filter}
+            {type_filter}
+            WITH d,
+                 [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
+            {grouping}
+        """
 
         params = {"uuid": uuid, "dataset_labels": dataset_labels}
         if ds_type:
@@ -921,16 +698,7 @@ class GraphDBConnection:
         if not records:
             return []
 
-        results = []
-        for record in records:
-            ds = dict(record['d'])
-            ds['type'] = record['ds_type']
-            # Convert non-primitive values (e.g. Neo4j DateTime) to strings
-            for key, value in ds.items():
-                if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
-                    ds[key] = str(value)
-            results.append(ds)
-        return results
+        return [self._serialize_dataset(record) for record in records]
 
     def find_all_datasets_for_pherc(self, pherc_display_name: str, ds_type: DatasetType = None, newest_completed: bool = False) -> list[dict]:
         """
@@ -1000,7 +768,6 @@ class GraphDBConnection:
             return []
 
         # Group by EduceLabID UUID
-        from collections import OrderedDict
         grouped = OrderedDict()
         for record in records:
             uuid = record['uuid']
@@ -1019,12 +786,7 @@ class GraphDBConnection:
                     'datasets': [],
                 }
 
-            ds = dict(record['dataset'])
-            ds['type'] = record['dataset_type']
-            # Convert non-primitive values (e.g. Neo4j DateTime) to strings
-            for key, value in ds.items():
-                if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
-                    ds[key] = str(value)
+            ds = self._serialize_dataset({'d': record['dataset'], 'ds_type': record['dataset_type']})
             grouped[uuid]['datasets'].append(ds)
 
         results = list(grouped.values())
@@ -1043,30 +805,23 @@ class GraphDBConnection:
         return results
 
     @staticmethod
-    def records_to_label_json(records):
-        #result = {}
-        # Extract org_node properties from the first record (they are the same for all)
+    def records_to_label_json(records) -> dict:
+        """Convert Neo4j records (org_node + attached_nodes) to a label-keyed dict."""
         if records:
             org_node = records[0]['org_node']
-            org_label = next(iter(org_node.labels))
-            # org_props = dict(org_node.items())
-            # result['org_node'] = {org_label: org_props}
             result = dict(org_node)
 
-        # Process attached_nodes as before
         for record in records:
             node = record['attached_nodes']
             label = next(iter(node.labels))
             props = dict(node.items())
             if label in result:
-                # If already present, append to the list
                 if isinstance(result[label], list):
                     result[label].append(props)
                 else:
                     result[label] = [result[label], props]
             else:
                 result[label] = props
-        # Convert single dicts to lists if there are multiple nodes with the same label
         for label, value in list(result.items()):
             if label == "org_node":
                 continue

@@ -72,7 +72,7 @@ class TestPhercDbQueries(unittest.TestCase):
         print(display_names)
 
     def test_find_newest_dataset(self):
-        records, summary, keys = self.query_runner.find_datasets(hercdb.PGSRawType, "1044", cornice="6", newest_completed=False, properties_only=False)
+        records, summary, keys = self.query_runner.find_datasets(hercdb.DatasetType.PGSRaw, "1044", cornice="6", newest_completed=False, properties_only=False)
         self.assertTrue(len(records) > 0)
         #print([record.data() for record in records])
         
@@ -83,7 +83,7 @@ class TestPhercDbQueries(unittest.TestCase):
         print("******* properties ******** \n", properties)
     
     def test_find_newest_dataset_properties_only(self):
-        properties = self.query_runner.find_datasets(hercdb.PGSRawType, "1044", cornice="6", newest_completed=False, properties_only=True)
+        properties = self.query_runner.find_datasets(hercdb.DatasetType.PGSRaw, "1044", cornice="6", newest_completed=False, properties_only=True)
         self.assertTrue(len(properties) > 0)
         
         print("******* properties ******** \n", properties)
@@ -139,7 +139,7 @@ class TestPhercDbQueries(unittest.TestCase):
         self.assertTrue(len(educelabids) > 0)
         uuid = educelabids[0]['uuid']
 
-        datasets = self.query_runner.find_datasets_for_educelabid(uuid, ds_type=hercdb.PGSRawType)
+        datasets = self.query_runner.find_datasets_for_educelabid(uuid, ds_type=hercdb.DatasetType.PGSRaw)
         self.assertIsInstance(datasets, list)
         for ds in datasets:
             self.assertEqual(ds['type'], 'PGSRaw')
@@ -168,7 +168,7 @@ class TestPhercDbQueries(unittest.TestCase):
         print(f"Found {len(results)} artifacts with datasets for PHerc 1044")
 
     def test_find_all_datasets_for_pherc_with_type_filter(self):
-        results = self.query_runner.find_all_datasets_for_pherc("1044", ds_type=hercdb.PGSRawType)
+        results = self.query_runner.find_all_datasets_for_pherc("1044", ds_type=hercdb.DatasetType.PGSRaw)
         self.assertIsInstance(results, list)
         for artifact in results:
             for ds in artifact['datasets']:

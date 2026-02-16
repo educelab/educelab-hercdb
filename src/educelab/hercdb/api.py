@@ -5,16 +5,10 @@ from educelab.hercdb.db import (
     GraphDBConnection,
     connect,
     DatasetType,
-    FlatbedScanType,
-    PGSRawType,
-    SpectralRawType,
 )
 
 __all__ = [
     "GraphDBConnection",
     "connect",
     "DatasetType",
-    "FlatbedScanType",
-    "PGSRawType",
-    "SpectralRawType",
 ]

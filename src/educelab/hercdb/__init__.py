@@ -4,9 +4,6 @@ try:
         connect,
         GraphDBConnection,
         DatasetType,
-        FlatbedScanType,
-        PGSRawType,
-        SpectralRawType,
     )
 
     __all__ = [
@@ -14,9 +11,6 @@ try:
         "connect",
         "GraphDBConnection",
         "DatasetType",
-        "FlatbedScanType",
-        "PGSRawType",
-        "SpectralRawType",
     ]
 except ImportError:
     pass

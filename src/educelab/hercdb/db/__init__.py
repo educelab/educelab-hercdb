@@ -4,16 +4,10 @@ from .connection import (
     GraphDBConnection,
     connect,
     DatasetType,
-    FlatbedScanType,
-    PGSRawType,
-    SpectralRawType,
 )
 
 __all__ = [
     "GraphDBConnection",
     "connect",
     "DatasetType",
-    "FlatbedScanType",
-    "PGSRawType",
-    "SpectralRawType",
 ]

@@ -11,12 +11,12 @@ def find_newest_spectral_paths(db, pherc, cornice):
     Returns 
         the path (str)
     '''
-    datasets = db.find_datasets(hercdb.SpectralRawType, pherc, cornice)
+    datasets = db.find_datasets(hercdb.DatasetType.SpectralRaw, pherc, cornice)
     
     # To deal with name discrepancies 
     if len(datasets) == 0 and cornice == 'Scorze':
         cornice = 'Scorza'
-        datasets = db.find_datasets(hercdb.SpectralRawType, pherc, cornice)
+        datasets = db.find_datasets(hercdb.DatasetType.SpectralRaw, pherc, cornice)
 
     # If any datasets have been found
     if datasets:
