@@ -262,7 +262,7 @@ Returns all pipelines with their computed status summaries.
 ]
 ```
 
-Possible status values: `completed`, `partially_completed`, `submitted`, `failed`, `unknown(error)`.
+Possible status values: `completed`, `partially_completed`, `running`, `failed`, `unknown(error)`.
 
 ### GET /pipelines/{pipeline_id}/stages
 

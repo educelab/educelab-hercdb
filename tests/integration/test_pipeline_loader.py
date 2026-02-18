@@ -247,7 +247,7 @@ def cleanup_test_data(pipeline_id, interactive=True):
     print("  (Original data nodes like EduceLabID, PHerc, PGSRaw, SpectralRaw remain intact)")
 
 
-def run_create_tests(test1_params, test2_params, test3_params, test4_params, test5_params):
+def run_create_tests(test1_params, test2_params, test3_params, test4_params, test5_params, test6_params):
     """Run all the creation tests for all test parameter sets."""
     # Run tests with test1_params - Full pipeline success
     print("\n" + "="*60)
@@ -314,6 +314,20 @@ def run_create_tests(test1_params, test2_params, test3_params, test4_params, tes
     print("="*60)
     create_empty_pipeline(test5_params['pipeline_id'])
     print("\n  Note: Pipeline has no Process nodes attached")
+
+    # Run tests with test6_params - 3 stages (PGS, SPEC, REG), all completed, no WEB
+    print("\n" + "="*60)
+    print("TEST 6: PGS, Spectral, Registration all succeed, no Web (expected status: completed)")
+    print("="*60)
+    test_pgs_processing(test6_params)
+    test_update_process_status(test6_params, "PGS")
+
+    test_spectral_processing(test6_params)
+    test_update_process_status(test6_params, "SPEC")
+
+    test_registration_processing(test6_params)
+    test_update_process_status(test6_params, "REG")
+    print("\n  Note: Pipeline ends at REG (no Web processing)")
 
 
 if __name__ == "__main__":
@@ -390,7 +404,7 @@ Examples:
     }
 
     # Test parameters for test 3
-    # All stages submitted, none completed -> status = "submitted"
+    # All stages submitted, none completed -> status = "running"
     test3_params = {
         'artifact_uuid': '6e31467a-7557-504b-a2ee-bd25c9318f86',  # Reuse from TEST 1
         'pipeline_id': '20260203-TEST3',
@@ -431,6 +445,28 @@ Examples:
         'pipeline_id': '20260203-TEST5',
     }
 
+    # Test parameters for test 6
+    # 3 stages (PGS, SPEC, REG), all completed, no WEB -> status = "completed"
+    test6_params = {
+        'artifact_uuid': '6e31467a-7557-504b-a2ee-bd25c9318f86',  # Reuse from TEST 1
+        'pipeline_id': '20260203-TEST6',
+        'date_time': datetime.now().isoformat(),
+
+        # PGS parameters
+        'pgs_input_path': 'Dailies/20220908/pgs/Bod_PHerc0118Cn10_021010e5',
+        'pgs_output_path': '/Tests/ProcessedPGS/20260203-TEST6',
+        'pgs_slurm_id': '70001',
+
+        # Spectral parameters
+        'spectral_input_path': 'Dailies/Spectral/MVDaily_20220908/Bod_PHerc0118Cn10',
+        'spectral_output_path': '/Tests/ProcessedSpectral/20260203-TEST6',
+        'spectral_slurm_id': '70002',
+
+        # Registration parameters
+        'registered_output_path': 'Tests/Registered/20260203-TEST6',
+        'reg_slurm_id': '70003',
+    }
+
     # Collect all pipeline IDs for cleanup
     all_pipeline_ids = [
         test1_params['pipeline_id'],
@@ -438,6 +474,7 @@ Examples:
         test3_params['pipeline_id'],
         test4_params['pipeline_id'],
         test5_params['pipeline_id'],
+        test6_params['pipeline_id'],
     ]
 
     try:
@@ -453,7 +490,7 @@ Examples:
         elif args.create:
             # Create only mode
             print("\nRunning in CREATE ONLY mode (no cleanup)")
-            run_create_tests(test1_params, test2_params, test3_params, test4_params, test5_params)
+            run_create_tests(test1_params, test2_params, test3_params, test4_params, test5_params, test6_params)
             print("\n" + "="*60)
             print("Test nodes created and preserved for inspection.")
             print(f"Run with --cleanup to remove pipeline IDs:")
@@ -464,7 +501,7 @@ Examples:
         else:
             # Interactive mode (default): create then ask to cleanup
             print("\nRunning in INTERACTIVE mode (create + ask to cleanup)")
-            run_create_tests(test1_params, test2_params, test3_params, test4_params, test5_params)
+            run_create_tests(test1_params, test2_params, test3_params, test4_params, test5_params, test6_params)
             for pipeline_id in all_pipeline_ids:
                 cleanup_test_data(pipeline_id, interactive=True)
 

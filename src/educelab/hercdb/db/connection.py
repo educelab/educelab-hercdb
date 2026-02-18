@@ -468,7 +468,12 @@ class GraphDBConnection:
             processes: List of process dicts with 'stage' and 'status' keys.
 
         Returns:
-            str: One of 'completed', 'partially_completed', 'submitted', 'failed', 'unknown(error)'
+            str: One of 'completed', 'partially_completed', 'running', 'failed', 'unknown(error)'
+                - completed: All stages in the pipeline finished successfully.
+                - partially_completed: At least one stage completed but one or more failed.
+                - running: At least one stage is still submitted and none have completed yet.
+                - failed: No stage completed successfully (first stage likely failed).
+                - unknown(error): No processes found or unrecognizable state.
         """
         if not processes:
             return 'unknown(error)'
@@ -481,42 +486,29 @@ class GraphDBConnection:
             if stage:
                 stage_statuses[stage] = status
 
-        # Check if all required stages (PGS, SPEC, REG, WEB) are completed
-        required_stages = ['PGS', 'SPEC', 'REG', 'WEB']
-        all_completed = all(
-            stage_statuses.get(stage) == 'completed'
-            for stage in required_stages
-            if stage in stage_statuses
-        )
-        # For "completed" status, all required stages must exist and be completed
-        has_all_required = all(stage in stage_statuses for stage in required_stages)
-        if has_all_required and all_completed:
+        if not stage_statuses:
+            return 'unknown(error)'
+
+        statuses = list(stage_statuses.values())
+
+        # All stages completed successfully
+        if all(s == 'completed' for s in statuses):
             return 'completed'
 
-        # Check if at least first stage (PGS or SPEC) is completed
-        first_stages = ['PGS', 'SPEC']
-        has_first_completed = any(
-            stage_statuses.get(stage) == 'completed'
-            for stage in first_stages
-        )
-        if has_first_completed:
+        # At least one completed but one or more failed
+        has_completed = any(s == 'completed' for s in statuses)
+        has_failed = any(s == 'failed' for s in statuses)
+        if has_completed and has_failed:
             return 'partially_completed'
 
-        # Check if all stages are failed
-        all_failed = all(
-            status == 'failed'
-            for status in stage_statuses.values()
-        ) if stage_statuses else False
-        if all_failed:
+        # No stage completed, all failed
+        if all(s == 'failed' for s in statuses):
             return 'failed'
 
-        # Check if at least one stage is submitted
-        has_submitted = any(
-            status == 'submitted'
-            for status in stage_statuses.values()
-        )
+        # At least one stage is still submitted (running)
+        has_submitted = any(s == 'submitted' for s in statuses)
         if has_submitted:
-            return 'submitted'
+            return 'running'
 
         return 'unknown(error)'
 
@@ -562,7 +554,7 @@ class GraphDBConnection:
                 - dataset_name: Human-readable artifact name
                 - artifact_uuid: UUID of the associated EduceLabID
                 - pipeline_id: Pipeline identifier
-                - status: Computed status (completed/partially_completed/submitted/failed/unknown(error))
+                - status: Computed status (completed/partially_completed/running/failed/unknown(error))
         """
         # Get pipelines with their artifact UUIDs (only those with Process nodes)
         pipelines_with_processes = self.find_pipelines()

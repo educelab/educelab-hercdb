@@ -109,6 +109,23 @@ print(requests.get(f"http://{host_ip}:8000/pherc/238/subdivisions", headers=head
 print("/pipelines/<pipeline_id>/stages endpoint:")
 print(requests.get(f"http://{host_ip}:8000/pipelines/20251222-389/stages", headers=headers).json())
 
+# /pipelines/<pipeline_id>/stages - 3-stage completed pipeline (no WEB)
+print("\n/pipelines/20260203-TEST6/stages endpoint (3-stage completed):")
+resp = requests.get(f"http://{host_ip}:8000/pipelines/20260203-TEST6/stages", headers=headers)
+print(f"  Status: {resp.status_code}")
+stages = resp.json()
+print(f"  Response: {stages}")
+assert resp.status_code == 200, f"Expected 200 but got {resp.status_code}"
+assert len(stages) == 3, f"Expected 3 stages but got {len(stages)}"
+assert 'WEB' not in [s['stage'] for s in stages], "WEB stage should not be present"
+assert all(s['status'] == 'completed' for s in stages), "All stages should be completed"
+print("  ✓ 3 stages, all completed, no WEB")
+
 # /pipelines endpoint
 print("/pipelines endpoint:")
-print(requests.get(f"http://{host_ip}:8000/pipelines", headers=headers).json())
+pipelines = requests.get(f"http://{host_ip}:8000/pipelines", headers=headers).json()
+print(pipelines)
+test6 = next((p for p in pipelines if p['pipeline_id'] == '20260203-TEST6'), None)
+assert test6 is not None, "TEST6 pipeline should appear in /pipelines"
+assert test6['status'] == 'completed', f"Expected 'completed' but got '{test6['status']}'"
+print(f"  ✓ TEST6 pipeline status: {test6['status']}")

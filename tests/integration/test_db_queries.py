@@ -196,6 +196,20 @@ class TestPhercDbQueries(unittest.TestCase):
         self.assertIsInstance(result, list)
         print(f"[get_pipeline_status '20251222-389'] Found {len(result)} stage(s): {result}")
 
+    def test_get_pipeline_status_three_stages_completed(self):
+        result = self.query_runner.get_pipeline_status("20260203-TEST6")
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 3)
+        stages = [p['stage'] for p in result]
+        self.assertIn('PGS', stages)
+        self.assertIn('SPEC', stages)
+        self.assertIn('REG', stages)
+        self.assertNotIn('WEB', stages)
+        for p in result:
+            self.assertEqual(p['status'], 'completed')
+        print(f"[get_pipeline_status '20260203-TEST6'] Found {len(result)} stage(s): {result}")
+
     def test_get_all_pipeline_summaries(self):
         result = self.query_runner.get_all_pipeline_summaries()
         self.assertIsNotNone(result)
@@ -209,7 +223,7 @@ class TestPhercDbQueries(unittest.TestCase):
             self.assertIn('status', summary)
             # Status should be one of the expected values
             self.assertIn(summary['status'], [
-                'completed', 'partially_completed', 'submitted', 'failed', 'unknown(error)'
+                'completed', 'partially_completed', 'running', 'failed', 'unknown(error)'
             ])
         print(f"[get_all_pipeline_summaries] Found {len(result)} pipeline(s):")
         for s in result:
@@ -233,18 +247,27 @@ class TestComputePipelineStatus(unittest.TestCase):
         status = hercdb.GraphDBConnection._compute_pipeline_status(processes)
         self.assertEqual(status, 'completed')
 
-    def test_first_stage_completed_partially_completed(self):
+    def test_three_stages_all_completed(self):
+        processes = [
+            {'stage': 'PGS', 'status': 'completed'},
+            {'stage': 'SPEC', 'status': 'completed'},
+            {'stage': 'REG', 'status': 'completed'},
+        ]
+        status = hercdb.GraphDBConnection._compute_pipeline_status(processes)
+        self.assertEqual(status, 'completed')
+
+    def test_some_completed_some_still_running(self):
         processes = [
             {'stage': 'PGS', 'status': 'completed'},
             {'stage': 'SPEC', 'status': 'submitted'},
         ]
         status = hercdb.GraphDBConnection._compute_pipeline_status(processes)
-        self.assertEqual(status, 'partially_completed')
+        self.assertEqual(status, 'running')
 
-    def test_spec_completed_partially_completed(self):
+    def test_partially_completed_with_failure(self):
         processes = [
             {'stage': 'SPEC', 'status': 'completed'},
-            {'stage': 'REG', 'status': 'submitted'},
+            {'stage': 'REG', 'status': 'failed'},
         ]
         status = hercdb.GraphDBConnection._compute_pipeline_status(processes)
         self.assertEqual(status, 'partially_completed')
@@ -257,13 +280,13 @@ class TestComputePipelineStatus(unittest.TestCase):
         status = hercdb.GraphDBConnection._compute_pipeline_status(processes)
         self.assertEqual(status, 'failed')
 
-    def test_submitted_status(self):
+    def test_running_status(self):
         processes = [
             {'stage': 'PGS', 'status': 'submitted'},
             {'stage': 'SPEC', 'status': 'submitted'},
         ]
         status = hercdb.GraphDBConnection._compute_pipeline_status(processes)
-        self.assertEqual(status, 'submitted')
+        self.assertEqual(status, 'running')
 
 
 class TestFormatDatasetName(unittest.TestCase):

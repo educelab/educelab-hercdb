@@ -86,4 +86,27 @@ datasets = client.get_datasets_for_educelabid("nonexistent-uuid")
 print(f"  Result: {datasets}")
 assert datasets == [], "Expected empty list for nonexistent UUID"
 
+# --- get_pipeline_stages ---
+
+print("\n/pipelines/20260203-TEST6/stages via client (3-stage completed):")
+stages = client.get_pipeline_stages("20260203-TEST6")
+print(f"  Found {len(stages)} stage(s)")
+assert len(stages) == 3, f"Expected 3 stages but got {len(stages)}"
+assert 'WEB' not in [s['stage'] for s in stages], "WEB stage should not be present"
+assert all(s['status'] == 'completed' for s in stages), "All stages should be completed"
+for s in stages:
+    print(f"    [{s['stage']}] {s['status']}")
+print("  ✓ 3 stages, all completed, no WEB")
+
+# --- get_pipelines ---
+
+print("\n/pipelines via client:")
+pipelines = client.get_pipelines()
+print(f"  Found {len(pipelines)} pipeline(s)")
+assert isinstance(pipelines, list), "Expected list of pipelines"
+test6 = next((p for p in pipelines if p['pipeline_id'] == '20260203-TEST6'), None)
+assert test6 is not None, "TEST6 pipeline should appear in get_pipelines()"
+assert test6['status'] == 'completed', f"Expected 'completed' but got '{test6['status']}'"
+print(f"  ✓ TEST6 pipeline status: {test6['status']}")
+
 print("\nAll client tests passed!")
