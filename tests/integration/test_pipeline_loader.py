@@ -185,6 +185,24 @@ def test_update_process_status(params, stage, property_name="status", value="com
         print(f"✓ {stage} Process {property_name} updated to '{value}'")
         print(f"  - Pipeline ID: {params['pipeline_id']}")
         print(f"  - Stage: {stage}")
+
+        # Verify end_time is set when status transitions to completed/failed
+        records, _, _ = result
+        if records and property_name == "status":
+            proc = records[0]['proc']
+            end_time = proc.get('end_time')
+            if value in ('completed', 'failed'):
+                if end_time:
+                    print(f"  ✓ end_time set: {end_time}")
+                else:
+                    print(f"  ✗ end_time not set (expected for status='{value}')")
+                    return False
+            else:
+                if end_time is None:
+                    print(f"  ✓ end_time absent (expected for status='{value}')")
+                else:
+                    print(f"  ✓ end_time already present: {end_time}")
+
         return True
     except Exception as e:
         print(f"✗ Failed to update {stage} process {property_name}: {e}")

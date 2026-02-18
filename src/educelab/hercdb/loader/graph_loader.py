@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from neo4j import GraphDatabase
 from educelab.hercdb import config
 
@@ -585,7 +586,7 @@ class PhercGraphDatabaseLoader:
             query = """
             MATCH (:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(pgs:PGSRaw {path: $input_ds_path})
             MERGE (proc:Process {stage: "PGS",
-            datetime: $date_t,
+            start_time: $date_t,
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (pgs_proc:PGSProcessed {path: $output_ds_path})
@@ -600,7 +601,7 @@ class PhercGraphDatabaseLoader:
             query = """
             MATCH (:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(spectral:SpectralRaw {path: $input_ds_path})
             MERGE (proc:Process {stage: "SPEC",
-            datetime: $date_t,
+            start_time: $date_t,
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (spec_proc:SpectralProcessed {path: $output_ds_path})
@@ -615,7 +616,7 @@ class PhercGraphDatabaseLoader:
             query = """
             MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})--(:Process)--(reg:Registered {path: $input_ds_path})
             MERGE (proc:Process {stage: "WEB",
-            datetime: $date_t,
+            start_time: $date_t,
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (web:WebProcessed {path: $output_ds_path})
@@ -643,7 +644,7 @@ class PhercGraphDatabaseLoader:
         MATCH (:EduceLabID {uuid: $artifact_uuid})--(:PGSRaw)--(:Process)--(pg_proc:PGSProcessed {path: $input_pg_path})
         MATCH (:EduceLabID {uuid: $artifact_uuid})--(:SpectralRaw)--(:Process)--(spec_proc:SpectralProcessed {path: $input_spectral_path})
         MERGE (proc:Process {stage: "REG",
-        datetime: $date_t,
+        start_time: $date_t,
         slurm_id: $slurm_id,
         status: "submitted"})
         MERGE (reg:Registered {path: $registered_img_path})
@@ -682,17 +683,29 @@ class PhercGraphDatabaseLoader:
         Returns:
             The updated process node
         """
-        query = f"""
-        MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:STAGE_OF]-(proc:Process {{stage: $stage}})
-        SET proc.{property_name} = $value
-        RETURN proc
-        """
-
-        params = {
-            "pipeline_id": pipeline_id,
-            "stage": stage,
-            "value": value
-        }
+        if property_name == "status" and value in ("completed", "failed"):
+            query = f"""
+            MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:STAGE_OF]-(proc:Process {{stage: $stage}})
+            SET proc.{property_name} = $value, proc.end_time = $end_time
+            RETURN proc
+            """
+            params = {
+                "pipeline_id": pipeline_id,
+                "stage": stage,
+                "value": value,
+                "end_time": datetime.now().isoformat()
+            }
+        else:
+            query = f"""
+            MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:STAGE_OF]-(proc:Process {{stage: $stage}})
+            SET proc.{property_name} = $value
+            RETURN proc
+            """
+            params = {
+                "pipeline_id": pipeline_id,
+                "stage": stage,
+                "value": value
+            }
 
         proc_node = self._run_query(query, **params)
 

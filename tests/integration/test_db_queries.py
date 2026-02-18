@@ -194,6 +194,12 @@ class TestPhercDbQueries(unittest.TestCase):
         result = self.query_runner.get_pipeline_status("20251222-389")
         self.assertIsNotNone(result)
         self.assertIsInstance(result, list)
+        for p in result:
+            self.assertIn('start_time', p)
+            self.assertIn('end_time', p)
+            self.assertIn('stage', p)
+            self.assertIn('status', p)
+            self.assertIn('slurm_id', p)
         print(f"[get_pipeline_status '20251222-389'] Found {len(result)} stage(s): {result}")
 
     def test_get_pipeline_status_three_stages_completed(self):
@@ -208,6 +214,8 @@ class TestPhercDbQueries(unittest.TestCase):
         self.assertNotIn('WEB', stages)
         for p in result:
             self.assertEqual(p['status'], 'completed')
+            self.assertIn('start_time', p)
+            self.assertIsNotNone(p['end_time'], f"end_time should be set for completed stage {p['stage']}")
         print(f"[get_pipeline_status '20260203-TEST6'] Found {len(result)} stage(s): {result}")
 
     def test_get_all_pipeline_summaries(self):
@@ -216,7 +224,7 @@ class TestPhercDbQueries(unittest.TestCase):
         self.assertIsInstance(result, list)
         # Check structure of each summary
         for summary in result:
-            self.assertIn('datetime', summary)
+            self.assertIn('start_time', summary)
             self.assertIn('dataset_name', summary)
             self.assertIn('artifact_uuid', summary)
             self.assertIn('pipeline_id', summary)

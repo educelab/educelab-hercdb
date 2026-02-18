@@ -441,7 +441,7 @@ class GraphDBConnection:
         records, _, _ = self._run_query("""
             MATCH (p:Pipeline {pipeline_id: $pipeline_id})<-[:STAGE_OF]-(proc:Process)
             RETURN proc
-            ORDER BY proc.datetime
+            ORDER BY proc.start_time
             """, pipeline_id=pipeline_id)
 
         if not records:
@@ -450,11 +450,13 @@ class GraphDBConnection:
         processes = []
         for record in records:
             proc = record['proc']
+            end_time = proc.get('end_time')
             processes.append({
-                'datetime': str(proc.get('datetime', '')),
+                'start_time': str(proc.get('start_time', '')),
                 'stage': proc.get('stage', ''),
                 'status': proc.get('status', ''),
-                'slurm_id': str(proc.get('slurm_id', ''))
+                'slurm_id': str(proc.get('slurm_id', '')),
+                'end_time': str(end_time) if end_time else None
             })
 
         return processes
@@ -550,7 +552,7 @@ class GraphDBConnection:
 
         Returns:
             list: List of dicts with keys:
-                - datetime: Most recent process timestamp
+                - start_time: Most recent process start_time timestamp
                 - dataset_name: Human-readable artifact name
                 - artifact_uuid: UUID of the associated EduceLabID
                 - pipeline_id: Pipeline identifier
@@ -594,15 +596,15 @@ class GraphDBConnection:
             # Compute overall status
             status = self._compute_pipeline_status(processes)
 
-            # Find most recent datetime
+            # Find most recent start_time
             most_recent_datetime = ''
             for proc in processes:
-                dt = proc.get('datetime', '')
+                dt = proc.get('start_time', '')
                 if dt and (not most_recent_datetime or str(dt) > most_recent_datetime):
                     most_recent_datetime = str(dt)
 
             summaries.append({
-                'datetime': most_recent_datetime,
+                'start_time': most_recent_datetime,
                 'dataset_name': dataset_name,
                 'artifact_uuid': artifact_uuid or '',
                 'pipeline_id': pipeline_id,

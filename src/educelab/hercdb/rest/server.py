@@ -426,6 +426,11 @@ async def get_pipeline_stages(pipeline_id: str, user: str = Depends(get_current_
     logger.info(f"User {user} requested pipeline stages for: {pipeline_id}")
     result = db.get_pipeline_status(pipeline_id)
     if result:
+        # Rename 'stage' -> 'proc_type' for the client API.
+        # Internally and in the DB the property is called 'stage' (e.g. "PGS", "SPEC").
+        # The client uses 'proc_type' to avoid ambiguity with pipeline stage ordering.
+        for proc in result:
+            proc['proc_type'] = proc.pop('stage')
         return JSONResponse(content=result, status_code=200)
     else:
         raise HTTPException(status_code=404, detail=f"No pipeline found with ID '{pipeline_id}'")
