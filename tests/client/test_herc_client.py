@@ -92,10 +92,10 @@ print("\n/pipelines/20260203-TEST6/stages via client (3-stage completed):")
 stages = client.get_pipeline_stages("20260203-TEST6")
 print(f"  Found {len(stages)} stage(s)")
 assert len(stages) == 3, f"Expected 3 stages but got {len(stages)}"
-assert 'WEB' not in [s['stage'] for s in stages], "WEB stage should not be present"
+assert 'WEB' not in [s['proc_type'] for s in stages], "WEB stage should not be present"
 assert all(s['status'] == 'completed' for s in stages), "All stages should be completed"
 for s in stages:
-    print(f"    [{s['stage']}] {s['status']}")
+    print(f"    [{s['proc_type']}] {s['status']}")
 print("  ✓ 3 stages, all completed, no WEB")
 
 # --- get_pipelines ---

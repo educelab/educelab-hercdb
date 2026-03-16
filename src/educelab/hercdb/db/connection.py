@@ -798,6 +798,229 @@ class GraphDBConnection:
 
         return results
 
+    def initialize_pipeline(self, pipeline_id: str, artifact_uuid: str, datetime: str) -> dict | None:
+        """Create a Pipeline node and link it to an EduceLabID."""
+        records, _, _ = self._run_query("""
+            MATCH (e:EduceLabID {uuid: $artifact_uuid})
+            MERGE (p:Pipeline {pipeline_id: $pipeline_id})
+            SET p.datetime = $datetime
+            MERGE (p)-[:FOR]->(e)
+            RETURN p, e.uuid AS artifact_uuid
+            """, pipeline_id=pipeline_id, artifact_uuid=artifact_uuid, datetime=datetime)
+
+        if not records:
+            return None
+        record = records[0]
+        pipeline = dict(record['p'])
+        return {
+            'pipeline_id': pipeline.get('pipeline_id'),
+            'artifact_uuid': record['artifact_uuid'],
+            'datetime': pipeline.get('datetime'),
+        }
+
+    def initialize_process(self, pipeline_id: str, proc_type: str, input_dataset_paths: list[str],
+                           output_dataset_path: str, slurm_id: str, start_datetime: str) -> dict | None:
+        """Create a Process node linked to input/output datasets and a Pipeline.
+
+        Args:
+            pipeline_id: Pipeline to attach the process to.
+            proc_type: One of PGS, SPEC, REG, WEB.
+            input_dataset_paths: List of input dataset paths.
+            output_dataset_path: Path for the output dataset node.
+            slurm_id: Slurm job ID.
+            start_datetime: ISO datetime string for start time.
+
+        Returns:
+            Dict with process info, or None on failure.
+        """
+        base_params = {
+            "pipeline_id": pipeline_id,
+            "slurm_id": slurm_id,
+            "start_datetime": start_datetime,
+            "output_path": output_dataset_path,
+        }
+
+        if proc_type == "PGS":
+            query = """
+            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})-[:FOR]->(e:EduceLabID)
+            MATCH (e)<-[:BELONGS_TO]-(input:PGSRaw {path: $input_path})
+            MERGE (proc:Process {stage: "PGS", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
+            MERGE (output:PGSProcessed {path: $output_path})
+            MERGE (input)-[:INPUT]->(proc)-[:OUTPUT]->(output)
+            MERGE (proc)-[:STAGE_OF]->(ppline)
+            RETURN proc
+            """
+            base_params["input_path"] = input_dataset_paths[0]
+
+        elif proc_type == "SPEC":
+            query = """
+            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})-[:FOR]->(e:EduceLabID)
+            MATCH (e)<-[:BELONGS_TO]-(input:SpectralRaw {path: $input_path})
+            MERGE (proc:Process {stage: "SPEC", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
+            MERGE (output:SpectralProcessed {path: $output_path})
+            MERGE (input)-[:INPUT]->(proc)-[:OUTPUT]->(output)
+            MERGE (proc)-[:STAGE_OF]->(ppline)
+            RETURN proc
+            """
+            base_params["input_path"] = input_dataset_paths[0]
+
+        elif proc_type == "REG":
+            query = """
+            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})<-[:STAGE_OF]-(:Process)--(pg_proc:PGSProcessed {path: $input_pgs_path})
+            MATCH (ppline)<-[:STAGE_OF]-(:Process)--(spec_proc:SpectralProcessed {path: $input_spec_path})
+            MERGE (proc:Process {stage: "REG", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
+            MERGE (reg:Registered {path: $output_path})
+            MERGE (pg_proc)-[:INPUT]->(proc)<-[:INPUT]-(spec_proc)
+            MERGE (proc)-[:OUTPUT]->(reg)
+            MERGE (proc)-[:STAGE_OF]->(ppline)
+            RETURN proc
+            """
+            base_params["input_pgs_path"] = input_dataset_paths[0]
+            base_params["input_spec_path"] = input_dataset_paths[1]
+
+        elif proc_type == "WEB":
+            query = """
+            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})<-[:STAGE_OF]-(:Process)--(reg:Registered {path: $input_path})
+            MERGE (proc:Process {stage: "WEB", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
+            MERGE (web:WebProcessed {path: $output_path})
+            MERGE (reg)-[:INPUT]->(proc)-[:OUTPUT]->(web)
+            MERGE (proc)-[:STAGE_OF]->(ppline)
+            RETURN proc
+            """
+            base_params["input_path"] = input_dataset_paths[0]
+
+        else:
+            self.logger.error("Unsupported proc_type: %s", proc_type)
+            return None
+
+        records, _, _ = self._run_query(query, **base_params)
+
+        if not records:
+            return None
+        proc = dict(records[0]['proc'])
+        return {
+            'stage': proc.get('stage', ''),
+            'slurm_id': str(proc.get('slurm_id', '')),
+            'start_time': str(proc.get('start_time', '')),
+            'status': proc.get('status', ''),
+        }
+
+    def update_process_status(self, pipeline_id: str, stage: str, status: str, end_datetime: str) -> dict | None:
+        """Update the status and end_time of a process in a pipeline.
+
+        Args:
+            pipeline_id: The pipeline ID.
+            stage: The process stage (PGS, SPEC, REG, WEB).
+            status: New status (completed or failed).
+            end_datetime: ISO datetime string for end time.
+
+        Returns:
+            Dict with updated process info, or None on failure.
+        """
+        records, _, _ = self._run_query("""
+            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})<-[:STAGE_OF]-(proc:Process {stage: $stage})
+            SET proc.status = $status, proc.end_time = $end_datetime
+            RETURN proc
+            """, pipeline_id=pipeline_id, stage=stage, status=status, end_datetime=end_datetime)
+
+        if not records:
+            return None
+        proc = dict(records[0]['proc'])
+        return {
+            'stage': proc.get('stage', ''),
+            'slurm_id': str(proc.get('slurm_id', '')),
+            'start_time': str(proc.get('start_time', '')),
+            'end_time': str(proc.get('end_time', '')) if proc.get('end_time') else None,
+            'status': proc.get('status', ''),
+        }
+
+    def delete_pipeline(self, pipeline_id: str) -> dict | None:
+        """Delete a Pipeline and all its Process nodes and output dataset nodes.
+
+        Removes the Pipeline node, every Process linked via STAGE_OF, and every
+        output dataset node (PGSProcessed, SpectralProcessed, Registered,
+        WebProcessed) produced by those processes.  Input datasets (PGSRaw,
+        SpectralRaw, etc.) are NOT deleted.
+
+        Returns:
+            Dict with pipeline_id and counts of deleted nodes, or None if the
+            pipeline was not found.
+        """
+        records, _, _ = self._run_query("""
+            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})
+            OPTIONAL MATCH (ppline)<-[:STAGE_OF]-(proc:Process)
+            OPTIONAL MATCH (proc)-[:OUTPUT]->(out)
+            WITH ppline, collect(DISTINCT proc) AS procs, collect(DISTINCT out) AS outs
+            WITH ppline, procs, outs,
+                 size(procs) AS proc_count, size(outs) AS out_count
+            FOREACH (o IN outs | DETACH DELETE o)
+            FOREACH (p IN procs | DETACH DELETE p)
+            DETACH DELETE ppline
+            RETURN $pipeline_id AS pipeline_id, proc_count, out_count
+            """, pipeline_id=pipeline_id)
+
+        if not records:
+            return None
+        record = records[0]
+        return {
+            'pipeline_id': record['pipeline_id'],
+            'processes_deleted': record['proc_count'],
+            'output_datasets_deleted': record['out_count'],
+        }
+
+    def get_pipeline_confirmation(self, pipeline_id: str) -> dict | None:
+        """Return full pipeline summary with all stages.
+
+        Args:
+            pipeline_id: The pipeline ID.
+
+        Returns:
+            Dict with pipeline_id, artifact_uuid, date, status, and stages list.
+            Returns None if the pipeline is not found.
+        """
+        records, _, _ = self._run_query("""
+            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})
+            OPTIONAL MATCH (ppline)-[:FOR]->(e:EduceLabID)
+            OPTIONAL MATCH (ppline)<-[:STAGE_OF]-(proc:Process)
+            RETURN ppline, e.uuid AS artifact_uuid, collect(proc) AS processes
+            """, pipeline_id=pipeline_id)
+
+        if not records:
+            return None
+
+        record = records[0]
+        pipeline = dict(record['ppline'])
+
+        if not pipeline:
+            return None
+
+        processes = []
+        for proc_node in record['processes']:
+            proc = dict(proc_node)
+            end_time = proc.get('end_time')
+            processes.append({
+                'proc_type': proc.get('stage', ''),
+                'slurm_id': str(proc.get('slurm_id', '')),
+                'start_time': str(proc.get('start_time', '')),
+                'end_time': str(end_time) if end_time else None,
+                'status': proc.get('status', ''),
+            })
+
+        # Sort by start_time
+        processes.sort(key=lambda p: p['start_time'])
+
+        # Compute overall status using existing helper (needs stage key)
+        status_input = [{'stage': p['proc_type'], 'status': p['status']} for p in processes]
+        overall_status = self._compute_pipeline_status(status_input)
+
+        return {
+            'pipeline_id': pipeline.get('pipeline_id'),
+            'artifact_uuid': record['artifact_uuid'] or '',
+            'datetime': pipeline.get('datetime', ''),
+            'status': overall_status,
+            'stages': processes,
+        }
+
     @staticmethod
     def records_to_label_json(records) -> dict:
         """Convert Neo4j records (org_node + attached_nodes) to a label-keyed dict."""

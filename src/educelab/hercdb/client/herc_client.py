@@ -35,6 +35,9 @@ class HercClient:
     def _post(self, path: str, **kwargs) -> requests.Response:
         return self._request("POST", path, **kwargs)
 
+    def _put(self, path: str, **kwargs) -> requests.Response:
+        return self._request("PUT", path, **kwargs)
+
     # -- public API --------------------------------------------------------
 
     def check_token(self) -> dict:
@@ -146,6 +149,10 @@ class HercClient:
         resp.raise_for_status()
         return resp.json()
 
+    def get_artifact(self, uuid: str) -> dict:
+        """Get the display name for an artifact by its UUID."""
+        return self._get(f"/artifacts/{uuid}").json()
+
     def get_datasets_for_educelabid(
         self,
         uuid: str,
@@ -188,3 +195,80 @@ class HercClient:
     def get_pipeline_stages(self, pipeline_id: str) -> list[dict]:
         """Get all process stages for a given pipeline."""
         return self._get(f"/pipelines/{pipeline_id}/stages").json()
+
+    def initialize_pipeline(self, pipeline_id: str, artifact_uuid: str, datetime: str) -> dict:
+        """Create a new pipeline linked to an EduceLabID.
+
+        Args:
+            pipeline_id: Unique identifier for the pipeline.
+            artifact_uuid: UUID of the EduceLabID to link to.
+            datetime: ISO datetime string (e.g. 2026-02-18T12:18:21.726912).
+        """
+        return self._post("/pipelines", json={
+            "pipeline_id": pipeline_id,
+            "artifact_uuid": artifact_uuid,
+            "datetime": datetime,
+        }).json()
+
+    def initialize_process(
+        self,
+        pipeline_id: str,
+        proc_type: str,
+        input_dataset_paths: list[str],
+        output_dataset_path: str,
+        slurm_id: str,
+        start_datetime: str,
+    ) -> dict:
+        """Create a new process (stage) within a pipeline.
+
+        Args:
+            pipeline_id: Pipeline to attach the process to.
+            proc_type: One of PGS, SPEC, REG, WEB.
+            input_dataset_paths: List of input dataset paths.
+            output_dataset_path: Path for the output dataset.
+            slurm_id: Slurm job ID.
+            start_datetime: ISO datetime string for start time.
+        """
+        return self._post(f"/pipelines/{pipeline_id}/processes", json={
+            "proc_type": proc_type,
+            "input_dataset_paths": input_dataset_paths,
+            "output_dataset_path": output_dataset_path,
+            "slurm_id": slurm_id,
+            "start_datetime": start_datetime,
+        }).json()
+
+    def update_process_status(
+        self,
+        pipeline_id: str,
+        proc_type: str,
+        status: str,
+        end_datetime: str,
+    ) -> dict:
+        """Update the status of a process in a pipeline.
+
+        Args:
+            pipeline_id: The pipeline ID.
+            proc_type: The process type (PGS, SPEC, REG, WEB).
+            status: New status (completed or failed).
+            end_datetime: ISO datetime string for end time.
+        """
+        return self._put(f"/pipelines/{pipeline_id}/processes/{proc_type}/status", json={
+            "status": status,
+            "end_datetime": end_datetime,
+        }).json()
+
+    def delete_pipeline(self, pipeline_id: str) -> dict:
+        """Delete a pipeline and all its processes and output datasets.
+
+        Args:
+            pipeline_id: The pipeline ID to delete.
+        """
+        return self._request("DELETE", f"/pipelines/{pipeline_id}").json()
+
+    def get_pipeline_confirmation(self, pipeline_id: str) -> dict:
+        """Get full pipeline summary with all stages.
+
+        Args:
+            pipeline_id: The pipeline ID.
+        """
+        return self._get(f"/pipelines/{pipeline_id}/confirmation").json()

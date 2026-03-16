@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, Depends, Query, status
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 from educelab import hercdb
 from educelab.hercdb.db import DatasetType
 
@@ -386,6 +387,17 @@ async def get_educelabids_for_pherc(
     return JSONResponse(content=educelabids, status_code=200)
 
 
+@app.get("/artifacts/{uuid}")
+async def get_artifact(uuid: str, user: str = Depends(get_current_user)):
+    """Get the display name for an artifact by its UUID."""
+    logger.info(f"User {user} called /artifacts/{uuid}")
+    artifact_info = db.find_artifact_name_by_uuid(uuid)
+    if not artifact_info:
+        raise HTTPException(status_code=404, detail=f"No artifact found for UUID '{uuid}'")
+    display_name = db._format_dataset_name(artifact_info)
+    return {"display_name": display_name}
+
+
 @app.get("/educelabid/{uuid}/datasets")
 async def get_datasets_for_educelabid(
     uuid: str,
@@ -441,4 +453,125 @@ async def get_pipelines(user: str = Depends(get_current_user)):
     """Get all pipelines with their status summaries."""
     logger.info(f"User {user} requested all pipelines")
     result = db.get_all_pipeline_summaries()
+    return JSONResponse(content=result, status_code=200)
+
+
+# --- Pipeline CRUD models ---
+
+class CreatePipelineRequest(BaseModel):
+    pipeline_id: str
+    artifact_uuid: str
+    datetime: str
+
+class CreateProcessRequest(BaseModel):
+    proc_type: str
+    input_dataset_paths: list[str]
+    output_dataset_path: str
+    slurm_id: str
+    start_datetime: str
+
+class UpdateProcessStatusRequest(BaseModel):
+    status: str
+    end_datetime: str
+
+
+# --- Pipeline CRUD endpoints ---
+
+@app.post("/pipelines")
+async def initialize_pipeline(body: CreatePipelineRequest, user: str = Depends(get_current_user)):
+    """Create a new pipeline linked to an EduceLabID."""
+    logger.info(f"User {user} creating pipeline: {body.pipeline_id}")
+    result = db.initialize_pipeline(body.pipeline_id, body.artifact_uuid, body.datetime)
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail=f"EduceLabID with uuid '{body.artifact_uuid}' not found",
+        )
+    return JSONResponse(content=result, status_code=201)
+
+
+@app.post("/pipelines/{pipeline_id}/processes")
+async def initialize_process(pipeline_id: str, body: CreateProcessRequest, user: str = Depends(get_current_user)):
+    """Create a new process (stage) within a pipeline."""
+    logger.info(f"User {user} creating process {body.proc_type} for pipeline {pipeline_id}")
+
+    valid_stages = ("PGS", "SPEC", "REG", "WEB")
+    if body.proc_type not in valid_stages:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid proc_type '{body.proc_type}'. Must be one of: {valid_stages}",
+        )
+
+    result = db.initialize_process(
+        pipeline_id=pipeline_id,
+        proc_type=body.proc_type,
+        input_dataset_paths=body.input_dataset_paths,
+        output_dataset_path=body.output_dataset_path,
+        slurm_id=body.slurm_id,
+        start_datetime=body.start_datetime,
+    )
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Pipeline '{pipeline_id}' not found or input dataset(s) not found",
+        )
+
+    # Rename stage -> proc_type for consistency with existing convention
+    result['proc_type'] = result.pop('stage')
+    return JSONResponse(content=result, status_code=201)
+
+
+@app.put("/pipelines/{pipeline_id}/processes/{proc_type}/status")
+async def update_process_status(
+    pipeline_id: str, proc_type: str, body: UpdateProcessStatusRequest,
+    user: str = Depends(get_current_user),
+):
+    """Update the status of a process in a pipeline."""
+    logger.info(f"User {user} updating {proc_type} status to {body.status} for pipeline {pipeline_id}")
+
+    valid_statuses = ("completed", "failed")
+    if body.status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{body.status}'. Must be one of: {valid_statuses}",
+        )
+
+    # Map proc_type back to stage for the DB layer
+    result = db.update_process_status(
+        pipeline_id=pipeline_id,
+        stage=proc_type,
+        status=body.status,
+        end_datetime=body.end_datetime,
+    )
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Process '{proc_type}' not found in pipeline '{pipeline_id}'",
+        )
+
+    # Rename stage -> proc_type for consistency
+    result['proc_type'] = result.pop('stage')
+    return JSONResponse(content=result, status_code=200)
+
+
+@app.delete("/pipelines/{pipeline_id}")
+async def delete_pipeline(pipeline_id: str, user: str = Depends(get_current_user)):
+    """Delete a pipeline and all its processes and output datasets."""
+    logger.info(f"User {user} deleting pipeline: {pipeline_id}")
+    result = db.delete_pipeline(pipeline_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"No pipeline found with ID '{pipeline_id}'")
+    return JSONResponse(content=result, status_code=200)
+
+
+@app.get("/pipelines/{pipeline_id}/confirmation")
+async def get_pipeline_confirmation(pipeline_id: str, user: str = Depends(get_current_user)):
+    """Get full pipeline summary with all stages."""
+    logger.info(f"User {user} requested confirmation for pipeline: {pipeline_id}")
+    result = db.get_pipeline_confirmation(pipeline_id)
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No pipeline found with ID '{pipeline_id}'",
+        )
     return JSONResponse(content=result, status_code=200)

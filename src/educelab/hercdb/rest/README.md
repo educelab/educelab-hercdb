@@ -40,6 +40,7 @@ Tokens are loaded from `~/.tokens`. Each line has the format `username = token`.
 | GET | `/pherc/{pherc_id}/datasets/{dataset_type}` | Get imaging datasets for a PHerc |
 | GET | `/pherc/{pherc_id}/all-datasets` | Get all datasets under a PHerc, grouped by artifact |
 | GET | `/pherc/{pherc_id}/educelabids` | List all EduceLabIDs under a PHerc |
+| GET | `/artifacts/{uuid}` | Get display name for an artifact by UUID |
 | GET | `/educelabid/{uuid}/datasets` | Get datasets for a specific EduceLabID |
 | POST | `/search` | Search for PHercs using multiple criteria |
 
@@ -49,6 +50,11 @@ Tokens are loaded from `~/.tokens`. Each line has the format `username = token`.
 |--------|------|-------------|
 | GET | `/pipelines` | Get all pipelines with status summaries |
 | GET | `/pipelines/{pipeline_id}/stages` | Get all process stages for a pipeline |
+| POST | `/pipelines` | Create a new pipeline linked to an EduceLabID |
+| POST | `/pipelines/{pipeline_id}/processes` | Create a process (PGS, SPEC, REG, WEB) within a pipeline |
+| PUT | `/pipelines/{pipeline_id}/processes/{proc_type}/status` | Update process status (completed/failed) |
+| DELETE | `/pipelines/{pipeline_id}` | Delete a pipeline, its processes, and output datasets |
+| GET | `/pipelines/{pipeline_id}/confirmation` | Get full pipeline summary with all stages |
 
 ## Endpoint Details
 
@@ -175,6 +181,26 @@ GET /pherc/1044/educelabids
 ]
 ```
 
+### GET /artifacts/{uuid}
+
+Returns the display name of a physical artifact (PHerc, Cornice, Pezzo) for the given UUID.
+
+**Example:**
+```
+GET /artifacts/85f7b1ea-e57a-5d98-b481-658d75ac2dcf
+```
+
+**Response:**
+```json
+{
+  "display_name": "PHerc10 Cornice 1"
+}
+```
+
+Returns `404` if no artifact is found for the UUID.
+
+---
+
 ### GET /educelabid/{uuid}/datasets
 
 Returns all datasets for a specific EduceLabID.
@@ -278,9 +304,115 @@ GET /pipelines/20251222-389/stages
 [
   {
     "datetime": "2025-01-15T10:00:00",
-    "stage": "PGS",
+    "proc_type": "PGS",
     "status": "completed",
     "slurm_id": "12345"
   }
 ]
+```
+
+### POST /pipelines
+
+Create a new pipeline linked to an EduceLabID.
+
+**Request body:**
+```json
+{
+  "pipeline_id": "20260312-001",
+  "artifact_uuid": "abc-123",
+  "datetime": "2026-03-12T10:00:00"
+}
+```
+
+**Response (201):**
+```json
+{
+  "pipeline_id": "20260312-001",
+  "artifact_uuid": "abc-123",
+  "datetime": "2026-03-12T10:00:00"
+}
+```
+
+### POST /pipelines/{pipeline_id}/processes
+
+Create a new process (stage) within a pipeline. Valid stages: `PGS`, `SPEC`, `REG`, `WEB`.
+
+**Request body:**
+```json
+{
+  "proc_type": "PGS",
+  "input_dataset_paths": ["Dailies/PGS/..."],
+  "output_dataset_path": "/processed/pgs/20260312-001",
+  "slurm_id": "88001",
+  "start_datetime": "2026-03-12T10:05:00"
+}
+```
+
+**Response (201):**
+```json
+{
+  "proc_type": "PGS",
+  "slurm_id": "88001",
+  "start_time": "2026-03-12T10:05:00",
+  "status": "submitted"
+}
+```
+
+### PUT /pipelines/{pipeline_id}/processes/{proc_type}/status
+
+Update the status of a process. Valid statuses: `completed`, `failed`.
+
+**Request body:**
+```json
+{
+  "status": "completed",
+  "end_datetime": "2026-03-12T11:00:00"
+}
+```
+
+**Response:**
+```json
+{
+  "proc_type": "PGS",
+  "slurm_id": "88001",
+  "start_time": "2026-03-12T10:05:00",
+  "end_time": "2026-03-12T11:00:00",
+  "status": "completed"
+}
+```
+
+### DELETE /pipelines/{pipeline_id}
+
+Delete a pipeline and all its processes and output dataset nodes. Input datasets (PGSRaw, SpectralRaw) are not deleted.
+
+**Response:**
+```json
+{
+  "pipeline_id": "20260312-001",
+  "processes_deleted": 4,
+  "output_datasets_deleted": 4
+}
+```
+
+### GET /pipelines/{pipeline_id}/confirmation
+
+Get a full pipeline summary including all stages.
+
+**Response:**
+```json
+{
+  "pipeline_id": "20260312-001",
+  "artifact_uuid": "abc-123",
+  "datetime": "2026-03-12T10:00:00",
+  "status": "completed",
+  "stages": [
+    {
+      "proc_type": "PGS",
+      "slurm_id": "88001",
+      "start_time": "2026-03-12T10:05:00",
+      "end_time": "2026-03-12T11:00:00",
+      "status": "completed"
+    }
+  ]
+}
 ```
