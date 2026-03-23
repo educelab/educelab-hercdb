@@ -4,11 +4,50 @@ FastAPI-based REST API for querying the Herculaneum Papyrus Scroll Database.
 
 ## Running the Server
 
+### Development
+
 ```shell
 uv run uvicorn educelab.hercdb.rest.server:app --reload
 ```
 
+The `--reload` flag watches for source file changes and automatically restarts the server. Only use this during development.
+
 Interactive docs are available at `/docs` (Swagger UI) and `/redoc` (ReDoc).
+
+### Production (systemd)
+
+A systemd service file is provided at `hercdb.service` for running the server as a daemon on Linux.
+
+1. Install dependencies on the server (skip dev dependencies to avoid build issues with `pyzmq`/`libzmq`):
+   ```bash
+   uv sync --no-dev
+   ```
+
+2. Copy and edit the service file:
+   ```bash
+   sudo cp hercdb.service /etc/systemd/system/hercdb.service
+   sudo nano /etc/systemd/system/hercdb.service
+   ```
+
+3. Set your `User`, `WorkingDirectory`, and `ExecStart` path. `ExecStart` should point to the `uvicorn` binary inside the venv:
+   ```
+   ExecStart=/path/to/educelab-hercdb/.venv/bin/uvicorn educelab.hercdb.rest.server:app --host 0.0.0.0 --port 8000
+   ```
+
+4. Enable and start the service:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable hercdb    # start on boot
+   sudo systemctl start hercdb     # start now
+   ```
+
+5. Check status and logs:
+   ```bash
+   sudo systemctl status hercdb
+   journalctl -u hercdb -f
+   ```
+
+The service reads Neo4j credentials from `~/.educedb` (under the service user's home directory). Alternatively, add `Environment=` lines to the service file for `EDUCEDB_URI`, `EDUCEDB_USER`, and `EDUCEDB_PASSWORD`.
 
 ## Authentication
 

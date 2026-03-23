@@ -1,0 +1,13 @@
+[Unit]
+Description=HercDB REST API
+After=network.target
+
+[Service]
+User=your_user
+WorkingDirectory=/path/to/educelab-hercdb
+ExecStart=/path/to/educelab-hercdb/.venv/bin/uvicorn educelab.hercdb.rest.server:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

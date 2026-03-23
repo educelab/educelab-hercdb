@@ -398,14 +398,14 @@ class GraphDBConnection:
         if newest_completed:
             query = base_query + """
                 AND n.complete = "True"
-                WITH n ORDER BY datetime(n.date_end) DESC
-                RETURN n LIMIT 1
+                WITH e, n ORDER BY datetime(n.date_end) DESC
+                RETURN n, e.uuid AS educelabid_uuid LIMIT 1
             """
         else:
             query = base_query + """
-                RETURN n
+                RETURN n, e.uuid AS educelabid_uuid
             """
-        
+
         records, summary, keys = self._run_query(query, **params)
 
         if not records:
@@ -414,8 +414,9 @@ class GraphDBConnection:
         if properties_only:
             properties = []
             for record in records:
-                dataset = record[0]
-                properties.append(dict(dataset))
+                dataset = dict(record["n"])
+                dataset["educelabid_uuid"] = record["educelabid_uuid"]
+                properties.append(dataset)
 
             return properties
 

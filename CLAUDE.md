@@ -39,9 +39,19 @@ uv run tests/integration/test_pipeline_loader.py
 
 ### Running the REST API Server
 ```bash
-# Start the FastAPI server
+# Start the FastAPI server (development, with auto-reload)
 uv run uvicorn educelab.hercdb.rest.server:app --reload
 ```
+
+### Deploying the REST API Server (Production)
+
+A systemd service file is provided at `src/educelab/hercdb/rest/hercdb.service` for running the server as a daemon on Linux. Copy it to `/etc/systemd/system/`, update the `User`, `WorkingDirectory`, and `ExecStart` paths, then:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable hercdb
+sudo systemctl start hercdb
+```
+The service reads Neo4j credentials from `~/.educedb`. See `src/educelab/hercdb/rest/README.md` for full setup instructions.
 
 ### Database Configuration
 
@@ -75,6 +85,7 @@ educelab-hercdb/
 │   ├── rest/                 # REST API layer
 │   │   ├── __init__.py
 │   │   ├── server.py         # FastAPI app and routes
+│   │   ├── hercdb.service    # systemd service file for production deployment
 │   │   └── README.md
 │   │
 │   ├── client/               # REST API Python client
