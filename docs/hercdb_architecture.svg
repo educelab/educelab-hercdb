@@ -1,0 +1,103 @@
+<svg width="800" viewBox="0 0 680 640" xmlns="http://www.w3.org/2000/svg" font-family="Arial, Helvetica, sans-serif">
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <style>
+    .th { font-size: 14px; font-weight: 600; fill: #2C2C2A; }
+    .ts { font-size: 12px; font-weight: 400; fill: #5F5E5A; }
+    .box-gray-outer { fill: #F1EFE8; stroke: #888780; stroke-width: 0.5; }
+    .box-purple { fill: #EEEDFE; stroke: #534AB7; stroke-width: 0.5; }
+    .box-purple-inner { fill: #CECBF6; stroke: #534AB7; stroke-width: 0.5; }
+    .box-teal { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 0.5; }
+    .box-coral { fill: #FAECE7; stroke: #993C1D; stroke-width: 0.5; }
+    .box-blue { fill: #E6F1FB; stroke: #185FA5; stroke-width: 0.5; }
+    .label-purple { fill: #3C3489; }
+    .label-teal { fill: #085041; }
+    .label-coral { fill: #712B13; }
+    .label-blue { fill: #0C447C; }
+    .label-sub-purple { fill: #534AB7; }
+    .label-sub-teal { fill: #0F6E56; }
+    .label-sub-coral { fill: #993C1D; }
+    .label-sub-blue { fill: #185FA5; }
+  </style>
+</defs>
+
+<!-- OpenStack VM outer container -->
+<rect x="30" y="30" width="390" height="575" rx="16" class="box-gray-outer"/>
+<text class="ts" x="46" y="54">OpenStack VM</text>
+
+<!-- Neo4j -->
+<rect x="130" y="505" width="190" height="52" rx="8" class="box-teal"/>
+<text class="th label-teal" x="225" y="526" text-anchor="middle" dominant-baseline="central">Neo4j</text>
+<text class="ts label-sub-teal" x="225" y="544" text-anchor="middle" dominant-baseline="central">community edition · port 7687</text>
+
+<!-- educelab-hercdb app container -->
+<rect x="55" y="235" width="340" height="230" rx="12" class="box-purple" fill-opacity="0.4"/>
+<text class="ts label-sub-purple" x="72" y="257">educelab-hercdb</text>
+
+<!-- GraphDB API -->
+<rect x="148" y="368" width="155" height="52" rx="8" class="box-purple-inner"/>
+<text class="th label-purple" x="225" y="389" text-anchor="middle" dominant-baseline="central">GraphDB API</text>
+<text class="ts label-sub-purple" x="225" y="407" text-anchor="middle" dominant-baseline="central">db/connection.py</text>
+
+<!-- FastAPI REST -->
+<rect x="220" y="273" width="155" height="52" rx="8" class="box-purple-inner"/>
+<text class="th label-purple" x="297" y="289" text-anchor="middle" dominant-baseline="central">FastAPI REST</text>
+<text class="ts label-sub-purple" x="297" y="305" text-anchor="middle" dominant-baseline="central">rest/server.py · port 8000</text>
+
+<!-- Loader -->
+<rect x="68" y="368" width="62" height="52" rx="8" class="box-purple-inner"/>
+<text class="th label-purple" x="99" y="389" text-anchor="middle" dominant-baseline="central">Loader</text>
+<text class="ts label-sub-purple" x="99" y="407" text-anchor="middle" dominant-baseline="central">loader/</text>
+
+<!-- Pipeline GUI -->
+<rect x="75" y="105" width="175" height="80" rx="8" class="box-coral"/>
+<text class="th label-coral" x="162" y="131" text-anchor="middle" dominant-baseline="central">Pipeline GUI</text>
+<text class="ts label-sub-coral" x="162" y="150" text-anchor="middle" dominant-baseline="central">Flask · port 5001</text>
+<text class="ts label-sub-coral" x="162" y="167" text-anchor="middle" dominant-baseline="central">same VM (currently)</text>
+
+<!-- HPC / Slurm -->
+<rect x="460" y="60" width="195" height="80" rx="8" class="box-blue"/>
+<text class="th label-blue" x="557" y="86" text-anchor="middle" dominant-baseline="central">HPC cluster</text>
+<text class="ts label-sub-blue" x="557" y="104" text-anchor="middle" dominant-baseline="central">Slurm script</text>
+<text class="ts label-sub-blue" x="557" y="122" text-anchor="middle" dominant-baseline="central">+ HercClient lib</text>
+
+<!-- Other server -->
+<rect x="460" y="185" width="195" height="60" rx="8" class="box-blue"/>
+<text class="th label-blue" x="557" y="206" text-anchor="middle" dominant-baseline="central">Other server</text>
+<text class="ts label-sub-blue" x="557" y="224" text-anchor="middle" dominant-baseline="central">REST API calls</text>
+
+<!-- Human / script -->
+<rect x="460" y="295" width="195" height="60" rx="8" class="box-blue"/>
+<text class="th label-blue" x="557" y="316" text-anchor="middle" dominant-baseline="central">Human / script</text>
+<text class="ts label-sub-blue" x="557" y="334" text-anchor="middle" dominant-baseline="central">HercClient or HTTP</text>
+
+<!-- Internal call: FastAPI -> GraphDB API -->
+<path d="M297 325 L297 350 L225 350 L225 368" fill="none" stroke="#888780" stroke-width="1" stroke-dasharray="3 2" marker-end="url(#arrow)"/>
+
+<!-- Bolt/Cypher: GraphDB API -> Neo4j -->
+<path d="M225 420 L225 505" fill="none" stroke="#0F6E56" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- Bolt/Cypher: Loader -> Neo4j -->
+<path d="M99 420 L99 480 L195 480 L195 505" fill="none" stroke="#0F6E56" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+<!-- Internal HTTP: Pipeline GUI -> FastAPI -->
+<path d="M200 185 L200 215 L297 215 L297 273" fill="none" stroke="#993C1D" stroke-width="1.2" stroke-dasharray="6 3" marker-end="url(#arrow)"/>
+
+<!-- External HTTP REST: HPC -> FastAPI -->
+<path d="M460 105 L390 105 L390 289 L375 289" fill="none" stroke="#185FA5" stroke-width="1.2" marker-end="url(#arrow)"/>
+<!-- External HTTP REST: Other server -> FastAPI -->
+<path d="M460 215 L400 215 L400 299 L375 299" fill="none" stroke="#185FA5" stroke-width="1.2" marker-end="url(#arrow)"/>
+<!-- External HTTP REST: Human -> FastAPI -->
+<path d="M460 325 L420 325 L420 309 L375 309" fill="none" stroke="#185FA5" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+<!-- Legend -->
+<line x1="36" y1="626" x2="58" y2="626" stroke="#0F6E56" stroke-width="1.5"/>
+<text class="ts" x="63" y="630">Bolt / Cypher</text>
+<line x1="168" y1="626" x2="190" y2="626" stroke="#993C1D" stroke-width="1.2" stroke-dasharray="5 3"/>
+<text class="ts" x="195" y="630">Internal HTTP</text>
+<line x1="313" y1="626" x2="335" y2="626" stroke="#185FA5" stroke-width="1.2"/>
+<text class="ts" x="340" y="630">External HTTP REST</text>
+<line x1="478" y1="626" x2="500" y2="626" stroke="#888780" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="ts" x="505" y="630">Internal call</text>
+</svg>

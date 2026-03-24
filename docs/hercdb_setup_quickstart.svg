@@ -1,0 +1,146 @@
+<svg width="800" viewBox="0 0 680 860" xmlns="http://www.w3.org/2000/svg" font-family="Arial, Helvetica, sans-serif">
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <style>
+    .th { font-size: 14px; font-weight: 600; }
+    .ts { font-size: 12px; font-weight: 400; }
+    .teal-fill   { fill: #E1F5EE; stroke: #0F6E56; }
+    .purple-fill { fill: #EEEDFE; stroke: #534AB7; }
+    .coral-fill  { fill: #FAECE7; stroke: #993C1D; }
+    .blue-fill   { fill: #E6F1FB; stroke: #185FA5; }
+    .gray-fill   { fill: #F1EFE8; stroke: #888780; }
+    .th-teal     { fill: #085041; }
+    .th-purple   { fill: #3C3489; }
+    .th-coral    { fill: #712B13; }
+    .th-blue     { fill: #0C447C; }
+    .th-gray     { fill: #444441; }
+    .ts-teal     { fill: #0F6E56; }
+    .ts-purple   { fill: #534AB7; }
+    .ts-coral    { fill: #993C1D; }
+    .ts-blue     { fill: #185FA5; }
+    .ts-gray     { fill: #5F5E5A; }
+  </style>
+</defs>
+
+<!-- Column headers -->
+<rect x="40" y="40" width="170" height="36" rx="8" stroke-width="0.5" class="teal-fill"/>
+<text class="th th-teal" x="125" y="58" text-anchor="middle" dominant-baseline="central">1. Neo4j</text>
+
+<rect x="230" y="40" width="170" height="36" rx="8" stroke-width="0.5" class="purple-fill"/>
+<text class="th th-purple" x="315" y="58" text-anchor="middle" dominant-baseline="central">2. HercDB + REST</text>
+
+<rect x="420" y="40" width="170" height="36" rx="8" stroke-width="0.5" class="coral-fill"/>
+<text class="th th-coral" x="505" y="58" text-anchor="middle" dominant-baseline="central">3. Pipeline GUI</text>
+
+<!-- ── NEO4J LANE ── -->
+<rect x="40" y="100" width="170" height="56" rx="6" stroke-width="0.5" class="teal-fill"/>
+<text class="th th-teal" x="125" y="120" text-anchor="middle" dominant-baseline="central">Install Java + Neo4j</text>
+<text class="ts ts-teal" x="125" y="140" text-anchor="middle" dominant-baseline="central">openjdk-17, neo4j 5.22.0</text>
+<line x1="125" y1="156" x2="125" y2="180" stroke="#0F6E56" stroke-width="0.5" marker-end="url(#arrow)"/>
+
+<rect x="40" y="180" width="170" height="56" rx="6" stroke-width="0.5" class="teal-fill"/>
+<text class="th th-teal" x="125" y="200" text-anchor="middle" dominant-baseline="central">Set initial password</text>
+<text class="ts ts-teal" x="125" y="220" text-anchor="middle" dominant-baseline="central">neo4j-admin set-initial…</text>
+<line x1="125" y1="236" x2="125" y2="260" stroke="#0F6E56" stroke-width="0.5" marker-end="url(#arrow)"/>
+
+<rect x="40" y="260" width="170" height="56" rx="6" stroke-width="0.5" class="teal-fill"/>
+<text class="th th-teal" x="125" y="280" text-anchor="middle" dominant-baseline="central">Enable service</text>
+<text class="ts ts-teal" x="125" y="298" text-anchor="middle" dominant-baseline="central">systemctl enable neo4j</text>
+<line x1="125" y1="316" x2="125" y2="340" stroke="#0F6E56" stroke-width="0.5" marker-end="url(#arrow)"/>
+
+<rect x="40" y="340" width="170" height="44" rx="6" stroke-width="0.5" class="teal-fill"/>
+<text class="th th-teal" x="125" y="362" text-anchor="middle" dominant-baseline="central">Verify · port 7687</text>
+
+<!-- ── HERCDB LANE ── -->
+<rect x="230" y="100" width="170" height="56" rx="6" stroke-width="0.5" class="purple-fill"/>
+<text class="th th-purple" x="315" y="120" text-anchor="middle" dominant-baseline="central">Clone + install</text>
+<text class="ts ts-purple" x="315" y="140" text-anchor="middle" dominant-baseline="central">uv sync --extra server</text>
+<line x1="315" y1="156" x2="315" y2="180" stroke="#534AB7" stroke-width="0.5" marker-end="url(#arrow)"/>
+
+<rect x="230" y="180" width="170" height="56" rx="6" stroke-width="0.5" class="purple-fill"/>
+<text class="th th-purple" x="315" y="200" text-anchor="middle" dominant-baseline="central">Configure ~/.educedb</text>
+<text class="ts ts-purple" x="315" y="220" text-anchor="middle" dominant-baseline="central">uri, username, password</text>
+<line x1="315" y1="236" x2="315" y2="260" stroke="#534AB7" stroke-width="0.5" marker-end="url(#arrow)"/>
+
+<rect x="230" y="260" width="170" height="56" rx="6" stroke-width="0.5" class="purple-fill"/>
+<text class="th th-purple" x="315" y="280" text-anchor="middle" dominant-baseline="central">Create ~/.tokens</text>
+<text class="ts ts-purple" x="315" y="298" text-anchor="middle" dominant-baseline="central">user = token pairs</text>
+<line x1="315" y1="316" x2="315" y2="340" stroke="#534AB7" stroke-width="0.5" marker-end="url(#arrow)"/>
+
+<rect x="230" y="340" width="170" height="56" rx="6" stroke-width="0.5" class="purple-fill"/>
+<text class="th th-purple" x="315" y="360" text-anchor="middle" dominant-baseline="central">Install systemd service</text>
+<text class="ts ts-purple" x="315" y="378" text-anchor="middle" dominant-baseline="central">hercdb.service · port 8000</text>
+<line x1="315" y1="396" x2="315" y2="420" stroke="#534AB7" stroke-width="0.5" marker-end="url(#arrow)"/>
+
+<rect x="230" y="420" width="170" height="44" rx="6" stroke-width="0.5" class="purple-fill"/>
+<text class="th th-purple" x="315" y="442" text-anchor="middle" dominant-baseline="central">Verify · /check-token</text>
+
+<!-- ── PIPELINE GUI LANE ── -->
+<rect x="420" y="100" width="170" height="56" rx="6" stroke-width="0.5" class="coral-fill"/>
+<text class="th th-coral" x="505" y="120" text-anchor="middle" dominant-baseline="central">Clone + install</text>
+<text class="ts ts-coral" x="505" y="140" text-anchor="middle" dominant-baseline="central">uv sync</text>
+<line x1="505" y1="156" x2="505" y2="180" stroke="#993C1D" stroke-width="0.5" marker-end="url(#arrow)"/>
+
+<rect x="420" y="180" width="170" height="56" rx="6" stroke-width="0.5" class="coral-fill"/>
+<text class="th th-coral" x="505" y="200" text-anchor="middle" dominant-baseline="central">Configure .env</text>
+<text class="ts ts-coral" x="505" y="220" text-anchor="middle" dominant-baseline="central">API_BASE_URL, token, users</text>
+<line x1="505" y1="236" x2="505" y2="260" stroke="#993C1D" stroke-width="0.5" marker-end="url(#arrow)"/>
+
+<rect x="420" y="260" width="170" height="56" rx="6" stroke-width="0.5" class="coral-fill"/>
+<text class="th th-coral" x="505" y="280" text-anchor="middle" dominant-baseline="central">Install systemd service</text>
+<text class="ts ts-coral" x="505" y="298" text-anchor="middle" dominant-baseline="central">gunicorn · port 5001</text>
+<line x1="505" y1="316" x2="505" y2="340" stroke="#993C1D" stroke-width="0.5" marker-end="url(#arrow)"/>
+
+<rect x="420" y="340" width="170" height="44" rx="6" stroke-width="0.5" class="coral-fill"/>
+<text class="th th-coral" x="505" y="362" text-anchor="middle" dominant-baseline="central">Verify · port 5001</text>
+
+<!-- dependency arrows between lanes -->
+<path d="M210 316 L230 316" fill="none" stroke="#888780" stroke-width="0.5" stroke-dasharray="3 2" marker-end="url(#arrow)"/>
+<text class="ts ts-gray" x="220" y="310" text-anchor="middle">needs</text>
+<path d="M400 316 L420 316" fill="none" stroke="#888780" stroke-width="0.5" stroke-dasharray="3 2" marker-end="url(#arrow)"/>
+<text class="ts ts-gray" x="410" y="310" text-anchor="middle">needs</text>
+
+<!-- ── AUTH SUMMARY BOX ── -->
+<rect x="40" y="510" width="550" height="310" rx="12" stroke-width="0.5" class="gray-fill" fill-opacity="0.3"/>
+<text class="th th-gray" x="56" y="534" dominant-baseline="central">Auth summary</text>
+
+<!-- Table header -->
+<text class="ts th-gray" x="56"  y="572" dominant-baseline="central">Layer</text>
+<text class="ts th-gray" x="200" y="572" dominant-baseline="central">File / mechanism</text>
+<text class="ts th-gray" x="390" y="572" dominant-baseline="central">Who uses it</text>
+<line x1="56" y1="582" x2="574" y2="582" stroke="#888780" stroke-width="0.5"/>
+
+<!-- Row 1: Neo4j -->
+<rect x="56" y="592" width="130" height="28" rx="4" stroke-width="0.5" class="teal-fill"/>
+<text class="ts th-teal" x="121" y="606" text-anchor="middle" dominant-baseline="central">Neo4j Bolt auth</text>
+<text class="ts ts-gray" x="200" y="606" dominant-baseline="central">~/.educedb</text>
+<text class="ts ts-gray" x="390" y="606" dominant-baseline="central">HercDB server only</text>
+
+<!-- Row 2: HercDB REST tokens -->
+<rect x="56" y="630" width="130" height="28" rx="4" stroke-width="0.5" class="purple-fill"/>
+<text class="ts th-purple" x="121" y="644" text-anchor="middle" dominant-baseline="central">Bearer tokens</text>
+<text class="ts ts-gray" x="200" y="644" dominant-baseline="central">~/.tokens</text>
+<text class="ts ts-gray" x="390" y="644" dominant-baseline="central">All REST API clients</text>
+
+<!-- Row 3: Pipeline GUI session -->
+<rect x="56" y="668" width="130" height="28" rx="4" stroke-width="0.5" class="coral-fill"/>
+<text class="ts th-coral" x="121" y="682" text-anchor="middle" dominant-baseline="central">UI login</text>
+<text class="ts ts-gray" x="200" y="682" dominant-baseline="central">.env AUTH_USERS</text>
+<text class="ts ts-gray" x="390" y="682" dominant-baseline="central">Human browser users</text>
+
+<!-- Row 4: Pipeline → HercDB -->
+<rect x="56" y="706" width="130" height="28" rx="4" stroke-width="0.5" class="coral-fill"/>
+<text class="ts th-coral" x="121" y="720" text-anchor="middle" dominant-baseline="central">Backend token</text>
+<text class="ts ts-gray" x="200" y="720" dominant-baseline="central">.env API_BEARER_TOKEN</text>
+<text class="ts ts-gray" x="390" y="720" dominant-baseline="central">GUI → HercDB calls</text>
+
+<!-- Row 5: HPC clients -->
+<rect x="56" y="744" width="130" height="28" rx="4" stroke-width="0.5" class="blue-fill"/>
+<text class="ts th-blue" x="121" y="758" text-anchor="middle" dominant-baseline="central">HercClient token</text>
+<text class="ts ts-gray" x="200" y="758" dominant-baseline="central">token= arg / env var</text>
+<text class="ts ts-gray" x="390" y="758" dominant-baseline="central">Slurm / scripts</text>
+
+<text class="ts ts-gray" x="56" y="800" dominant-baseline="central">Generate tokens:  python3 -c "import secrets; print(secrets.token_hex(32))"</text>
+</svg>

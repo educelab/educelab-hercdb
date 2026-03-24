@@ -45,13 +45,7 @@ uv run uvicorn educelab.hercdb.rest.server:app --reload
 
 ### Deploying the REST API Server (Production)
 
-A systemd service file is provided at `src/educelab/hercdb/rest/hercdb.service` for running the server as a daemon on Linux. Copy it to `/etc/systemd/system/`, update the `User`, `WorkingDirectory`, and `ExecStart` paths, then:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable hercdb
-sudo systemctl start hercdb
-```
-The service reads Neo4j credentials from `~/.educedb`. See `src/educelab/hercdb/rest/README.md` for full setup instructions.
+For full server setup (Neo4j credentials, API tokens, systemd service), see `docs/SERVER_SETUP.md`. For a visual overview, see `docs/hercdb_setup_quickstart.svg`.
 
 ### Database Configuration
 
@@ -59,14 +53,6 @@ The package reads Neo4j connection settings from:
 1. Environment variables (highest priority): `EDUCEDB_URI`, `EDUCEDB_USER`, `EDUCEDB_PASSWORD`
 2. Config file at `~/.educedb` (TOML format)
 3. Interactive prompt via `hercdb.config.request_required()`
-
-Example `~/.educedb`:
-```toml
-[database]
-uri = "neo4j://localhost:7687"
-username = "neo4j"
-password = "your_password"
-```
 
 ## Architecture
 
