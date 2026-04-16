@@ -225,7 +225,7 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 
 ### Display Names vs Internal Names
 - Use `displayName` property for user-facing queries (e.g., "421", "118a")
-- Older `name` and `human_name` properties are deprecated
+- Older `name` property is deprecated; `human_name` is no longer set by current loaders
 - Methods marked "Soon to be deprecated" should be avoided in new code
 
 ### Naming Inconsistency: `stage` (Neo4j) vs `proc_type` (Python/REST)

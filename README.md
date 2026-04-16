@@ -136,6 +136,10 @@ uv run python src/educelab/hercdb/loader/scan_loader.py \
 
 **Note:** Run metadata_loader first since scan data links to EduceLabID nodes.
 
+## Temporary Scripts and Notes
+
+The `tmp/` directory contains temporary scripts, notes, and other informal resources shared among the team. Contents are version controlled but considered ephemeral — they may be rewritten or deleted at any time and should not be relied upon as stable code.
+
 ### Delete all data
 
 To clear the database before reloading:
