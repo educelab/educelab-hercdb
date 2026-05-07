@@ -123,6 +123,7 @@ dmypy.json
 test_data/
 scripts/data/
 input_data/
+tmp/
 
 # config, secret, local test files
 **token**
