@@ -66,18 +66,46 @@ class PhercGraphDatabaseLoader:
     #### For parsing UUID spreadsheet ####
     def look_up_object_by_uuid(self, uuid):
         # This method looks up an item by its UUID
-        # TODO: This does not work when there are multiple PHERC nodes. Maybe make it more generic.
+        # Walks up to 2 :HAS hops from the assigned node to find a PHerc or
+        # Casetta root, then returns whichever physical-object labels appear.
         records, summary, keys = self._run_query("""
-            MATCH path=(e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)<-[:HAS*0..2]-(ph:PHerc)
+            MATCH path=(e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)<-[:HAS*0..2]-(top)
+            WHERE top:PHerc OR top:Casetta
             UNWIND nodes(path) AS node
             RETURN labels(node) AS node_labels, node.displayName AS displayName
             """, uuid=uuid)
         item = {}
+        if not records:
+            return item
         for record in records:
-            if record['node_labels'][0] != 'EduceLabID':
-                item.update({f"{record['node_labels'][0]}": f"{record['displayName']}"})
-            
+            labels = record['node_labels']
+            if 'EduceLabID' in labels:
+                continue
+            # Multi-labelled nodes (e.g. :PHerc:Casetta) resolve under :PHerc
+            # so existing PHerc-anchored callers keep working unchanged.
+            for preferred in ('PHerc', 'Casetta', 'Cornice', 'Pezzo'):
+                if preferred in labels:
+                    item[preferred] = record['displayName']
+                    break
+
         return item
+
+    def set_alias_on_assigned_node(self, uuid, ph_name, alias_name):
+        """
+        UUID phase helper: when an EduceLabID is already assigned to a
+        Cornice/Pezzo (linked during the metadata phase), record the UUID
+        sheet's short name as `name` on the existing node instead of MERGE-
+        creating a duplicate keyed off a different displayName. Also sets
+        `name` on the ancestor PHerc/Casetta.
+        """
+        self._run_query("""
+            MATCH (e:EduceLabID {uuid: $uuid})-[:ASSIGNED_TO]->(n)
+            SET n.name = $alias_name
+            WITH n
+            OPTIONAL MATCH (n)<-[:HAS*1..2]-(p)
+            WHERE p:PHerc OR p:Casetta
+            SET p.name = $ph_name
+            """, uuid=uuid, alias_name=alias_name, ph_name=ph_name)
 
     # Add EduceLabID nodes
     # Each EduceLabID node has an id and a uuid
@@ -100,20 +128,41 @@ class PhercGraphDatabaseLoader:
     def set_pherc_and_cornice_names(self, uuid, pherc_display_name, pherc_name, cornice_name):
         records, summary, keys = self._run_query("""
             MATCH (e:EduceLabID {uuid:$uuid})
-            MATCH (ph:PHerc {displayName:$pherc_display_name})         
-            MERGE (e)-[:ASSIGNED_TO]->(c:Cornice)<-[:HAS]-(ph)
+            MATCH (ph:PHerc {displayName:$pherc_display_name})
+            MERGE (ph)-[:HAS]->(c:Cornice {displayName: $cornice_name})
+            MERGE (e)-[:ASSIGNED_TO]->(c)
             SET c.name = $cornice_name
-            SET ph.name = $pherc_name                                   
+            SET ph.name = $pherc_name
             """, uuid=uuid, pherc_display_name=pherc_display_name, cornice_name=cornice_name, pherc_name=pherc_name
         )    
 
     def set_ph_name(self, uuid, pherc_name):
-        records, summary, keys = self._run_query("""
-            MATCH (e:EduceLabID {uuid:$uuid})           
-            MERGE (e)-[:ASSIGNED_TO]->(ph:PHerc)
-            SET ph.name = $pherc_name                                   
+        """
+        UUID phase: record `pherc_name` as a `name` alias on the PHerc/Casetta
+        ancestor of whatever node the EduceLabID is :ASSIGNED_TO. The previous
+        version unconditionally MERGE-created `(e)-[:ASSIGNED_TO]->(:PHerc)`
+        without a displayName constraint, which produced phantom PHerc nodes
+        whenever the EduceLabID was already linked to a Cornice/Pezzo from the
+        metadata phase. If the EduceLabID has no PHerc/Casetta ancestor at
+        all, fall back to creating one keyed on pherc_name as displayName.
+        """
+        records, _, _ = self._run_query("""
+            MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)<-[:HAS*0..2]-(p)
+            WHERE p:PHerc OR p:Casetta
+            SET p.name = $pherc_name
+            RETURN count(p) AS matched
             """, uuid=uuid, pherc_name=pherc_name
-        )      
+        )
+        if records and records[0]['matched'] > 0:
+            return
+
+        # No PHerc/Casetta ancestor for this UUID — create one.
+        self._run_query("""
+            MATCH (e:EduceLabID {uuid:$uuid})
+            MERGE (e)-[:ASSIGNED_TO]->(ph:PHerc {displayName: $pherc_name})
+            SET ph.name = $pherc_name
+            """, uuid=uuid, pherc_name=pherc_name
+        )
 
     def add_pherc_and_cornice_nodes_from_uuid_sheet(self, uuid, pherc_name, cornice_name):
         records,summary, keys = self._run_query("""
@@ -139,17 +188,20 @@ class PhercGraphDatabaseLoader:
 
     # Add PHerc nodes
     # Each PHerc node has a name
-    def add_pherc_node(self, uuid, ph_display_name):
+    def add_pherc_node(self, uuid, ph_display_name, is_casetta=False):
+        casetta_set = "SET p:Casetta" if is_casetta else ""
         if uuid:
             # Very few cases where uuid is provided (currently only PHerc 72, 1362, 1363)
-            records, summary, keys = self._run_query("""
-                MERGE (e:EduceLabID {uuid: $uuid})
-                MERGE (p:PHerc {displayName: $ph_display_name})<-[:ASSIGNED_TO]-(e)
+            records, summary, keys = self._run_query(f"""
+                MERGE (e:EduceLabID {{uuid: $uuid}})
+                MERGE (p:PHerc {{displayName: $ph_display_name}})<-[:ASSIGNED_TO]-(e)
+                {casetta_set}
                 """, ph_display_name=ph_display_name, uuid=uuid,
-            )    
+            )
         else:
-            records, summary, keys = self._run_query("""
-                MERGE (p:PHerc {displayName: $ph_display_name})
+            records, summary, keys = self._run_query(f"""
+                MERGE (p:PHerc {{displayName: $ph_display_name}})
+                {casetta_set}
                 """, ph_display_name=ph_display_name,
             )
  

@@ -15,6 +15,9 @@ uuid_csv = args.uuid
 loader = PhercGraphDatabaseLoader()
 loader.verify_conn()
 
+def is_casetta(name: str) -> bool:
+    return bool(name) and 'cass' in name.lower()
+
 def set_properties_from_row(obj_type, ph_name, cornice_name, pezzo_name, disegni_name, row, property_map):
     for csv_key, prop_name in property_map.items():
         value = row.get(csv_key)
@@ -56,8 +59,8 @@ with open(processed_metadata_csv, 'r') as csvfile:
             obj_type = "Cornice"
 
         else:
-            # PHerc row
-            loader.add_pherc_node(uuid, ph_name)
+            # PHerc row (may also be a Casetta — flagged via :Casetta label)
+            loader.add_pherc_node(uuid, ph_name, is_casetta=is_casetta(ph_name))
             obj_type = "PHerc"
 
         ########### Set other properties ###########
@@ -315,27 +318,26 @@ with open(uuid_csv, 'r') as csvfile:
         else:
             # ALl other cases
             object_info = loader.look_up_object_by_uuid(uuid)
-    
+
             if cor_pezzo_name:
                 # cornice/pezzo column has a value
-                if 'Pezzo' in object_info:
-                    # Could be pezzo"
-                    if object_info['Pezzo'] == cor_pezzo_name:
-                    # if Pezzo hits the right name
-                        loader.set_pherc_and_pezzo_names(uuid, object_info['PHerc'], ph_name, cor_pezzo_name)
-                    else:
-                        # Don't add it since we don't know if it's for Pezzo
-                        pass
+                if 'Pezzo' in object_info or 'Cornice' in object_info:
+                    # EduceLabID is already linked to a Cornice/Pezzo from the
+                    # metadata phase. The UUID sheet's short name (e.g. "1 (Oslo)")
+                    # often differs from the metadata displayName (e.g. "1 (Osloense)"),
+                    # so set it as a `name` alias on the existing node rather than
+                    # MERGE-creating a duplicate keyed on a different displayName.
+                    loader.set_alias_on_assigned_node(uuid, ph_name, cor_pezzo_name)
+                elif 'PHerc' in object_info or 'Casetta' in object_info:
+                    # UUID sits on the PHerc/Casetta itself; create the Cornice
+                    # using the UUID sheet's name as displayName.
+                    anchor = object_info.get('PHerc') or object_info.get('Casetta')
+                    loader.set_pherc_and_cornice_names(uuid, anchor, ph_name, cor_pezzo_name)
                 else:
-                    # Likely a Cornice
-                    if 'PHerc' in object_info:
-                        # This should use MERGE to find Cornice and PHerc node 
-                        # and set the name to these
-                        loader.set_pherc_and_cornice_names(uuid, object_info['PHerc'], ph_name, cor_pezzo_name)
-                    else:
-                        # PHerc node may or may not exist
-                        loader.add_pherc_and_cornice_nodes_from_uuid_sheet(uuid, ph_name, cor_pezzo_name)
-                        
+                    # No node assigned to this UUID yet — fall back to creating
+                    # PHerc/Cornice from the UUID sheet alone.
+                    loader.add_pherc_and_cornice_nodes_from_uuid_sheet(uuid, ph_name, cor_pezzo_name)
+
             elif ph_name:
                 # Use MERGE
                 loader.set_ph_name(uuid, ph_name)

@@ -356,6 +356,26 @@ class GraphDBConnection:
         )
         return records, summary, keys
 
+    def list_all_pherc_display_names(self) -> list[dict]:
+        """List every PHerc node, flagging which are also labeled :Casetta.
+
+        Returns:
+            List of dicts with keys 'display_name' (str) and 'is_casetta' (bool),
+            ordered by displayName.
+        """
+        records, _, _ = self._run_query("""
+            MATCH (ph:PHerc)
+            RETURN ph.displayName AS display_name,
+                   'Casetta' IN labels(ph) AS is_casetta
+            ORDER BY ph.displayName
+            """)
+        if not records:
+            return []
+        return [
+            {'display_name': r['display_name'], 'is_casetta': r['is_casetta']}
+            for r in records
+        ]
+
     def list_cornici_and_pezzi_for_pherc(self, pherc_display_name) -> list:
         """List all Cornici and Pezzi for a given PHerc displayName."""
         records, summary, keys = self._run_query("""
