@@ -5,6 +5,8 @@ import logging
 
 from educelab.hercdb import config
 
+# Obsolete.
+
 COL_MAP = {
     'Meta' : {
         'Papiri' : {

@@ -4,6 +4,8 @@ import logging
 
 from educelab.hercdb import config
 
+# Obsolete. Use educelab.hercdb.loader module instead.
+
 logging.basicConfig(level=logging.INFO)
 
 class GraphDataLoader:
