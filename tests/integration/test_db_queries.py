@@ -30,10 +30,10 @@ class TestPhercDbQueries(unittest.TestCase):
         pass
 
     def test_find_pherc_by_language(self):
-        records, summary, keys = self.query_runner.find_pherc_by_language("grc?")
+        records, summary, keys = self.query_runner.find_pherc_by_language("grc")
         display_names = [record.data()['ph']['displayName'] for record in records]
-        self.assertIn("636", display_names)
-        print(f"[find_pherc_by_language 'grc?'] Found {len(display_names)} PHerc(s): {display_names}")
+        self.assertIn("421", display_names)
+        print(f"[find_pherc_by_language 'grc'] Found {len(display_names)} PHerc(s): {display_names}")
 
     def test_find_unrolled_phercs(self):
         records, summary, keys = self.query_runner.find_pherc_by_property_value("unrolling_status", "Partially unrolled")
