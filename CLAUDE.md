@@ -247,7 +247,10 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 - `educelab.hercdb.loader` module contains utilities for bulk operations
 - `preprocessing/` has Jupyter notebooks for data preparation from Google Sheets
 
+### CSV Anomalies and Data Review
+- `docs/data_review_notes.md` tracks CSV anomalies and modelling questions awaiting papyrologist confirmation (multi-row UUIDs, hard-coded loader edge cases, name-form inconsistencies). Add new entries there when you encounter data that the loaders pass through faithfully but that a domain expert should verify; update or remove entries once resolved.
+
 ## Claude Code Instructions
 
 ### Planning Mode
-When in planning mode, write the proposed plan to an `.md` file under `./.claude/` for review before implementation. The `.claude/` directory is gitignored and used for Claude-generated plans and drafts.
+When in planning mode, write the proposed plan to an `.md` file under `./.claude/` (NOT just to `~/.claude`) for review before implementation. The `.claude/` directory is gitignored and used for Claude-generated plans and drafts.
