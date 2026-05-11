@@ -183,6 +183,17 @@ class PhercGraphDatabaseLoader:
             MERGE (orig)<-[:REPLACES]-(new)
             """, original_id=original_id, replacement_uuid=replacement_uuid)
 
+    def mark_educelabid_retired(self, uuid, reason=""):
+        """Flag an EduceLabID as retired (no successor UUID).
+
+        Used when the UUID file's `Replacement UUID` column holds a sentinel
+        like "discarded" or "." rather than a real successor UUID.
+        """
+        self._run_query("""
+            MATCH (e:EduceLabID {uuid: $uuid})
+            SET e.retired = true, e.retired_reason = $reason
+            """, uuid=uuid, reason=reason)
+
 
 ############## From Metadata spreadsheet ################
 

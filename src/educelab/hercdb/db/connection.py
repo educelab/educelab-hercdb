@@ -682,6 +682,65 @@ class GraphDBConnection:
             })
         return results
 
+    def find_all_artifacts_and_educelabids_for_pherc(self, pherc_display_name: str) -> list[dict]:
+        """For one PHerc, return one record per (artifact, UUID) pair, plus a
+        sentinel record for any artifact in the hierarchy that has no UUID.
+
+        Differs from find_educelabids_for_pherc by using OPTIONAL MATCH on
+        the EduceLabID, so Cornici/Pezzi (and the PHerc itself) without an
+        assigned UUID still surface. Suppresses the PHerc-itself row when
+        the PHerc has Cornici/Pezzi children but no UUID directly assigned —
+        in that case the children rows carry the scan information and a
+        PHerc-level "unscanned" row would be misleading.
+
+        Each record has keys: 'uuid' (str | None), 'pherc' (str),
+        'cornice' (str | None), 'pezzo' (str | None).
+        """
+        records, _, _ = self._run_query("""
+            MATCH (ph:PHerc {displayName: $pherc_display_name})
+            OPTIONAL MATCH (ph)-[:HAS]->(child)
+            WHERE child:Cornice OR child:Pezzo
+            WITH ph, count(DISTINCT child) AS num_children
+            MATCH (ph)-[:HAS*0..2]->(artifact)
+            WHERE artifact:PHerc OR artifact:Cornice OR artifact:Pezzo
+            OPTIONAL MATCH (eid:EduceLabID)-[:ASSIGNED_TO]->(artifact)
+            OPTIONAL MATCH (artifact)<-[:HAS]-(parent1)
+            OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
+            WITH num_children, eid, artifact, parent1, parent2,
+                 CASE
+                     WHEN 'PHerc' IN labels(artifact) THEN artifact
+                     WHEN 'PHerc' IN labels(parent1) THEN parent1
+                     WHEN 'PHerc' IN labels(parent2) THEN parent2
+                 END AS pherc_node,
+                 CASE
+                     WHEN 'Cornice' IN labels(artifact) THEN artifact
+                     WHEN 'Cornice' IN labels(parent1) THEN parent1
+                 END AS cornice_node,
+                 CASE
+                     WHEN 'Pezzo' IN labels(artifact) THEN artifact
+                 END AS pezzo_node
+            WHERE NOT (
+                'PHerc' IN labels(artifact)
+                AND eid IS NULL
+                AND num_children > 0
+            )
+            RETURN DISTINCT eid.uuid AS uuid,
+                   pherc_node.displayName AS pherc_name,
+                   cornice_node.displayName AS cornice_name,
+                   pezzo_node.displayName AS pezzo_name
+            ORDER BY pherc_name, cornice_name, pezzo_name
+            """, pherc_display_name=pherc_display_name)
+
+        return [
+            {
+                'uuid': r['uuid'],
+                'pherc': r['pherc_name'],
+                'cornice': r['cornice_name'],
+                'pezzo': r['pezzo_name'],
+            }
+            for r in records
+        ]
+
     def find_datasets_for_educelabid(self, uuid: str, ds_type: DatasetType = None, newest_completed: bool = False) -> list[dict]:
         """Find all datasets for a specific EduceLabID."""
         dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
@@ -702,6 +761,40 @@ class GraphDBConnection:
             WITH d,
                  [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
             {grouping}
+        """
+
+        params = {"uuid": uuid, "dataset_labels": dataset_labels}
+        if ds_type:
+            params["data_t"] = str(ds_type)
+
+        records, _, _ = self._run_query(query, **params)
+
+        if not records:
+            return []
+
+        return [self._serialize_dataset(record) for record in records]
+
+    def find_datasets_for_educelabid_with_predecessors(self, uuid: str, ds_type: DatasetType = None) -> list[dict]:
+        """Like find_datasets_for_educelabid, but also returns datasets
+        BELONGING_TO any predecessor UUID reached by walking [:REPLACES*0..]
+        from the given UUID.
+
+        Used by the scan-completeness report so that an artifact whose UUID
+        was replaced still surfaces its pre-replacement scans (which still
+        BELONG_TO the original EduceLabID and were never reattached during
+        the replacement).
+        """
+        dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
+        type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
+
+        query = f"""
+            MATCH (e:EduceLabID {{uuid: $uuid}})-[:REPLACES*0..]->(predecessor:EduceLabID)
+            MATCH (predecessor)<-[:BELONGS_TO]-(d)
+            WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
+            {type_filter}
+            WITH DISTINCT d,
+                 [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
+            RETURN d, ds_type
         """
 
         params = {"uuid": uuid, "dataset_labels": dataset_labels}

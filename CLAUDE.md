@@ -43,6 +43,13 @@ uv run tests/integration/test_pipeline_loader.py
 uv run uvicorn educelab.hercdb.rest.server:app --reload
 ```
 
+### Admin CLI tools
+
+After `uv sync --extra server`, the package exposes shell entry points (see `[project.scripts]` in `pyproject.toml`):
+
+- `el-hercdb-search` — interactive PHerc lookup (`cli/search.py`)
+- `el-hercdb-scan-report` — scan-completeness CSV report (`cli/scan_completeness.py`); writes a full report and an issues-only report, walking the PHerc hierarchy plus any `REPLACES` chains. Run via `uv run el-hercdb-scan-report --out-dir ./tmp`.
+
 ### Deploying the REST API Server (Production)
 
 For full server setup (Neo4j credentials, API tokens, systemd service), see `docs/SERVER_SETUP.md`. For a visual overview, see `docs/hercdb_setup_quickstart.svg`.
@@ -87,7 +94,8 @@ educelab-hercdb/
 │   │
 │   └── cli/                  # Command-line tools
 │       ├── __init__.py
-│       └── search.py
+│       ├── search.py
+│       └── scan_completeness.py
 │
 ├── old_scripts/              # Legacy experimental scripts, not currently in use
 ├── preprocessing/            # Data preparation (notebooks, etc.)
@@ -118,6 +126,15 @@ educelab-hercdb/
 **src/educelab/hercdb/loader/graph_loader.py**: Database loading utilities
 - `PhercGraphDatabaseLoader`: Class for bulk data loading operations
 - Used by scripts in `old_scripts/` directory to populate the database
+- `mark_educelabid_retired(uuid, reason)` sets `retired = true` and stores a reason string on an EduceLabID; called by `metadata_loader.py` when a Replacement UUID is a sentinel like `"discarded"` or `"."` rather than a real UUID
+
+**src/educelab/hercdb/loader/scan_loader.py**: Scan-data loader
+- `normalize_complete(raw)` collapses CSV `complete` variants (`"TRUE"` / `"True"` / `"true"` / etc.) to the canonical strings `"True"`, `"False"`, or `"unknown"` so PGS and Spectral nodes share the same `complete` semantics. The canonical strings always satisfy the loader's `if complete:` guard, so re-runs overwrite stale values in either direction.
+
+**src/educelab/hercdb/cli/scan_completeness.py**: Scan-completeness report CLI
+- Generates `scan_completeness_full.csv` and `scan_completeness_issues.csv`
+- Wired up as the `el-hercdb-scan-report` shell command via `[project.scripts]`
+- Walks `REPLACES` so pre-replacement scans on retired predecessor UUIDs still count toward an artifact's coverage
 
 **src/educelab/hercdb/client/herc_client.py**: REST API client
 - `HercClient`: Lightweight Python client wrapping all REST endpoints
@@ -141,11 +158,11 @@ from educelab.hercdb.api import DatasetType  # via alias
 
 The Neo4j database models Herculaneum scroll data with these primary node types:
 
-- **PHerc**: Individual papyrus scrolls (identified by `displayName`)
+- **PHerc**: Individual papyrus scrolls (identified by `displayName`). PHercs that are organized as Casette also carry the additional `:Casetta` label.
 - **Cornice**: Physical subdivisions of PHerc (some scrolls)
 - **Pezzo**: Smaller fragments (can be under PHerc or Cornice)
 - **Disegni**: Historical drawings depicting scrolls
-- **EduceLabID**: Links physical objects to UUIDs and datasets
+- **EduceLabID**: Links physical objects to UUIDs and datasets. May carry a `retired = true` flag with a `retired_reason` string when the UUID was retired without a successor (sentinel `Replacement UUID` value in the UUID file).
 - **Dataset nodes**: FlatbedScanDataset, PGSRaw, SpectralRaw (imaging data)
 - **Pipeline**: Processing pipelines with `pipeline_id`
 - **Process**: Pipeline stages with `stage`, `status`, `datetime`, `slurm_id`
@@ -156,6 +173,7 @@ Key relationships:
 - `PHerc -[:HAS]-> Pezzo` (direct)
 - `EduceLabID -[:ASSIGNED_TO]-> (PHerc|Cornice|Pezzo)`
 - `Dataset -[:BELONGS_TO]-> EduceLabID`
+- `(new:EduceLabID) -[:REPLACES]-> (orig:EduceLabID)` — UUID replacement chain. Only the new UUID gets `ASSIGNED_TO` an artifact; pre-replacement scans may still `BELONG_TO` the original. Walk `[:REPLACES*0..]` from the active UUID to gather scans across the chain.
 - `Process -[:STAGE_OF]-> Pipeline`
 - `PHerc -[:AUTHORED_BY]-> Author`, `PHerc -[:HAS_LANGUAGE]-> Language`, etc.
 
@@ -171,9 +189,11 @@ The `GraphDBConnection` class provides two patterns for queries:
 
 2. **Dataset queries**:
    - `find_datasets(ds_type, pherc, cornice=None, pezzo=None, newest_completed=False, properties_only=True)`
-   - `find_datasets_for_educelabid(uuid, ds_type=None, newest_completed=False)` - datasets for a specific EduceLabID
+   - `find_datasets_for_educelabid(uuid, ds_type=None, newest_completed=False)` - datasets for a specific EduceLabID (single-UUID view used by the REST endpoint)
+   - `find_datasets_for_educelabid_with_predecessors(uuid, ds_type=None)` - same shape, but walks `[:REPLACES*0..]` from the given UUID so pre-replacement scans on retired predecessor UUIDs are pooled in. Used by the scan-completeness report; do not use for REST responses unless you intend to include the full chain.
    - `find_all_datasets_for_pherc(pherc_display_name, ds_type=None, newest_completed=False)` - all datasets grouped by EduceLabID
-   - `find_educelabids_for_pherc(pherc_display_name)` - list all EduceLabIDs under a PHerc
+   - `find_educelabids_for_pherc(pherc_display_name)` - list all EduceLabIDs under a PHerc (UUIDs-only view; drops artifacts without UUIDs)
+   - `find_all_artifacts_and_educelabids_for_pherc(pherc_display_name)` - one record per (artifact, UUID) pair, plus a sentinel record for any artifact with no UUID. Suppresses the PHerc-itself row when the PHerc has Cornici/Pezzi children but no direct UUID. Used by the scan-completeness report.
 
 3. **Node traversal**:
    - `get_directly_attached_nodes()` - gets all nodes connected to a given node
@@ -246,6 +266,8 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 - Scripts in `old_scripts/` directory load data into Neo4j
 - `educelab.hercdb.loader` module contains utilities for bulk operations
 - `preprocessing/` has Jupyter notebooks for data preparation from Google Sheets
+- `scan_loader.py` normalizes the `complete` CSV column case-insensitively to `"True"` / `"False"` / `"unknown"`; pre-existing Neo4j nodes loaded before this normalization may still hold uppercase variants until `scan_loader.py` is re-run
+- `metadata_loader.py` detects sentinel `Replacement UUID` values (anything that isn't a real UUID, e.g. `"discarded"` or `"."`) and flags the original EduceLabID as `retired = true` instead of creating a bogus successor node
 
 ### CSV Anomalies and Data Review
 - `docs/data_review_notes.md` tracks CSV anomalies and modelling questions awaiting papyrologist confirmation (multi-row UUIDs, hard-coded loader edge cases, name-form inconsistencies). Add new entries there when you encounter data that the loaders pass through faithfully but that a domain expert should verify; update or remove entries once resolved.

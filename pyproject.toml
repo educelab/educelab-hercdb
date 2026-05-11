@@ -44,6 +44,7 @@ Repository = "https://gitlab.com/educelab/educelab-hercdb"
 
 [project.scripts]
 el-hercdb-search = "educelab.hercdb.cli.search:main"
+el-hercdb-scan-report = "educelab.hercdb.cli.scan_completeness:main"
 
 [dependency-groups]
 dev = [

@@ -29,6 +29,22 @@ def clean_datetime(dt_str):
     return dt if dt else None
 
 
+def normalize_complete(raw):
+    """Normalize a CSV `complete` value to "True", "False", or "unknown".
+
+    Case-insensitive so input variants ("TRUE", "True", "true") all collapse
+    to the canonical string the downstream Cypher checks for. Returns a
+    non-empty string so callers can rely on the loader's `if complete:`
+    guard always firing — re-runs overwrite the property in either direction.
+    """
+    norm = raw.strip().lower() if raw else ""
+    if norm == "true":
+        return "True"
+    if norm == "false":
+        return "False"
+    return "unknown"
+
+
 # First load the negatives file
 with open(negatives_file, 'r') as csvfile:
     reader = csv.DictReader(csvfile)
@@ -59,9 +75,9 @@ with open(photogrammetry_file, 'r') as csvfile:
         scan_uuid = row['uuid'] 
         datetime_start = clean_datetime(row['datetime start'])
         datetime_end = clean_datetime(row['datetime end']) if row['datetime end'] else None
-        complete = row['complete'] if row['complete'] else "unknown"
+        complete = normalize_complete(row['complete'])
         sample_uuid = row['sample uuid'] if row['sample uuid'] else None # may be None
-        
+
         loader.add_pgs_raw_node(
             pgs_path=path,
             scan_uuid=scan_uuid,
@@ -78,7 +94,7 @@ with open(spectral_file, 'r') as csvfile:
         scan_uuid = row['uuid'] 
         datetime_start = clean_datetime(row['datetime start'])
         datetime_end = clean_datetime(row['datetime end']) if row['datetime end'] else None
-        complete = "True" if row['complete']=="TRUE" else False
+        complete = normalize_complete(row['complete'])
         sample_uuid = row['sample uuid'] if row['sample uuid'] else None # may be None
         sample_uuid2 = row['sample uuid 2'] if row['sample uuid 2'] else None
         

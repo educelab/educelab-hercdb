@@ -1,6 +1,21 @@
 import argparse
 import csv
+import re
 from educelab.hercdb.loader import PhercGraphDatabaseLoader
+
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}"
+    r"-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def _is_real_uuid(value: str) -> bool:
+    """True iff `value` is shaped like a canonical 8-4-4-4-12 UUID.
+
+    Sentinel strings such as "discarded" or "." in the UUID file's
+    `Replacement UUID` column should not flow into add_replacement_EduceLabID.
+    """
+    return bool(value) and bool(_UUID_RE.fullmatch(value.strip()))
 
 parser = argparse.ArgumentParser(description='Load metadata and UUID data into Neo4j')
 parser.add_argument('--metadata', default='input_data/metadata_file.csv',
@@ -285,10 +300,17 @@ with open(uuid_csv, 'r') as csvfile:
     
         # Since this is not affected by other things, take care of this first
         if replacement_uuid:
-            print(f"Adding replacement UUID {replacement_uuid} for {uuid}")
-            loader.add_replacement_EduceLabID(uuid, replacement_uuid)
-            # Makde the replacement UUID the current uuid
-            uuid = replacement_uuid
+            if _is_real_uuid(replacement_uuid):
+                print(f"Adding replacement UUID {replacement_uuid} for {uuid}")
+                loader.add_replacement_EduceLabID(uuid, replacement_uuid)
+                # Make the replacement UUID the current uuid
+                uuid = replacement_uuid
+            else:
+                # Sentinel like "discarded" or "." — original UUID is retired
+                # without a successor. Flag the original; don't create a bogus
+                # EduceLabID node from the sentinel string.
+                print(f"Retiring UUID {uuid} (reason: {replacement_uuid!r})")
+                loader.mark_educelabid_retired(uuid, reason=replacement_uuid)
     
         # Deal with edge cases!
         if uuid == "02160e53-71b8-52ba-bcd3-faf6c6917c66":

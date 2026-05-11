@@ -136,6 +136,29 @@ uv run python src/educelab/hercdb/loader/scan_loader.py \
 
 **Note:** Run metadata_loader first since scan data links to EduceLabID nodes.
 
+## Reporting Tools
+
+### Scan completeness report
+
+`el-hercdb-scan-report` walks every PHerc and its hierarchy and writes two CSVs that flag artifacts needing first-time scans or re-scans.
+
+```shell
+# After `uv sync --extra server`, the entry point is on PATH:
+uv run el-hercdb-scan-report --out-dir ./tmp
+
+# Equivalent fallback without re-syncing:
+uv run python -m educelab.hercdb.cli.scan_completeness --out-dir ./tmp
+```
+
+Outputs (default names):
+
+- `scan_completeness_full.csv` — one row per (artifact, UUID) pair, plus blank-UUID sentinel rows for artifacts that have no EduceLabID assigned. Columns: PHerc, Cornice, Pezzo, UUID, PGS Status, PGS Latest Complete Date, PGS Path, Spectral Status, Spectral Latest Complete Date, Spectral Path, Institution.
+- `scan_completeness_issues.csv` — same shape, filtered to rows where PGS or Spectral is missing/incomplete, or the artifact has no UUID at all.
+
+Status values are `complete` / `incomplete` / `missing` when the artifact has a UUID, and **blank** when it does not (so "UUID assigned but no scan" stays distinguishable from "no UUID even assigned"). Files are written with `utf-8-sig` so Excel opens them with correct character encoding.
+
+The report walks `REPLACES` relationships between EduceLabIDs, so pre-replacement scans on a retired predecessor UUID still count toward the artifact's coverage.
+
 ## Temporary Scripts and Notes
 
 The `tmp/` directory contains temporary scripts, notes, and other informal resources shared among the team. Contents are version controlled but considered ephemeral — they may be rewritten or deleted at any time and should not be relied upon as stable code.
