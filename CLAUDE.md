@@ -112,6 +112,7 @@ educelab-hercdb/
 - `GraphDBConnection`: Primary class for Neo4j interactions
 - `connect()`: Factory function that uses config to create connections
 - Contains all query methods for finding and filtering PHerc nodes
+- `fuzzy_find_node(name, label, parent_pherc, parent_cornice, threshold, limit)`: standalone reusable primitive for fuzzy-resolving noisy PHerc/Cornice/Pezzo displayNames to ranked candidates; see "Fuzzy name lookup" under API Query Patterns
 - Key enums: `DatasetType` (FlatbedScan, PGSRaw, SpectralRaw)
 
 **src/educelab/hercdb/config.py**: Configuration management
@@ -215,6 +216,12 @@ The `GraphDBConnection` class provides two patterns for queries:
    - `delete_pipeline(pipeline_id)` - delete a Pipeline, all its Process nodes, and output dataset nodes (leaves input datasets untouched)
    - `get_pipeline_confirmation(pipeline_id)` - full pipeline summary with all stages
 
+7. **Fuzzy name lookup** (`src/educelab/hercdb/db/connection.py`):
+   - `fuzzy_find_node(name, label="PHerc", parent_pherc=None, parent_cornice=None, threshold=75, limit=10)` — standalone reusable primitive that returns ranked candidates: `[{"node", "displayName", "score", "parent_pherc", "parent_cornice"}, ...]` ordered by score desc. Use this when callers have a noisy name (typos, extra spaces, alternate spellings) and need to identify the right PHerc/Cornice/Pezzo before reaching for UUIDs/EduceLabIDs and the other `find_*` methods. **Do not** add per-endpoint fuzzy variants — compose with this method.
+   - Implementation notes: normalizes by stripping **all** whitespace + lowercasing both query and candidate before scoring; exact match after normalization short-circuits to score 100 (all candidates sharing the normalized name are returned). Uses `rapidfuzz.fuzz.ratio` (not `WRatio`) — `ratio` penalizes length mismatch, which works correctly for the mostly-short identifier-style displayNames in this dataset; `WRatio`'s partial-ratio component over-scored short substrings of the query.
+   - Parent semantics: for `Cornice`/`Pezzo`, the resolver recursively fuzzy-resolves any supplied parent name and scopes the child candidate fetch to those parents. Parent scores are reported separately on each result (not fused with the child score). When a parent name was *not* supplied, `parent_pherc.displayName` / `parent_cornice.displayName` is still populated as context, but `score` is `null`.
+   - Data caveat: Casetta-style Cornici are stored as the abbreviation `"Cass.X"` (not `"Casetta X"`), so a literal `"Casetta"` query scores ~46 against `"Cass.7"` and returns nothing. The matcher is doing its job; the inputs just don't overlap. Tracked separately (synonym/alias handling vs. data re-load is undecided).
+
 ### REST API Endpoints
 
 Protected by Bearer token authentication (tokens in `~/.tokens`):
@@ -230,7 +237,8 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 - `GET /pherc/{pherc_id}/educelabids` - List all EduceLabIDs under PHerc
 - `GET /artifacts/{uuid}` - Get display name for an artifact by UUID
 - `GET /educelabid/{uuid}/datasets` - Get datasets for specific EduceLabID
-- `POST /search` - Complex search with multiple parameters (supports intersection of multiple criteria)
+- `POST /search` - Complex search with multiple parameters (supports intersection of multiple criteria). Accepts a `display-name-fuzzy` body param (optionally with `display-name-fuzzy-threshold`, default 75) that resolves a noisy PHerc displayName via `fuzzy_find_node` and intersects the matching set with every other criterion. The strict `display-name` regex path is untouched.
+- `GET /resolve` - Fuzzy-resolve a noisy PHerc/Cornice/Pezzo displayName to ranked candidates. Query params: `name` (required), `label` (`PHerc` | `Cornice` | `Pezzo`, default `PHerc`), `parent_pherc`, `parent_cornice`, `threshold` (default 75), `limit` (default 10). Returns a JSON list with `displayName`, `score`, `node` (flattened properties), `parent_pherc`, `parent_cornice`. Empty result returns `200 []` (discovery endpoint, not "fetch this thing"); invalid `label` returns 400.
 - `GET /pipelines` - Get all pipelines with status summaries
 - `GET /pipelines/{pipeline_id}/stages` - Get all process stages for a pipeline
 - `POST /pipelines` - Create a new pipeline linked to an EduceLabID

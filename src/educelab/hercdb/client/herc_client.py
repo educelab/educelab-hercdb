@@ -181,12 +181,79 @@ class HercClient:
         resp.raise_for_status()
         return resp.json()
 
-    def search(self, **criteria) -> dict:
+    def search(
+        self,
+        display_name_fuzzy: str = None,
+        display_name_fuzzy_threshold: int = None,
+        **criteria,
+    ) -> dict:
         """Search for PHercs using multiple criteria.
 
-        Keyword arguments are passed directly as the JSON body to ``POST /search``.
+        Keyword arguments are passed directly as the JSON body to
+        ``POST /search``. The fuzzy-display-name params are exposed as
+        snake_case kwargs and translated to their hyphenated REST keys for
+        convenience (Python identifiers can't contain hyphens).
+
+        Args:
+            display_name_fuzzy: Approximate PHerc displayName. The server
+                fuzzy-resolves it and intersects the resulting set with
+                every other criterion.
+            display_name_fuzzy_threshold: Optional minimum similarity
+                score (0-100, default 75 server-side).
+            **criteria: Any other search params (e.g. ``author``,
+                ``language``, ``literary_work``…). Hyphenated REST keys
+                can still be passed via ``**{"display-name": "421"}``.
         """
+        if display_name_fuzzy is not None:
+            criteria["display-name-fuzzy"] = display_name_fuzzy
+        if display_name_fuzzy_threshold is not None:
+            criteria["display-name-fuzzy-threshold"] = display_name_fuzzy_threshold
         return self._post("/search", json=criteria).json()
+
+    def resolve(
+        self,
+        name: str,
+        label: str = "PHerc",
+        parent_pherc: str = None,
+        parent_cornice: str = None,
+        threshold: int = 75,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Fuzzy-resolve a noisy displayName to ranked PHerc/Cornice/Pezzo candidates.
+
+        Use this when you don't know the exact displayName but have a
+        noisy version. Pick a candidate from the returned list, then use
+        its UUID / EduceLabID with the other client methods for any
+        downstream lookup.
+
+        Args:
+            name: Approximate displayName to look up.
+            label: One of ``"PHerc"``, ``"Cornice"``, ``"Pezzo"``.
+            parent_pherc: Optional (fuzzy) PHerc scope for Cornice/Pezzo
+                lookups.
+            parent_cornice: Optional (fuzzy) Cornice scope for Pezzo
+                lookups.
+            threshold: Minimum similarity score 0-100 (default 75).
+            limit: Max ranked candidates to return (default 10).
+
+        Returns:
+            List of dicts ordered by ``score`` desc:
+            ``{"displayName", "score", "node": {<flattened properties>},
+            "parent_pherc": {"displayName", "score"} | None,
+            "parent_cornice": {"displayName", "score"} | None}``.
+            Exact (whitespace-stripped, lowercased) matches score 100.
+        """
+        params = {
+            "name": name,
+            "label": label,
+            "threshold": threshold,
+            "limit": limit,
+        }
+        if parent_pherc is not None:
+            params["parent_pherc"] = parent_pherc
+        if parent_cornice is not None:
+            params["parent_cornice"] = parent_cornice
+        return self._get("/resolve", params=params).json()
 
     def get_pipelines(self) -> list[dict]:
         """Get all pipelines with their status summaries."""

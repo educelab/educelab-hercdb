@@ -50,7 +50,8 @@ Tokens are loaded from `~/.tokens`. Each line has the format `username = token`.
 | GET | `/pherc/{pherc_id}/educelabids` | List all EduceLabIDs under a PHerc |
 | GET | `/artifacts/{uuid}` | Get display name for an artifact by UUID |
 | GET | `/educelabid/{uuid}/datasets` | Get datasets for a specific EduceLabID |
-| POST | `/search` | Search for PHercs using multiple criteria |
+| GET | `/resolve` | Fuzzy-resolve a noisy displayName to ranked PHerc/Cornice/Pezzo candidates |
+| POST | `/search` | Search for PHercs using multiple criteria (supports fuzzy displayName matching) |
 
 ### Pipelines
 
@@ -237,15 +238,58 @@ GET /educelabid/abc-123/datasets?dataset_type=SpectralRaw&newest_completed=true
 ]
 ```
 
+### GET /resolve
+
+Fuzzy-resolve a noisy PHerc / Cornice / Pezzo `displayName` to a ranked list of candidates. Use this when you have an approximate name (typo, extra spaces, alternate spelling) and want to identify the right node before calling other endpoints.
+
+Returns `200 []` when no candidate clears the threshold — this is a discovery endpoint, not a "fetch this thing" lookup.
+
+**Query parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | string | required | Approximate displayName to look up |
+| `label` | string | `PHerc` | One of `PHerc`, `Cornice`, `Pezzo` |
+| `parent_pherc` | string | - | Fuzzy parent PHerc scope (for Cornice/Pezzo lookups) |
+| `parent_cornice` | string | - | Fuzzy parent Cornice scope (for Pezzo lookups) |
+| `threshold` | int | `75` | Minimum similarity score 0–100 |
+| `limit` | int | `10` | Maximum ranked candidates to return |
+
+**Example:**
+```
+GET /resolve?name=118+a
+GET /resolve?name=Cass&label=Cornice&parent_pherc=72
+```
+
+**Response:**
+```json
+[
+  {
+    "displayName": "118a",
+    "score": 100,
+    "node": { "displayName": "118a", ... },
+    "parent_pherc": null,
+    "parent_cornice": null
+  }
+]
+```
+
+Scores are computed with `rapidfuzz.fuzz.ratio` on whitespace-stripped, lowercased names. Exact matches (after normalization) short-circuit to score 100. Invalid `label` values return `400`.
+
+---
+
 ### POST /search
 
 Search for PHercs using multiple criteria. All provided filters are intersected (AND logic). Returns a list of matching PHerc display names.
+
+In addition to the strict `display-name` regex filter, you can supply `display-name-fuzzy` to fuzzy-match on the PHerc displayName and intersect the result with every other criterion.
 
 **Request body (all fields optional):**
 ```json
 {
   "uuid": "",
   "display-name": "",
+  "display-name-fuzzy": "",
+  "display-name-fuzzy-threshold": 75,
   "author": "",
   "language": "",
   "unrolling-status": "",

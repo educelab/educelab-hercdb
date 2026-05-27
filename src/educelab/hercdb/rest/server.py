@@ -315,12 +315,75 @@ async def search_pherc(request: Request, user: str = Depends(get_current_user)):
                 
             result_sets.append(set(record['ph']['displayName'] for record in records))
 
+    # Fuzzy display-name lookup (kept separate from the strict "display-name"
+    # param above so existing callers see no change). Resolves the noisy
+    # input to a set of PHerc displayNames via fuzzy_find_node, then feeds
+    # them into the same intersection logic as every other filter.
+    fuzzy_name = data.get("display-name-fuzzy")
+    if fuzzy_name:
+        fuzzy_threshold = data.get("display-name-fuzzy-threshold", 75)
+        try:
+            fuzzy_hits = db.fuzzy_find_node(
+                fuzzy_name, label="PHerc", threshold=fuzzy_threshold,
+            )
+        except ValueError as e:
+            return JSONResponse(status_code=400, content={"detail": str(e)})
+        if not fuzzy_hits:
+            return JSONResponse(status_code=404, content={"PHercs": []})
+        result_sets.append({c["displayName"] for c in fuzzy_hits})
+
     if result_sets:
         matching_names = set.intersection(*result_sets)
     else:
         matching_names = set()
 
     return JSONResponse(status_code=200, content={"PHercs": list(matching_names)})
+
+
+@app.get("/resolve")
+async def resolve_name(
+    name: str = Query(..., description="Approximate displayName to resolve"),
+    label: str = Query("PHerc", description="One of 'PHerc', 'Cornice', 'Pezzo'"),
+    parent_pherc: Optional[str] = Query(None, description="Fuzzy parent PHerc scope (for Cornice/Pezzo)"),
+    parent_cornice: Optional[str] = Query(None, description="Fuzzy parent Cornice scope (for Pezzo)"),
+    threshold: int = Query(75, ge=0, le=100, description="Minimum similarity score"),
+    limit: int = Query(10, ge=1, description="Max ranked candidates to return"),
+    user: str = Depends(get_current_user),
+):
+    """Fuzzy-resolve a noisy displayName to ranked PHerc/Cornice/Pezzo candidates.
+
+    Returns a JSON list ordered by similarity score (desc). Exact matches
+    (after whitespace-strip + lowercase) short-circuit to score 100. An
+    empty result is returned as ``[]`` with HTTP 200, not 404 — this is a
+    discovery endpoint, not a "fetch this thing" lookup.
+    """
+    logger.info(
+        f"User {user} called /resolve name={name!r} label={label!r} "
+        f"parent_pherc={parent_pherc!r} parent_cornice={parent_cornice!r}"
+    )
+
+    try:
+        candidates = db.fuzzy_find_node(
+            name=name, label=label,
+            parent_pherc=parent_pherc, parent_cornice=parent_cornice,
+            threshold=threshold, limit=limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    result = []
+    for c in candidates:
+        # Flatten the Neo4j Node to its properties dict so it's JSON-serializable.
+        props = dict(c["node"]) if c["node"] is not None else {}
+        result.append({
+            "displayName": c["displayName"],
+            "score": c["score"],
+            "node": props,
+            "parent_pherc": c["parent_pherc"],
+            "parent_cornice": c["parent_cornice"],
+        })
+
+    return JSONResponse(content=result, status_code=200)
 
 
 @app.get("/pherc/{pherc_id}/all-datasets")
