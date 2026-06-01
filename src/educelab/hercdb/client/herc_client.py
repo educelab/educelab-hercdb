@@ -184,9 +184,61 @@ class HercClient:
     def search(self, **criteria) -> dict:
         """Search for PHercs using multiple criteria.
 
-        Keyword arguments are passed directly as the JSON body to ``POST /search``.
+        Keyword arguments are passed directly as the JSON body to
+        ``POST /search``. All keys are ``snake_case`` and map 1:1 to the
+        ``SearchQuery`` model fields on the server.
+
+        Args:
+            **criteria: Search params (e.g. ``author``, ``language``,
+                ``literary_work``, ``display_name="421"``…). ``display_name``
+                is an exact (regex) match on the PHerc displayName.
         """
         return self._post("/search", json=criteria).json()
+
+    def resolve(
+        self,
+        name: str,
+        label: str = "PHerc",
+        parent_pherc: str = None,
+        parent_cornice: str = None,
+        threshold: int = 75,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Fuzzy-resolve a noisy displayName to ranked PHerc/Cornice/Pezzo candidates.
+
+        Use this when you don't know the exact displayName but have a
+        noisy version. Pick a candidate from the returned list, then use
+        its UUID / EduceLabID with the other client methods for any
+        downstream lookup.
+
+        Args:
+            name: Approximate displayName to look up.
+            label: One of ``"PHerc"``, ``"Cornice"``, ``"Pezzo"``.
+            parent_pherc: Optional (fuzzy) PHerc scope for Cornice/Pezzo
+                lookups.
+            parent_cornice: Optional (fuzzy) Cornice scope for Pezzo
+                lookups.
+            threshold: Minimum similarity score 0-100 (default 75).
+            limit: Max ranked candidates to return (default 10).
+
+        Returns:
+            List of dicts ordered by ``score`` desc:
+            ``{"displayName", "score", "node": {<flattened properties>},
+            "parent_pherc": {"displayName", "score"} | None,
+            "parent_cornice": {"displayName", "score"} | None}``.
+            Exact (whitespace-stripped, lowercased) matches score 100.
+        """
+        params = {
+            "name": name,
+            "label": label,
+            "threshold": threshold,
+            "limit": limit,
+        }
+        if parent_pherc is not None:
+            params["parent_pherc"] = parent_pherc
+        if parent_cornice is not None:
+            params["parent_cornice"] = parent_cornice
+        return self._get("/resolve", params=params).json()
 
     def get_pipelines(self) -> list[dict]:
         """Get all pipelines with their status summaries."""

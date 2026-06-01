@@ -60,7 +60,8 @@ HercClient(host, token, port=8000, scheme="http")
 | `get_educelabids_for_pherc(pherc_id)` | List all EduceLabIDs under a PHerc umbrella. |
 | `get_artifact(uuid)` | Get the display name for an artifact by its UUID. |
 | `get_datasets_for_educelabid(uuid, ...)` | Get all datasets for a specific EduceLabID. |
-| `search(**criteria)` | For the Database Web GUI -- Search for PHercs using multiple criteria (AND logic). |
+| `resolve(name, label="PHerc", parent_pherc=None, parent_cornice=None, threshold=75, limit=10)` | Fuzzy-resolve a noisy displayName to ranked PHerc / Cornice / Pezzo candidates. |
+| `search(**criteria)` | For the Database Web GUI -- Search for PHercs using multiple criteria (AND logic). `display_name` is an exact (regex) match on the PHerc displayName. |
 
 ### Pipelines
 
@@ -127,6 +128,42 @@ for eid in eids:
 ```python
 results = client.search(language="grc", author="Epicurus")
 print(results["PHercs"])  # list of matching PHerc display names
+
+# display_name is an exact (regex) match -- enter the precise displayName.
+# To resolve a noisy/approximate name first, use client.resolve() (below).
+results = client.search(display_name="421", language="grc")
+```
+
+### Fuzzy name lookup (resolve)
+
+When you have a noisy name and want to find the right PHerc / Cornice /
+Pezzo node, use `resolve()`. It returns ranked candidates so you can
+either auto-pick the top hit or surface them as "did you mean…?" in a
+UI. Once you've identified the node, use its UUID / EduceLabID with the
+other client methods for everything else.
+
+```python
+# PHerc — "118 a" normalizes (whitespace-stripped + lowercased) to
+# match "118a" exactly, so this short-circuits to a single score-100 hit.
+matches = client.resolve("118 a")
+for m in matches:
+    print(m["displayName"], m["score"])
+
+# Cornice — both the parent PHerc name and the cornice name itself are
+# fuzzy. parent_pherc context comes back on each candidate.
+matches = client.resolve("Cass", label="Cornice", parent_pherc="72")
+for m in matches:
+    print(m["displayName"], "under PHerc", m["parent_pherc"]["displayName"])
+
+# Pezzo — optionally scope by both PHerc and Cornice parents.
+matches = client.resolve(
+    "1r", label="Pezzo",
+    parent_pherc="238", parent_cornice="Scorze da 238 a 239",
+)
+
+# An empty list means "no candidate above threshold". Lower threshold
+# or raise limit to widen the net.
+maybe_more = client.resolve("4211", threshold=70, limit=20)
 ```
 
 ### Pipeline status

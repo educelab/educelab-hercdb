@@ -32,16 +32,16 @@ print(requests.get(f"http://{host_ip}:8000/pherc/238/cornice/Scorze da 238 a 239
 print("/search endpoint:")
 payload = {
     "uuid": "",
-    "display-name": "",
+    "display_name": "",
     "author": "",
     "language": "",
-    "unrolling-status": "",
+    "unrolling_status": "",
     "scorze": "",
-    "unrolling-method": "",
+    "unrolling_method": "",
     "unroller": "",
-    "literary-work": "",
+    "literary_work": "",
     "editions": "",
-    "instituion": "",
+    "institution": "",
     "diameter_operator": "",
     "diameter_value": "",
     "height_operator": "",
@@ -52,7 +52,7 @@ payload = {
     "weight_value": "",
     "unrolled_year_operator": "",
     "unrolled_year_value": "",
-    'cavallo-scribal-style': "Gruppo N"
+    'cavallo_scribal_style': "Gruppo N"
 }
 
 print(payload)

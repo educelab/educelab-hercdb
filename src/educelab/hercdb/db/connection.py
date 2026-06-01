@@ -3,6 +3,7 @@ from collections import OrderedDict
 from enum import Enum
 
 from neo4j import GraphDatabase
+from rapidfuzz import fuzz
 
 
 class DatasetType(Enum):
@@ -388,7 +389,232 @@ class GraphDBConnection:
 
             """, pherc_display_name=pherc_display_name)
         return records
-    
+
+    def fuzzy_find_node(
+        self,
+        name: str,
+        label: str = "PHerc",
+        parent_pherc: str | None = None,
+        parent_cornice: str | None = None,
+        threshold: int = 75,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Fuzzy lookup of PHerc / Cornice / Pezzo nodes by displayName.
+
+        A standalone primitive: callers use the returned candidates to pick
+        a node, then read its UUID / EduceLabID and use the existing
+        ``find_*`` methods for everything else. Do not bake fuzzy matching
+        into other endpoints; compose with this method instead.
+
+        Args:
+            name: The (potentially noisy) displayName to look up.
+            label: One of ``"PHerc"``, ``"Cornice"``, ``"Pezzo"``.
+            parent_pherc: Optional (fuzzy) PHerc displayName scoping
+                ``Cornice`` / ``Pezzo`` lookups.
+            parent_cornice: Optional (fuzzy) Cornice displayName scoping
+                ``Pezzo`` lookups (forces the via-Cornice path; direct-
+                under-PHerc Pezzi are excluded when this is set).
+            threshold: 0-100 minimum similarity score (``rapidfuzz.fuzz.ratio``
+                on whitespace-stripped lowercased displayNames) for a
+                candidate to survive filtering.
+            limit: Maximum number of ranked candidates to return.
+
+        Returns:
+            List of dicts ordered by ``score`` desc:
+            ``{"node", "displayName", "score",
+            "parent_pherc": {"displayName", "score"} | None,
+            "parent_cornice": {"displayName", "score"} | None}``.
+            Exact (after-normalize) matches short-circuit to score 100
+            (all candidates sharing that normalized name are returned).
+            When a parent name was not supplied, ``parent_*.score`` is
+            ``None`` (the parent is contextual, not matched).
+        """
+        valid_labels = {"PHerc", "Cornice", "Pezzo"}
+        if label not in valid_labels:
+            raise ValueError(
+                f"label must be one of {sorted(valid_labels)}, got {label!r}"
+            )
+
+        def _norm(s):
+            return "".join((s or "").split()).lower()
+
+        query_norm = _norm(name)
+        if not query_norm:
+            return []
+
+        # parent_*_matches: {displayName: score} for parents the caller
+        # asked us to fuzzy-resolve. Stays None when the caller didn't
+        # supply that parent name (parent info is then contextual only).
+        parent_pherc_matches: dict | None = None
+        parent_cornice_matches: dict | None = None
+
+        # candidates: list of (node, displayName, parent_pherc_dn, parent_cornice_dn)
+        candidates: list = []
+
+        if label == "PHerc":
+            records, _, _ = self._run_query(
+                "MATCH (ph:PHerc) RETURN ph, ph.displayName AS dn"
+            )
+            candidates = [
+                (r["ph"], r["dn"], None, None) for r in (records or [])
+            ]
+
+        elif label == "Cornice":
+            if parent_pherc is not None:
+                parent_hits = self.fuzzy_find_node(
+                    parent_pherc, label="PHerc",
+                    threshold=threshold, limit=limit,
+                )
+                if not parent_hits:
+                    return []
+                parent_pherc_matches = {
+                    p["displayName"]: p["score"] for p in parent_hits
+                }
+                records, _, _ = self._run_query(
+                    """
+                    MATCH (ph:PHerc)-[:HAS]->(c:Cornice)
+                    WHERE ph.displayName IN $parent_names
+                    RETURN c, c.displayName AS dn, ph.displayName AS ph_dn
+                    """,
+                    parent_names=list(parent_pherc_matches.keys()),
+                )
+            else:
+                records, _, _ = self._run_query(
+                    """
+                    MATCH (ph:PHerc)-[:HAS]->(c:Cornice)
+                    RETURN c, c.displayName AS dn, ph.displayName AS ph_dn
+                    """
+                )
+            candidates = [
+                (r["c"], r["dn"], r["ph_dn"], None) for r in (records or [])
+            ]
+
+        else:  # Pezzo
+            ph_names: list | None = None
+            if parent_pherc is not None:
+                parent_hits = self.fuzzy_find_node(
+                    parent_pherc, label="PHerc",
+                    threshold=threshold, limit=limit,
+                )
+                if not parent_hits:
+                    return []
+                parent_pherc_matches = {
+                    p["displayName"]: p["score"] for p in parent_hits
+                }
+                ph_names = list(parent_pherc_matches.keys())
+
+            if parent_cornice is not None:
+                cor_hits = self.fuzzy_find_node(
+                    parent_cornice, label="Cornice",
+                    parent_pherc=parent_pherc,
+                    threshold=threshold, limit=limit,
+                )
+                if not cor_hits:
+                    return []
+                # (pherc_dn, cornice_dn) pairs — same cornice name can
+                # exist under different PHercs, so we filter by pair.
+                parent_cornice_matches = {
+                    c["displayName"]: c["score"] for c in cor_hits
+                }
+                pairs = [
+                    [c["parent_pherc"]["displayName"], c["displayName"]]
+                    for c in cor_hits
+                ]
+                records, _, _ = self._run_query(
+                    """
+                    MATCH (ph:PHerc)-[:HAS]->(c:Cornice)-[:HAS]->(p:Pezzo)
+                    WHERE [ph.displayName, c.displayName] IN $pairs
+                    RETURN p, p.displayName AS dn,
+                           ph.displayName AS ph_dn,
+                           c.displayName  AS c_dn
+                    """,
+                    pairs=pairs,
+                )
+                candidates = [
+                    (r["p"], r["dn"], r["ph_dn"], r["c_dn"])
+                    for r in (records or [])
+                ]
+            else:
+                # both direct-under-PHerc and via-Cornice Pezzi
+                params: dict = {}
+                where = ""
+                if ph_names is not None:
+                    where = " WHERE ph.displayName IN $ph_names"
+                    params["ph_names"] = ph_names
+                direct_recs, _, _ = self._run_query(
+                    "MATCH (ph:PHerc)-[:HAS]->(p:Pezzo)" + where +
+                    " RETURN p, p.displayName AS dn, ph.displayName AS ph_dn",
+                    **params,
+                )
+                nested_recs, _, _ = self._run_query(
+                    "MATCH (ph:PHerc)-[:HAS]->(c:Cornice)-[:HAS]->(p:Pezzo)" + where +
+                    " RETURN p, p.displayName AS dn,"
+                    " ph.displayName AS ph_dn, c.displayName AS c_dn",
+                    **params,
+                )
+                candidates = [
+                    (r["p"], r["dn"], r["ph_dn"], None)
+                    for r in (direct_recs or [])
+                ] + [
+                    (r["p"], r["dn"], r["ph_dn"], r["c_dn"])
+                    for r in (nested_recs or [])
+                ]
+
+        if not candidates:
+            return []
+
+        def _parent_info(dn, matches):
+            if dn is None:
+                return None
+            return {
+                "displayName": dn,
+                "score": matches[dn] if matches is not None else None,
+            }
+
+        # Exact-match short-circuit: same normalized name can map to
+        # multiple Cornici/Pezzi under different parents — return all of
+        # them at score 100.
+        exact = [
+            (node, dn, ph_dn, c_dn)
+            for node, dn, ph_dn, c_dn in candidates
+            if _norm(dn) == query_norm
+        ]
+        if exact:
+            return [
+                {
+                    "node": node,
+                    "displayName": dn,
+                    "score": 100,
+                    "parent_pherc": _parent_info(ph_dn, parent_pherc_matches),
+                    "parent_cornice": _parent_info(c_dn, parent_cornice_matches),
+                }
+                for node, dn, ph_dn, c_dn in exact
+            ][:limit]
+
+        scored = []
+        for node, dn, ph_dn, c_dn in candidates:
+            score = int(round(fuzz.ratio(query_norm, _norm(dn))))
+            if score < threshold:
+                continue
+            scored.append({
+                "node": node,
+                "displayName": dn,
+                "score": score,
+                "parent_pherc": _parent_info(ph_dn, parent_pherc_matches),
+                "parent_cornice": _parent_info(c_dn, parent_cornice_matches),
+            })
+
+        # Primary: score desc. Secondary: substring matches first (query
+        # appears verbatim in the candidate), so e.g. "118a"/"1180" rank
+        # above "1168" when searching "118", and "Cass."/"Cassetta" rank
+        # above unrelated names when searching "cass". Tertiary: alphabetical.
+        scored.sort(key=lambda r: (
+            -r["score"],
+            query_norm not in _norm(r["displayName"]),
+            r["displayName"],
+        ))
+        return scored[:limit]
+
     def find_datasets(self, ds_type: DatasetType, pherc, cornice=None, pezzo=None, newest_completed=False, properties_only=True) -> list[dict] | tuple:
         """Find datasets of a specific type for a PHerc, Cornice, or Pezzo."""
 
