@@ -181,33 +181,18 @@ class HercClient:
         resp.raise_for_status()
         return resp.json()
 
-    def search(
-        self,
-        display_name_fuzzy: str = None,
-        display_name_fuzzy_threshold: int = None,
-        **criteria,
-    ) -> dict:
+    def search(self, **criteria) -> dict:
         """Search for PHercs using multiple criteria.
 
         Keyword arguments are passed directly as the JSON body to
-        ``POST /search``. The fuzzy-display-name params are exposed as
-        snake_case kwargs and translated to their hyphenated REST keys for
-        convenience (Python identifiers can't contain hyphens).
+        ``POST /search``. All keys are ``snake_case`` and map 1:1 to the
+        ``SearchQuery`` model fields on the server.
 
         Args:
-            display_name_fuzzy: Approximate PHerc displayName. The server
-                fuzzy-resolves it and intersects the resulting set with
-                every other criterion.
-            display_name_fuzzy_threshold: Optional minimum similarity
-                score (0-100, default 75 server-side).
-            **criteria: Any other search params (e.g. ``author``,
-                ``language``, ``literary_work``…). Hyphenated REST keys
-                can still be passed via ``**{"display-name": "421"}``.
+            **criteria: Search params (e.g. ``author``, ``language``,
+                ``literary_work``, ``display_name="421"``…). ``display_name``
+                is an exact (regex) match on the PHerc displayName.
         """
-        if display_name_fuzzy is not None:
-            criteria["display-name-fuzzy"] = display_name_fuzzy
-        if display_name_fuzzy_threshold is not None:
-            criteria["display-name-fuzzy-threshold"] = display_name_fuzzy_threshold
         return self._post("/search", json=criteria).json()
 
     def resolve(

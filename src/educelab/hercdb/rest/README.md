@@ -51,7 +51,7 @@ Tokens are loaded from `~/.tokens`. Each line has the format `username = token`.
 | GET | `/artifacts/{uuid}` | Get display name for an artifact by UUID |
 | GET | `/educelabid/{uuid}/datasets` | Get datasets for a specific EduceLabID |
 | GET | `/resolve` | Fuzzy-resolve a noisy displayName to ranked PHerc/Cornice/Pezzo candidates |
-| POST | `/search` | Search for PHercs using multiple criteria (supports fuzzy displayName matching) |
+| POST | `/search` | Search for PHercs using multiple criteria (exact displayName matching) |
 
 ### Pipelines
 
@@ -281,31 +281,29 @@ Scores are computed with `rapidfuzz.fuzz.ratio` on whitespace-stripped, lowercas
 
 Search for PHercs using multiple criteria. All provided filters are intersected (AND logic). Returns a list of matching PHerc display names.
 
-In addition to the strict `display-name` regex filter, you can supply `display-name-fuzzy` to fuzzy-match on the PHerc displayName and intersect the result with every other criterion.
+The `display_name` filter is a strict (regex) match — enter the exact PHerc displayName. To resolve a noisy/approximate name first, use the `GET /resolve` endpoint.
 
 **Request body (all fields optional):**
 ```json
 {
   "uuid": "",
-  "display-name": "",
-  "display-name-fuzzy": "",
-  "display-name-fuzzy-threshold": 75,
+  "display_name": "",
   "author": "",
   "language": "",
-  "unrolling-status": "",
+  "unrolling_status": "",
   "scorze": "",
-  "unrolling-method": "",
+  "unrolling_method": "",
   "unroller": "",
-  "literary-work": "",
+  "literary_work": "",
   "editions": "",
   "subscriptio": "",
-  "instituion": "",
-  "initial-end-title": "",
-  "recto-verso-title": "",
-  "multiple-hands": "",
-  "neapolitan-drawings": "",
-  "oxonian-drawings": "",
-  "cavallo-scribal-style": "",
+  "institution": "",
+  "initial_end_title": "",
+  "recto_verso_title": "",
+  "multiple_hands": "",
+  "neapolitan_drawings": "",
+  "oxonian_drawings": "",
+  "cavallo_scribal_style": "",
   "diameter_operator": "",
   "diameter_value": "",
   "height_operator": "",
@@ -319,7 +317,7 @@ In addition to the strict `display-name` regex filter, you can supply `display-n
 }
 ```
 
-For `editions`, `literary-work`, `neapolitan-drawings`, and `oxonian-drawings`, use the value `"ALL"` to match any PHerc that has that property set.
+For `editions`, `literary_work`, `neapolitan_drawings`, and `oxonian_drawings`, use the value `"ALL"` to match any PHerc that has that property set.
 
 Numeric operators (`diameter_operator`, etc.) accept: `=`, `<=`, `>=`.
 

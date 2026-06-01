@@ -61,7 +61,7 @@ HercClient(host, token, port=8000, scheme="http")
 | `get_artifact(uuid)` | Get the display name for an artifact by its UUID. |
 | `get_datasets_for_educelabid(uuid, ...)` | Get all datasets for a specific EduceLabID. |
 | `resolve(name, label="PHerc", parent_pherc=None, parent_cornice=None, threshold=75, limit=10)` | Fuzzy-resolve a noisy displayName to ranked PHerc / Cornice / Pezzo candidates. |
-| `search(display_name_fuzzy=None, display_name_fuzzy_threshold=None, **criteria)` | For the Database Web GUI -- Search for PHercs using multiple criteria (AND logic). `display_name_fuzzy` enables fuzzy matching on the PHerc displayName. |
+| `search(**criteria)` | For the Database Web GUI -- Search for PHercs using multiple criteria (AND logic). `display_name` is an exact (regex) match on the PHerc displayName. |
 
 ### Pipelines
 
@@ -129,13 +129,9 @@ for eid in eids:
 results = client.search(language="grc", author="Epicurus")
 print(results["PHercs"])  # list of matching PHerc display names
 
-# Fuzzy match on the PHerc displayName (handles noisy input like extra
-# spaces, typos, alternate spellings). Intersects with every other
-# criterion via the same AND logic.
-results = client.search(display_name_fuzzy="118 a", language="grc")
-
-# Loosen / tighten the similarity threshold (0-100, default 75 server-side):
-results = client.search(display_name_fuzzy="4211", display_name_fuzzy_threshold=80)
+# display_name is an exact (regex) match -- enter the precise displayName.
+# To resolve a noisy/approximate name first, use client.resolve() (below).
+results = client.search(display_name="421", language="grc")
 ```
 
 ### Fuzzy name lookup (resolve)

@@ -604,7 +604,15 @@ class GraphDBConnection:
                 "parent_cornice": _parent_info(c_dn, parent_cornice_matches),
             })
 
-        scored.sort(key=lambda r: (-r["score"], r["displayName"]))
+        # Primary: score desc. Secondary: substring matches first (query
+        # appears verbatim in the candidate), so e.g. "118a"/"1180" rank
+        # above "1168" when searching "118", and "Cass."/"Cassetta" rank
+        # above unrelated names when searching "cass". Tertiary: alphabetical.
+        scored.sort(key=lambda r: (
+            -r["score"],
+            query_norm not in _norm(r["displayName"]),
+            r["displayName"],
+        ))
         return scored[:limit]
 
     def find_datasets(self, ds_type: DatasetType, pherc, cornice=None, pezzo=None, newest_completed=False, properties_only=True) -> list[dict] | tuple:

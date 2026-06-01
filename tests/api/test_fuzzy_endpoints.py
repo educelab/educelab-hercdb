@@ -1,4 +1,4 @@
-"""Integration tests for the /resolve endpoint and /search fuzzy param.
+"""Integration tests for the /resolve endpoint.
 
 Requires a running REST API server. Configure token and host_ip below.
 Run: uv run tests/api/test_fuzzy_endpoints.py
@@ -32,8 +32,9 @@ assert body[0]["displayName"] == "421"
 assert body[0]["score"] == 100
 assert body[0]["parent_pherc"] is None
 assert body[0]["parent_cornice"] is None
-assert "node" in body[0]
-print("  ✓ exact match scored 100, node properties flattened")
+assert "nodeID" in body[0]
+assert "name" in body[0]
+print("  ✓ exact match scored 100, nodeID and name included")
 
 print("\nGET /resolve whitespace variant '118 a' -> 118a exact:")
 resp = get("/resolve", params={"name": "118 a", "label": "PHerc"})
@@ -79,52 +80,13 @@ assert len(resp.json()) <= 3
 print(f"  ✓ Returned {len(resp.json())} <= limit=3")
 
 
-# --- POST /search with display-name-fuzzy ---
+# --- POST /search strict display_name path ---
 
-print("\nPOST /search with display-name-fuzzy='118 a':")
-resp = post("/search", {"display-name-fuzzy": "118 a"})
-print(f"  Status: {resp.status_code}")
-assert resp.status_code == 200
-assert "118a" in resp.json()["PHercs"]
-print(f"  ✓ Fuzzy resolved to {resp.json()['PHercs']}")
-
-print("\nPOST /search strict 'display-name' path untouched:")
-resp = post("/search", {"display-name": "421"})
+print("\nPOST /search strict 'display_name' returns exact match:")
+resp = post("/search", {"display_name": "421"})
 print(f"  Status: {resp.status_code}")
 assert resp.status_code == 200
 assert resp.json()["PHercs"] == ["421"]
-print("  ✓ Strict path still returns exact match")
-
-print("\nPOST /search fuzzy with custom threshold widens results:")
-resp = post(
-    "/search",
-    {"display-name-fuzzy": "4211", "display-name-fuzzy-threshold": 80},
-)
-print(f"  Status: {resp.status_code}")
-assert resp.status_code == 200
-names = set(resp.json()["PHercs"])
-# At threshold 80, single-edit-distance neighbors of "4211" should
-# surface — at minimum "421" (the obvious typo target).
-assert "421" in names, f"Expected 421 in fuzzy hits, got {names}"
-print(f"  ✓ At threshold 80 found {names}")
-
-print("\nPOST /search fuzzy + intersection with another param:")
-# Combining fuzzy display-name with a strict criterion narrows the set
-# via the existing intersection logic. PHerc 421 is grc (covered by
-# the DB-level integration tests).
-resp = post(
-    "/search",
-    {"display-name-fuzzy": "421", "language": "grc"},
-)
-print(f"  Status: {resp.status_code}")
-assert resp.status_code == 200
-assert "421" in resp.json()["PHercs"]
-print(f"  ✓ Intersection result: {resp.json()['PHercs']}")
-
-print("\nPOST /search fuzzy with no matches -> 404:")
-resp = post("/search", {"display-name-fuzzy": "ZZZZZZZZ"})
-print(f"  Status: {resp.status_code}")
-assert resp.status_code == 404
-print("  ✓ Matches existing /search convention for empty result sets")
+print("  ✓ Strict path returns exact match")
 
 print("\nAll fuzzy endpoint tests passed!")

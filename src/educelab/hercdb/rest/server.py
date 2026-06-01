@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, Depends, Query, status
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from educelab import hercdb
 from educelab.hercdb.db import DatasetType
 
@@ -222,10 +222,50 @@ async def home(user: str = Depends(get_current_user)):
     return {"message": "Welcome to the Educelab Herculaneum Database"}
 
 
+class SearchQuery(BaseModel):
+    """Typed body for ``POST /search``. Every field is optional; the result
+    set is the intersection of all provided (truthy) filters. Unknown keys
+    are ignored to preserve the endpoint's historically lenient behavior."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    # Text / categorical filters
+    uuid: Optional[str] = Field(None, description="EduceLabID UUID")
+    display_name: Optional[str] = Field(None, description="Strict PHerc displayName (regex match)")
+    author: Optional[str] = Field(None, description="Author name")
+    language: Optional[str] = Field(None, description="Language")
+    unrolling_status: Optional[str] = Field(None, description="Unrolling status")
+    scorze: Optional[str] = Field(None, description="Scorze")
+    unrolling_method: Optional[str] = Field(None, description="Unrolling method")
+    unroller: Optional[str] = Field(None, description="Unroller name")
+    literary_work: Optional[str] = Field(None, description="Literary work (or 'ALL' for any)")
+    editions: Optional[str] = Field(None, description="Editions (or 'ALL' for any)")
+    subscriptio: Optional[str] = Field(None, description="Subscriptio")
+    institution: Optional[str] = Field(None, description="Custodial institution")
+    initial_end_title: Optional[str] = Field(None, description="Initial/end title")
+    recto_verso_title: Optional[str] = Field(None, description="Recto/verso title")
+    multiple_hands: Optional[str] = Field(None, description="Multiple hands")
+    neapolitan_drawings: Optional[str] = Field(None, description="Neapolitan drawings (or 'ALL' for any)")
+    oxonian_drawings: Optional[str] = Field(None, description="Oxonian drawings (or 'ALL' for any)")
+    cavallo_scribal_style: Optional[str] = Field(None, description="Cavallo scribal style")
+
+    # Numeric filters: operator (e.g. '>', '<', '=') + value, passed as strings
+    diameter_operator: Optional[str] = Field(None, description="Comparison operator for diameter")
+    diameter_value: Optional[str] = Field(None, description="Diameter value")
+    height_operator: Optional[str] = Field(None, description="Comparison operator for height")
+    height_value: Optional[str] = Field(None, description="Height value")
+    width_operator: Optional[str] = Field(None, description="Comparison operator for width")
+    width_value: Optional[str] = Field(None, description="Width value")
+    weight_operator: Optional[str] = Field(None, description="Comparison operator for weight")
+    weight_value: Optional[str] = Field(None, description="Weight value")
+    unrolled_year_operator: Optional[str] = Field(None, description="Comparison operator for unrolled year")
+    unrolled_year_value: Optional[str] = Field(None, description="Unrolled year value")
+
+
 @app.post("/search")
-async def search_pherc(request: Request, user: str = Depends(get_current_user)):
+async def search_pherc(query: SearchQuery, user: str = Depends(get_current_user)):
     """Search for PHercs using multiple criteria. Results are the intersection of all provided filters."""
-    data =await request.json()
+    data = query.model_dump(exclude_none=True)
     logger.info(f"User {user} called /search with data: {data}")
     logger.debug(f"Search parameters: {data}")
 
@@ -261,29 +301,29 @@ async def search_pherc(request: Request, user: str = Depends(get_current_user)):
     # Map parameter names to (function, argument)
     param_map = [
         ("uuid", db.find_pherc_by_uuid, None),
-        ("display-name", db.find_pherc_by_display_name, None),
+        ("display_name", db.find_pherc_by_display_name, None),
         ("author", db.find_pherc_by_author, None),
         ("language", db.find_pherc_by_language, None),
-        ("unrolling-status", db.find_pherc_by_property_value, "unrolling_status"),
+        ("unrolling_status", db.find_pherc_by_property_value, "unrolling_status"),
         ("scorze", db.find_pherc_by_property_value, "scorze"),
-        ("unrolling-method", db.find_pherc_by_unrolling_method, None),
+        ("unrolling_method", db.find_pherc_by_unrolling_method, None),
         ("unroller", db.find_pherc_by_unroller_name, None),
-        ("literary-work", db.find_pherc_by_property_value, "literary_work"),
+        ("literary_work", db.find_pherc_by_property_value, "literary_work"),
         ("editions", db.find_pherc_by_property_value, "editions"),
         ("subscriptio", db.find_pherc_by_property_value, "subscriptio"),
-        ("instituion", db.find_pherc_by_custodial_institution, None),
-        ("initial-end-title", db.find_pherc_by_property_value, "initial_end_title"),
-        ("recto-verso-title", db.find_pherc_by_property_value, "recto_verso_title"),
-        ("multiple-hands", db.find_pherc_by_property_value, "multiple_hands"),
-        ("neapolitan-drawings", db.find_pherc_by_property_value, "neapolitan_drawings"),
-        ("oxonian-drawings", db.find_pherc_by_property_value, "oxonian_drawings"),
-        ("cavallo-scribal-style", db.find_pherc_by_cavallo_scribal_style, None),
+        ("institution", db.find_pherc_by_custodial_institution, None),
+        ("initial_end_title", db.find_pherc_by_property_value, "initial_end_title"),
+        ("recto_verso_title", db.find_pherc_by_property_value, "recto_verso_title"),
+        ("multiple_hands", db.find_pherc_by_property_value, "multiple_hands"),
+        ("neapolitan_drawings", db.find_pherc_by_property_value, "neapolitan_drawings"),
+        ("oxonian_drawings", db.find_pherc_by_property_value, "oxonian_drawings"),
+        ("cavallo_scribal_style", db.find_pherc_by_cavallo_scribal_style, None),
     ]
-    
+
     for key, func, prop in param_map:
         value = data.get(key)
-        
-        if key in ("editions", "literary-work", "neapolitan-drawings", "oxonian-drawings") and value == "ALL":
+
+        if key in ("editions", "literary_work", "neapolitan_drawings", "oxonian_drawings") and value == "ALL":
             records, _, _ = db.find_pherc_with_any_property_value(prop)
             if not records:
                 return JSONResponse(status_code=404, content={"PHercs": []})
@@ -314,23 +354,6 @@ async def search_pherc(request: Request, user: str = Depends(get_current_user)):
                 return JSONResponse(status_code=404, content={"PHercs": []})
                 
             result_sets.append(set(record['ph']['displayName'] for record in records))
-
-    # Fuzzy display-name lookup (kept separate from the strict "display-name"
-    # param above so existing callers see no change). Resolves the noisy
-    # input to a set of PHerc displayNames via fuzzy_find_node, then feeds
-    # them into the same intersection logic as every other filter.
-    fuzzy_name = data.get("display-name-fuzzy")
-    if fuzzy_name:
-        fuzzy_threshold = data.get("display-name-fuzzy-threshold", 75)
-        try:
-            fuzzy_hits = db.fuzzy_find_node(
-                fuzzy_name, label="PHerc", threshold=fuzzy_threshold,
-            )
-        except ValueError as e:
-            return JSONResponse(status_code=400, content={"detail": str(e)})
-        if not fuzzy_hits:
-            return JSONResponse(status_code=404, content={"PHercs": []})
-        result_sets.append({c["displayName"] for c in fuzzy_hits})
 
     if result_sets:
         matching_names = set.intersection(*result_sets)
@@ -373,12 +396,13 @@ async def resolve_name(
 
     result = []
     for c in candidates:
-        # Flatten the Neo4j Node to its properties dict so it's JSON-serializable.
-        props = dict(c["node"]) if c["node"] is not None else {}
+        node = c["node"]
+        props = dict(node) if node is not None else {}
         result.append({
             "displayName": c["displayName"],
+            "name": props.get("name"),
             "score": c["score"],
-            "node": props,
+            "nodeID": node.element_id if node is not None else None,
             "parent_pherc": c["parent_pherc"],
             "parent_cornice": c["parent_cornice"],
         })

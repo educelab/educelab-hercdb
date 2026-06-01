@@ -1,4 +1,4 @@
-"""Integration tests for HercClient.resolve and the fuzzy /search kwarg.
+"""Integration tests for HercClient.resolve.
 
 Requires a running REST API server. Configure host_ip and token below.
 Run: uv run tests/client/test_resolve_client.py
@@ -56,34 +56,11 @@ assert len(results) <= 3
 print(f"  ✓ {len(results)} <= limit=3")
 
 
-# --- search with fuzzy kwarg ---
+# --- search (exact display_name) ---
 
-print("\nclient.search(display_name_fuzzy='118 a'):")
-res = client.search(display_name_fuzzy="118 a")
-assert "118a" in res["PHercs"]
-print(f"  ✓ snake_case kwarg translated to REST: {res['PHercs']}")
-
-print("\nclient.search(display_name_fuzzy='4211', display_name_fuzzy_threshold=80):")
-res = client.search(display_name_fuzzy="4211", display_name_fuzzy_threshold=80)
-assert "421" in res["PHercs"]
-print(f"  ✓ explicit threshold widens to: {set(res['PHercs'])}")
-
-print("\nclient.search(language='grc', display_name_fuzzy='421') intersection:")
-res = client.search(language="grc", display_name_fuzzy="421")
-assert "421" in res["PHercs"]
-print(f"  ✓ intersection result: {res['PHercs']}")
-
-print("\nclient.search(**{'display-name': '421'}) strict path untouched:")
-res = client.search(**{"display-name": "421"})
+print("\nclient.search(display_name='421') exact path:")
+res = client.search(display_name="421")
 assert res["PHercs"] == ["421"]
-print("  ✓ existing hyphenated-passthrough still works")
-
-print("\nclient.search(display_name_fuzzy='ZZZZZZZZ') no matches -> raises:")
-try:
-    client.search(display_name_fuzzy="ZZZZZZZZ")
-    raise AssertionError("Expected HTTPError on 404")
-except requests.HTTPError as e:
-    assert e.response.status_code == 404
-    print("  ✓ 404 surfaced as HTTPError (matches existing /search behavior)")
+print("  ✓ snake_case key passthrough works")
 
 print("\nAll resolve-client tests passed!")
