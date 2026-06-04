@@ -6,10 +6,13 @@ from educelab.hercdb.loader import PhercGraphDatabaseLoader
 parser = argparse.ArgumentParser(description='Load scan data into Neo4j')
 parser.add_argument('--negatives', default='input_data/negatives.csv',
                     help='Path to negatives CSV file (default: input_data/negatives.csv)')
-parser.add_argument('--photogrammetry', default='input_data/photogrammetry-scans.csv',
-                    help='Path to photogrammetry scans CSV file (default: input_data/photogrammetry-scans.csv)')
-parser.add_argument('--spectral', default='input_data/spectral-scans.csv',
-                    help='Path to spectral scans CSV file (default: input_data/spectral-scans.csv)')
+parser.add_argument('--photogrammetry', default='input_data/pgs_datasets_20260601(in).csv',
+                    help='Path to photogrammetry scans CSV file (default: 2026 PGS ground-truth)')
+parser.add_argument('--spectral', default='input_data/spectral_datasets_20260601_reconciled.csv',
+                    help='Path to spectral scans CSV file (default: 2026 spectral reconciled ground-truth)')
+parser.add_argument('--replace', action=argparse.BooleanOptionalAction, default=True,
+                    help='Delete all existing PGSRaw/SpectralRaw nodes before loading '
+                         '(default: --replace). Use --no-replace to merge into existing data.')
 args = parser.parse_args()
 
 negatives_file = args.negatives
@@ -18,6 +21,12 @@ spectral_file = args.spectral
 
 loader = PhercGraphDatabaseLoader()
 loader.verify_conn()
+
+
+def to_int(raw):
+    """Parse a CSV count column to int; blank -> 0."""
+    raw = (raw or "").strip()
+    return int(raw) if raw else 0
 
 def clean_datetime(dt_str):
     if not dt_str:
@@ -66,13 +75,17 @@ with open(negatives_file, 'r') as csvfile:
                 neg_storage=neg_storage
             )
 
+# Wipe existing scan nodes before reload so changed paths / dropped rows can't
+# leave stale or duplicate PGSRaw/SpectralRaw nodes behind (negatives untouched).
+if args.replace:
+    loader.delete_all_scan_nodes()
+    print("Deleted existing PGSRaw/SpectralRaw nodes.")
+
 with open(photogrammetry_file, 'r') as csvfile:
-    
-    
     reader = csv.DictReader(csvfile)
     for row in reader:
         path = row['path']
-        scan_uuid = row['uuid'] 
+        scan_uuid = row['uuid']
         datetime_start = clean_datetime(row['datetime start'])
         datetime_end = clean_datetime(row['datetime end']) if row['datetime end'] else None
         complete = normalize_complete(row['complete'])
@@ -84,20 +97,24 @@ with open(photogrammetry_file, 'r') as csvfile:
             datetime_start=datetime_start,
             datetime_end=datetime_end,
             complete=complete,
-            sample_uuid=sample_uuid
+            sample_uuid=sample_uuid,
+            file_count=to_int(row['file count']),
+            missing_files=to_int(row['missing files']),
+            zero_byte_files=to_int(row['zero-byte files']),
+            short_files=to_int(row['short files']),
+            bad_format_files=to_int(row['bad format files'])
         )
-    
+
 with open(spectral_file, 'r') as csvfile:
     reader = csv.DictReader(csvfile)
     for row in reader:
         path = row['path']
-        scan_uuid = row['uuid'] 
+        scan_uuid = row['uuid']
         datetime_start = clean_datetime(row['datetime start'])
         datetime_end = clean_datetime(row['datetime end']) if row['datetime end'] else None
         complete = normalize_complete(row['complete'])
         sample_uuid = row['sample uuid'] if row['sample uuid'] else None # may be None
-        sample_uuid2 = row['sample uuid 2'] if row['sample uuid 2'] else None
-        
+
         loader.add_spectral_raw_node(
             spectral_path=path,
             scan_uuid=scan_uuid,
@@ -105,6 +122,9 @@ with open(spectral_file, 'r') as csvfile:
             datetime_end=datetime_end,
             complete=complete,
             sample_uuid=sample_uuid,
-            sample_uuid2=sample_uuid2
-        )   
-        
+            file_count=to_int(row['file count']),
+            missing_files=to_int(row['missing files']),
+            zero_byte_files=to_int(row['zero-byte files']),
+            short_files=to_int(row['short files']),
+            bad_format_files=to_int(row['bad format files'])
+        )

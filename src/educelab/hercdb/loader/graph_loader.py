@@ -574,32 +574,51 @@ class PhercGraphDatabaseLoader:
         
         self._run_query(query, **params)
 
-    def add_pgs_raw_node(self, pgs_path, scan_uuid, datetime_start, datetime_end=None, complete=False, sample_uuid=None):
+    def add_pgs_raw_node(self, pgs_path, scan_uuid, datetime_start, datetime_end=None,
+                         complete=False, sample_uuid=None, file_count=None,
+                         missing_files=None, zero_byte_files=None, short_files=None,
+                         bad_format_files=None):
         params = {
             "pgs_path": pgs_path,
             "scan_uuid": scan_uuid,
             "datetime_start": datetime_start,
             "datetime_end": datetime_end,
             "complete": complete,
-            "sample_uuid": sample_uuid
+            "sample_uuid": sample_uuid,
+            "file_count": file_count,
+            "missing_files": missing_files,
+            "zero_byte_files": zero_byte_files,
+            "short_files": short_files,
+            "bad_format_files": bad_format_files
         }
-        
+
+        # MERGE on the scan uuid alone (a unique key); path/date_start are SET so a
+        # changed path on re-load updates the node in place rather than duplicating it.
+        # The file counts are always SET (a legitimate 0 must be stored).
         query = """
-            MERGE (pg:PGSRaw {uuid: $scan_uuid,
-            path: $pgs_path,
-            date_start: $datetime_start})
+            MERGE (pg:PGSRaw {uuid: $scan_uuid})
+            SET pg.path = $pgs_path,
+                pg.date_start = $datetime_start,
+                pg.file_count = $file_count,
+                pg.missing_files = $missing_files,
+                pg.zero_byte_files = $zero_byte_files,
+                pg.short_files = $short_files,
+                pg.bad_format_files = $bad_format_files
         """
         if datetime_end:
             query += " SET pg.date_end = $datetime_end"
         if complete:
             query += " SET pg.complete = $complete"
-        
+
         if sample_uuid:
             query = "MATCH (e:EduceLabID {uuid: $sample_uuid}) " + query + " MERGE (e)<-[:BELONGS_TO]-(pg)"
-            
+
         self._run_query(query, **params)
-    
-    def add_spectral_raw_node(self, spectral_path, scan_uuid, datetime_start, datetime_end=None, complete=False, sample_uuid=None, sample_uuid2=None):    
+
+    def add_spectral_raw_node(self, spectral_path, scan_uuid, datetime_start, datetime_end=None,
+                              complete=False, sample_uuid=None, file_count=None,
+                              missing_files=None, zero_byte_files=None, short_files=None,
+                              bad_format_files=None):
         params = {
             "spectral_path": spectral_path,
             "scan_uuid": scan_uuid,
@@ -607,24 +626,41 @@ class PhercGraphDatabaseLoader:
             "datetime_end": datetime_end,
             "complete": complete,
             "sample_uuid": sample_uuid,
-            "sample_uuid2": sample_uuid2
+            "file_count": file_count,
+            "missing_files": missing_files,
+            "zero_byte_files": zero_byte_files,
+            "short_files": short_files,
+            "bad_format_files": bad_format_files
         }
-        
+
+        # See add_pgs_raw_node for the MERGE-on-uuid / always-SET-counts rationale.
         query = """
-            MERGE (s:SpectralRaw {uuid: $scan_uuid,
-            path: $spectral_path,
-            date_start: $datetime_start})
+            MERGE (s:SpectralRaw {uuid: $scan_uuid})
+            SET s.path = $spectral_path,
+                s.date_start = $datetime_start,
+                s.file_count = $file_count,
+                s.missing_files = $missing_files,
+                s.zero_byte_files = $zero_byte_files,
+                s.short_files = $short_files,
+                s.bad_format_files = $bad_format_files
         """
         if datetime_end:
             query += " SET s.date_end = $datetime_end"
         if complete:
-            query += " SET s.complete = $complete"       
+            query += " SET s.complete = $complete"
         if sample_uuid:
             query = "MATCH (e:EduceLabID {uuid: $sample_uuid}) " + query + " MERGE (e)<-[:BELONGS_TO]-(s)"
-        if sample_uuid2:
-            query += " WITH s MATCH (e2:EduceLabID {uuid: $sample_uuid2}) MERGE (e2)<-[:BELONGS_TO]-(s)"
-            
+
         self._run_query(query, **params)
+
+    def delete_all_scan_nodes(self):
+        """Remove every PGSRaw and SpectralRaw node (and their relationships).
+
+        Used before a full reload so changed paths / dropped rows can't leave
+        stale or duplicate nodes behind. FlatbedScanDataset nodes are untouched.
+        """
+        query = "MATCH (n) WHERE n:PGSRaw OR n:SpectralRaw DETACH DELETE n"
+        self._run_query(query)
         
         
 ################ For the image processing pipeline ################

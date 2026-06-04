@@ -123,15 +123,18 @@ uv run python src/educelab/hercdb/loader/scan_loader.py
 
 Reads (defaults):
 - `input_data/negatives.csv` - FlatbedScanDataset nodes
-- `input_data/photogrammetry-scans.csv` - PGSRaw nodes
-- `input_data/spectral-scans.csv` - SpectralRaw nodes
+- `input_data/pgs_datasets_20260601(in).csv` - PGSRaw nodes
+- `input_data/spectral_datasets_20260601_reconciled.csv` - SpectralRaw nodes
+
+By default (`--replace`) it deletes all existing PGSRaw/SpectralRaw nodes and reloads from scratch (FlatbedScanDataset is untouched); pass `--no-replace` to merge into existing data instead. Nodes are keyed on the scan `uuid`, so re-running is idempotent.
 
 Optional arguments:
 ```shell
 uv run python src/educelab/hercdb/loader/scan_loader.py \
   --negatives path/to/negatives.csv \
   --photogrammetry path/to/pgs.csv \
-  --spectral path/to/spectral.csv
+  --spectral path/to/spectral.csv \
+  --no-replace
 ```
 
 **Note:** Run metadata_loader first since scan data links to EduceLabID nodes.

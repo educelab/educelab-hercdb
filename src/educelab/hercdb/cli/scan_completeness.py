@@ -7,6 +7,7 @@ one filtered to rows that need attention (missing/incomplete/no-UUID).
 
 import argparse
 import csv
+import re
 import sys
 from collections import namedtuple
 from pathlib import Path
@@ -35,6 +36,22 @@ StatusInfo = namedtuple("StatusInfo", "status date path")
 BLANK_STATUS = StatusInfo(status="", date="", path="")
 
 
+def natural_key(value):
+    """Sort key so names order numerically (1, 2, ... 10, ... 100) instead of
+    lexically (1, 10, 100, 2). Digit runs compare as ints; the surrounding text
+    compares case-insensitively, so mixed names like "118a", "Cass.7", and
+    "4 PHerc. s.n." still sort sensibly. re.split keeps text/number tokens at
+    consistent positions, so every key compares text-to-text and int-to-int.
+    """
+    return [int(tok) if tok.isdigit() else tok.lower()
+            for tok in re.split(r"(\d+)", value or "")]
+
+
+def row_sort_key(row):
+    """Order rows by PHerc, then Cornice, then Pezzo (columns 0, 1, 2)."""
+    return (natural_key(row[0]), natural_key(row[1]), natural_key(row[2]))
+
+
 def lookup_institution(db, pherc_display_name):
     """Return the PHerc-level CustodialInstitution name, or "" if none."""
     records, _, _ = db.find_node_type_connected_to_object_node(
@@ -43,6 +60,23 @@ def lookup_institution(db, pherc_display_name):
     if not records:
         return ""
     return records[0]["c"]["name"]
+
+
+def _is_fully_complete(d):
+    """A dataset counts as complete only if its `complete` flag is True AND it
+    has no missing / zero-byte / short / bad-format files. Counts are stored as
+    ints on the node; legacy nodes loaded before the count columns existed
+    default to 0 (preserving the prior flag-only behavior for un-reloaded data).
+    """
+    if str(d.get("complete")) != "True":
+        return False
+    for key in ("missing_files", "zero_byte_files", "short_files", "bad_format_files"):
+        try:
+            if int(d.get(key, 0) or 0) != 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
 
 
 def classify(db, uuid, ds_type):
@@ -55,7 +89,7 @@ def classify(db, uuid, ds_type):
     )
     if not datasets:
         return StatusInfo("missing", "", "")
-    complete = [d for d in datasets if str(d.get("complete")) == "True"]
+    complete = [d for d in datasets if _is_fully_complete(d)]
     if not complete:
         return StatusInfo("incomplete", "", "")
     newest = max(complete, key=lambda d: str(d.get("date_end", "")))
@@ -119,6 +153,31 @@ def main():
     phercs = db.list_all_pherc_display_names()
     print(f"Walking {len(phercs)} PHerc nodes...")
 
+    # Collect every row first so the output can be sorted numerically by
+    # PHerc/Cornice/Pezzo before writing (the DB walk yields lexical order).
+    all_rows = []
+    for pherc in phercs:
+        display_name = pherc["display_name"]
+        institution = lookup_institution(db, display_name)
+        artifact_rows = db.find_all_artifacts_and_educelabids_for_pherc(
+            display_name
+        )
+        for artifact_row in artifact_rows:
+            uuid = artifact_row["uuid"]
+            if uuid:
+                pgs = classify(db, uuid, DatasetType.PGSRaw)
+                spec = classify(db, uuid, DatasetType.SpectralRaw)
+            else:
+                pgs = spec = BLANK_STATUS
+
+            row = build_row(artifact_row, pgs, spec, institution)
+            is_issue = (not uuid
+                        or pgs.status != "complete"
+                        or spec.status != "complete")
+            all_rows.append((row, is_issue))
+
+    all_rows.sort(key=lambda item: row_sort_key(item[0]))
+
     total_rows = issues_rows = 0
     with open(full_csv, "w", encoding="utf-8-sig", newline="") as f_all, \
             open(issues_csv, "w", encoding="utf-8-sig", newline="") as f_issues:
@@ -127,29 +186,12 @@ def main():
         writer_all.writerow(HEADER)
         writer_iss.writerow(HEADER)
 
-        for pherc in phercs:
-            display_name = pherc["display_name"]
-            institution = lookup_institution(db, display_name)
-            artifact_rows = db.find_all_artifacts_and_educelabids_for_pherc(
-                display_name
-            )
-            for artifact_row in artifact_rows:
-                uuid = artifact_row["uuid"]
-                if uuid:
-                    pgs = classify(db, uuid, DatasetType.PGSRaw)
-                    spec = classify(db, uuid, DatasetType.SpectralRaw)
-                else:
-                    pgs = spec = BLANK_STATUS
-
-                row = build_row(artifact_row, pgs, spec, institution)
-                writer_all.writerow(row)
-                total_rows += 1
-
-                if (not uuid
-                        or pgs.status != "complete"
-                        or spec.status != "complete"):
-                    writer_iss.writerow(row)
-                    issues_rows += 1
+        for row, is_issue in all_rows:
+            writer_all.writerow(row)
+            total_rows += 1
+            if is_issue:
+                writer_iss.writerow(row)
+                issues_rows += 1
 
     print(f"Wrote {total_rows} rows to {full_csv}")
     print(f"Wrote {issues_rows} rows to {issues_csv}")

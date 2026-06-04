@@ -130,12 +130,16 @@ educelab-hercdb/
 - `mark_educelabid_retired(uuid, reason)` sets `retired = true` and stores a reason string on an EduceLabID; called by `metadata_loader.py` when a Replacement UUID is a sentinel like `"discarded"` or `"."` rather than a real UUID
 
 **src/educelab/hercdb/loader/scan_loader.py**: Scan-data loader
+- Loads the 2026 scan schema: PGS and Spectral CSVs both carry `file count, missing files, zero-byte files, short files, bad format files` (parsed as ints onto the nodes as `file_count, missing_files, zero_byte_files, short_files, bad_format_files`). The Spectral `sample uuid 2` column was dropped in 2026; the loader no longer reads it.
 - `normalize_complete(raw)` collapses CSV `complete` variants (`"TRUE"` / `"True"` / `"true"` / etc.) to the canonical strings `"True"`, `"False"`, or `"unknown"` so PGS and Spectral nodes share the same `complete` semantics. The canonical strings always satisfy the loader's `if complete:` guard, so re-runs overwrite stale values in either direction.
+- `--replace` (default on; `--no-replace` to disable) calls `loader.delete_all_scan_nodes()` to DETACH DELETE all PGSRaw/SpectralRaw nodes before reloading (FlatbedScanDataset untouched). `add_pgs_raw_node` / `add_spectral_raw_node` MERGE on the scan `uuid` alone (a unique key) and SET `path`/`date_start`/counts, so a changed path updates the node in place rather than duplicating it — the load is idempotent.
+- The 2023 → 2026 reconciliation that produced the spectral ground-truth file (`input_data/spectral_datasets_20260601_reconciled.csv`) is recorded in `docs/data_review_notes.md` §5 (78 backfilled sample uuids, 147 unlinked calibration/test scans, 1 dropped `sample uuid 2`).
 
 **src/educelab/hercdb/cli/scan_completeness.py**: Scan-completeness report CLI
 - Generates `scan_completeness_full.csv` and `scan_completeness_issues.csv`
 - Wired up as the `el-hercdb-scan-report` shell command via `[project.scripts]`
 - Walks `REPLACES` so pre-replacement scans on retired predecessor UUIDs still count toward an artifact's coverage
+- A dataset counts as **complete** only when `complete == "True"` AND `missing_files == 0 AND zero_byte_files == 0 AND short_files == 0 AND bad_format_files == 0` (see `_is_fully_complete`). This is stricter than the raw `complete` flag and is local to this report — `find_datasets` / `find_datasets_for_educelabid` / `find_all_datasets_for_pherc` still filter on the raw flag Cypher-side and need reconciling (tracked in memory).
 
 **src/educelab/hercdb/client/herc_client.py**: REST API client
 - `HercClient`: Lightweight Python client wrapping all REST endpoints
@@ -164,7 +168,7 @@ The Neo4j database models Herculaneum scroll data with these primary node types:
 - **Pezzo**: Smaller fragments (can be under PHerc or Cornice)
 - **Disegni**: Historical drawings depicting scrolls
 - **EduceLabID**: Links physical objects to UUIDs and datasets. May carry a `retired = true` flag with a `retired_reason` string when the UUID was retired without a successor (sentinel `Replacement UUID` value in the UUID file).
-- **Dataset nodes**: FlatbedScanDataset, PGSRaw, SpectralRaw (imaging data)
+- **Dataset nodes**: FlatbedScanDataset, PGSRaw, SpectralRaw (imaging data). PGSRaw/SpectralRaw carry `uuid` (the scan's own id, the MERGE key), `path`, `date_start`/`date_end`, `complete`, and the 2026 integer counts `file_count`, `missing_files`, `zero_byte_files`, `short_files`, `bad_format_files`.
 - **Pipeline**: Processing pipelines with `pipeline_id`
 - **Process**: Pipeline stages with `stage`, `status`, `datetime`, `slurm_id`
 - **Metadata nodes**: Author, Language, Unroller, CustodialInstitution, etc.
@@ -274,7 +278,7 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 - Scripts in `old_scripts/` directory load data into Neo4j
 - `educelab.hercdb.loader` module contains utilities for bulk operations
 - `preprocessing/` has Jupyter notebooks for data preparation from Google Sheets
-- `scan_loader.py` normalizes the `complete` CSV column case-insensitively to `"True"` / `"False"` / `"unknown"`; pre-existing Neo4j nodes loaded before this normalization may still hold uppercase variants until `scan_loader.py` is re-run
+- `scan_loader.py` normalizes the `complete` CSV column case-insensitively to `"True"` / `"False"` / `"unknown"`. With `--replace` (default) it wipes and reloads PGSRaw/SpectralRaw, MERGE-ing on the scan `uuid`, so all nodes carry the canonical `complete` and the 2026 integer count columns after a reload
 - `metadata_loader.py` detects sentinel `Replacement UUID` values (anything that isn't a real UUID, e.g. `"discarded"` or `"."`) and flags the original EduceLabID as `retired = true` instead of creating a bogus successor node
 
 ### CSV Anomalies and Data Review
