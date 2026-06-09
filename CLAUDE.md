@@ -48,7 +48,8 @@ uv run uvicorn educelab.hercdb.rest.server:app --reload
 After `uv sync --extra server`, the package exposes shell entry points (see `[project.scripts]` in `pyproject.toml`):
 
 - `el-hercdb-search` — interactive PHerc lookup (`cli/search.py`)
-- `el-hercdb-scan-report` — scan-completeness CSV report (`cli/scan_completeness.py`); writes a full report and an issues-only report, walking the PHerc hierarchy plus any `REPLACES` chains. Run via `uv run el-hercdb-scan-report --out-dir ./tmp`.
+- `el-hercdb-scan-report` — scan-completeness CSV report (`cli/scan_completeness.py`); writes a full report and an issues-only report, walking the PHerc hierarchy plus any `REPLACES` chains. Run via `uv run el-hercdb-scan-report --out-dir ./tmp`. By default coverage comes from loaded PGSRaw/SpectralRaw **nodes**. With `--scans-from-csv` (plus `--pgs-csv`/`--spectral-csv`, ground-truth defaults) coverage is read **directly from the scan CSVs** — **read-only on the DB, no scan-load required** — and a third `scan_completeness_review.csv` of wrong/missing/inconsistent entries is written (suppress with `--no-review`). Each row carries the **museum** (`Institution`) column.
+- `el-hercdb-sample-uuid-check` — cross-checks each scan's `sample uuid` against the artifact named in its `path` (`cli/sample_uuid_check.py`); read-only, writes a categorized text report. The same module exposes `load_scan_rows`/`cross_check`, reused by the `--scans-from-csv` report.
 
 ### Deploying the REST API Server (Production)
 
@@ -136,10 +137,12 @@ educelab-hercdb/
 - The 2023 → 2026 reconciliation that produced the spectral ground-truth file (`input_data/spectral_datasets_20260601_reconciled.csv`) is recorded in `docs/data_review_notes.md` §5 (78 backfilled sample uuids, 147 unlinked calibration/test scans, 1 dropped `sample uuid 2`).
 
 **src/educelab/hercdb/cli/scan_completeness.py**: Scan-completeness report CLI
-- Generates `scan_completeness_full.csv` and `scan_completeness_issues.csv`
+- Generates `scan_completeness_full.csv` and `scan_completeness_issues.csv` (and, in `--scans-from-csv` mode, `scan_completeness_review.csv`)
 - Wired up as the `el-hercdb-scan-report` shell command via `[project.scripts]`
 - Walks `REPLACES` so pre-replacement scans on retired predecessor UUIDs still count toward an artifact's coverage
 - A dataset counts as **complete** only when `complete == "True"` AND `missing_files == 0 AND zero_byte_files == 0 AND short_files == 0 AND bad_format_files == 0` (see `_is_fully_complete`). This is stricter than the raw `complete` flag and is local to this report — `find_datasets` / `find_datasets_for_educelabid` / `find_all_datasets_for_pherc` still filter on the raw flag Cypher-side and need reconciling (tracked in memory).
+- **Two coverage sources.** Default: loaded PGSRaw/SpectralRaw nodes via `classify()`. `--scans-from-csv`: coverage read directly from the scan CSVs (`load_scan_rows` + `build_coverage` + `classify_from_csv`), pooling scans across each UUID's `REPLACES` chain via `db.find_predecessor_uuid_map()`. The CSV path is **read-only on the DB and needs no scan-load** — used to answer "what still needs scanning + which museum" before the new scans are loaded. Both apply the same strict `_is_fully_complete` / `sample_uuid_check.is_row_complete` rule. **Artifact attribution is always by `sample uuid` → exact Neo4j node**, so `118a`/`118b` (distinct PHerc nodes, distinct UUIDs) are never conflated; the path is used only for the cross-check.
+- **Review report** (`--scans-from-csv` only): flags **sample-uuid data errors only** — `WRONG_SAMPLE_UUID` and `ORPHAN_SAMPLE_UUID` (both high, scan-side from `sample_uuid_check.cross_check`). Deliberately **excluded**: `INCOMPLETE_FILES` (scanned-but-not-good artifacts — they already appear in the issues CSV with an `incomplete` status, so not duplicated here) and `UNLINKED_UUID` (minted UUIDs with no artifact — out of scope for "what needs scanning"; `db.find_unassigned_educelabids()` still exists for that lookup but is no longer called). Note: the cross-check compares PHerc number **sets**, so it cannot detect an `118a`↔`118b` swap (paths omit the alpha suffix); documented in `cli/sample_uuid_check.py`.
 
 **src/educelab/hercdb/client/herc_client.py**: REST API client
 - `HercClient`: Lightweight Python client wrapping all REST endpoints
@@ -166,6 +169,7 @@ The Neo4j database models Herculaneum scroll data with these primary node types:
 - **PHerc**: Individual papyrus scrolls (identified by `displayName`). PHercs that are organized as Casette also carry the additional `:Casetta` label.
 - **Cornice**: Physical subdivisions of PHerc (some scrolls)
 - **Pezzo**: Smaller fragments (can be under PHerc or Cornice)
+- **Name model (PHerc/Cornice/Pezzo)**: each carries a single canonical `displayName` (always populated, the only name shown to users) plus an `aliases` string-array — the de-duplicated set of every known form (displayName + uuid-sheet `name` + Casetta synonyms + spelling variants). `aliases` is the match surface; resolution goes through `fuzzy_find_node` (which scores against displayName + aliases) and a full-text index `artifact_names` on `[displayName, aliases]`. See "Display Names vs Internal Names" and the name-model plan in `.claude/plans/name_displayname_alias_model.md`.
 - **Disegni**: Historical drawings depicting scrolls
 - **EduceLabID**: Links physical objects to UUIDs and datasets. May carry a `retired = true` flag with a `retired_reason` string when the UUID was retired without a successor (sentinel `Replacement UUID` value in the UUID file).
 - **Dataset nodes**: FlatbedScanDataset, PGSRaw, SpectralRaw (imaging data). PGSRaw/SpectralRaw carry `uuid` (the scan's own id, the MERGE key), `path`, `date_start`/`date_end`, `complete`, and the 2026 integer counts `file_count`, `missing_files`, `zero_byte_files`, `short_files`, `bad_format_files`.
@@ -222,9 +226,9 @@ The `GraphDBConnection` class provides two patterns for queries:
 
 7. **Fuzzy name lookup** (`src/educelab/hercdb/db/connection.py`):
    - `fuzzy_find_node(name, label="PHerc", parent_pherc=None, parent_cornice=None, threshold=75, limit=10)` — standalone reusable primitive that returns ranked candidates: `[{"node", "displayName", "score", "parent_pherc", "parent_cornice"}, ...]` ordered by score desc. Use this when callers have a noisy name (typos, extra spaces, alternate spellings) and need to identify the right PHerc/Cornice/Pezzo before reaching for UUIDs/EduceLabIDs and the other `find_*` methods. **Do not** add per-endpoint fuzzy variants — compose with this method.
-   - Implementation notes: normalizes by stripping **all** whitespace + lowercasing both query and candidate before scoring; exact match after normalization short-circuits to score 100 (all candidates sharing the normalized name are returned). Uses `rapidfuzz.fuzz.ratio` (not `WRatio`) — `ratio` penalizes length mismatch, which works correctly for the mostly-short identifier-style displayNames in this dataset; `WRatio`'s partial-ratio component over-scored short substrings of the query. Among equal-score candidates, substring matches (query appears verbatim in the candidate's normalized name) sort before non-substring matches — e.g. "118a"/"1180" rank above "1168" for query "118", and "Cass."/"Cassetta" rank above unrelated names for query "cass". Alphanumeric suffix names like "118a" still require `limit ≥ 13` to appear when there are many numeric substring matches ("1118", "1180"–"1189") sorting before them alphabetically.
+   - Implementation notes: normalizes by stripping **all** whitespace + lowercasing both query and candidate before scoring; scores against the **max** over a node's displayName + every `aliases` member (so any alternate form matches); exact match after normalization short-circuits to score 100 (all candidates sharing the normalized form are returned). Uses `rapidfuzz.fuzz.ratio` (not `WRatio`) — `ratio` penalizes length mismatch, which works correctly for the mostly-short identifier-style displayNames in this dataset; `WRatio`'s partial-ratio component over-scored short substrings of the query. Among equal-score candidates, substring matches (query appears verbatim in any form) sort before non-substring matches — e.g. "118a"/"1180" rank above "1168" for query "118", and "Cass."/"Cassetta" rank above unrelated names for query "cass". Alphanumeric suffix names like "118a" still require `limit ≥ 13` to appear when there are many numeric substring matches ("1118", "1180"–"1189") sorting before them alphabetically.
    - Parent semantics: for `Cornice`/`Pezzo`, the resolver recursively fuzzy-resolves any supplied parent name and scopes the child candidate fetch to those parents. Parent scores are reported separately on each result (not fused with the child score). When a parent name was *not* supplied, `parent_pherc.displayName` / `parent_cornice.displayName` is still populated as context, but `score` is `null`.
-   - Data caveat: Casetta-style Cornici are stored as the abbreviation `"Cass.X"` (not `"Casetta X"`), so a literal `"Casetta"` query scores ~46 against `"Cass.7"` and returns nothing. The matcher is doing its job; the inputs just don't overlap. Tracked separately (synonym/alias handling vs. data re-load is undecided).
+   - Casetta resolution (resolved): the loader now stores Casetta synonyms in `aliases` — for any numbered casetta it generates `Cass.N`, `Casetta N`, **and** `Casetto N` (the loader recognizes all of `Cass.`/`Casetta`/`Casetto`/`Cassetta`/`Cassetto` followed by a number; the bare word "Cassetto" with no number is left alone). So `"Casetta 20"`, `"Casetto 20"`, and `"Cass.20"` all resolve to the `Cass. 20` node at score 100, and a double-s `"Cassetto 20"` query still matches via fuzzy (~95). Synonym generation lives in `PhercGraphDatabaseLoader._casetta_synonyms` / `_expand_aliases`; the one-time migration that backfilled existing data is `preprocessing/migrate_name_aliases.py`.
 
 ### REST API Endpoints
 
@@ -256,9 +260,11 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 ## Important Notes
 
 ### Display Names vs Internal Names
-- Use `displayName` property for user-facing queries (e.g., "421", "118a")
-- Older `name` property is deprecated; `human_name` is no longer set by current loaders
-- Methods marked "Soon to be deprecated" should be avoided in new code
+- **`displayName`** is the single canonical, user-facing name on every PHerc/Cornice/Pezzo (e.g. "421", "118a", "Cass. 20") and is **always populated**. It is the only name to display.
+- **`aliases`** (string array) is the match surface: the de-duplicated set of all known forms (displayName + the legacy uuid-sheet `name` + Casetta synonyms + spelling variants). Never display from `aliases`; use it only to *resolve* a possibly-noisy input to a node. Loaders append to `aliases` (they don't overwrite); `fuzzy_find_node` scores against it; `find_pherc_by_display_name` matches displayName **or** any alias (exact); a full-text index `artifact_names` covers `[displayName, aliases]`.
+- Older `name` property is deprecated (kept as one of the alias sources during transition); `human_name` is no longer set by current loaders.
+- Methods marked "Soon to be deprecated" should be avoided in new code.
+- The canonical-displayName + aliases model, the one-time migration (`preprocessing/migrate_name_aliases.py`), and the duplicate-node merge are described in `.claude/plans/name_displayname_alias_model.md`.
 
 ### Naming Inconsistency: `stage` (Neo4j) vs `proc_type` (Python/REST)
 - The Python API and REST layer use `proc_type` as the parameter/field name for process types (PGS, SPEC, REG, WEB).

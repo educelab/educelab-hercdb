@@ -9,12 +9,18 @@ import argparse
 import csv
 import re
 import sys
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 from pathlib import Path
 
 from educelab import hercdb
 from educelab.hercdb import config
 from educelab.hercdb.db import DatasetType
+from educelab.hercdb.cli.sample_uuid_check import (
+    DEFAULT_PGS_CSV,
+    DEFAULT_SPECTRAL_CSV,
+    cross_check,
+    load_scan_rows,
+)
 
 
 HEADER = [
@@ -34,6 +40,15 @@ HEADER = [
 
 StatusInfo = namedtuple("StatusInfo", "status date path")
 BLANK_STATUS = StatusInfo(status="", date="", path="")
+
+REVIEW_HEADER = ["Category", "Scan Type", "PHerc", "UUID", "Detail"]
+# The review report flags sample-uuid *data errors* only (wrong / missing UUID).
+# Deliberately excluded:
+#   - INCOMPLETE_FILES: scanned-but-not-good artifacts already appear in the
+#     issues CSV with an "incomplete" status; no need to duplicate them here.
+#   - UNLINKED_UUID: minted UUIDs with no artifact — no physical object, out of
+#     scope for "what needs scanning".
+REVIEW_CATEGORIES = ["WRONG_SAMPLE_UUID", "ORPHAN_SAMPLE_UUID"]
 
 
 def natural_key(value):
@@ -100,6 +115,73 @@ def classify(db, uuid, ds_type):
     )
 
 
+def build_coverage(rows):
+    """Group CSV scan rows by `sample uuid` and modality.
+
+    Returns {sample_uuid: {"PGS": [ScanRow, ...], "Spectral": [...]}}. Only
+    rows with a non-blank sample uuid contribute (blank ones can't attach to
+    an artifact and surface separately in the cross-check).
+    """
+    coverage = defaultdict(lambda: {"PGS": [], "Spectral": []})
+    for r in rows:
+        if r.sample_uuid:
+            coverage[r.sample_uuid][r.source].append(r)
+    return coverage
+
+
+def classify_from_csv(coverage, uuid, pred_map, modality):
+    """CSV-backed counterpart to classify(): determine a modality's status for
+    one artifact UUID from the scan CSVs, pooling scans across the UUID's
+    REPLACES chain. Returns a StatusInfo.
+    """
+    pool = {uuid} | pred_map.get(uuid, set())
+    scans = [s for u in pool for s in coverage.get(u, {}).get(modality, [])]
+    if not scans:
+        return StatusInfo("missing", "", "")
+    complete = [s for s in scans if s.fully_complete]
+    if not complete:
+        return StatusInfo("incomplete", "", "")
+    newest = max(complete, key=lambda s: s.date_end or "")
+    return StatusInfo("complete", newest.date_end or "", newest.path or "")
+
+
+def _scan_review_detail(anomaly):
+    """Detail string for a WRONG/ORPHAN scan-side review row."""
+    a = anomaly
+    says = f"PHerc {a.path_pherc_raw}" + (
+        f" / subdiv {a.path_subdiv}" if a.path_subdiv is not None else "")
+    if a.resolved:
+        actual = ("PHerc " + str(a.resolved["pherc"])
+                  + (f" / Cornice {a.resolved['cornice']}" if a.resolved["cornice"] else "")
+                  + (f" / Pezzo {a.resolved['pezzo']}" if a.resolved["pezzo"] else ""))
+    else:
+        actual = "no artifact (uuid not in DB / unassigned)"
+    return f"path says {says} / resolves to {actual}; {a.path}"
+
+
+def build_review_rows(db, rows):
+    """Assemble the curated human-review rows from the cross-check: scan-side
+    sample-uuid data errors only (wrong / missing UUID). Each row is a list
+    matching REVIEW_HEADER: [Category, Scan Type, PHerc, UUID, Detail], where
+    Scan Type is the modality of the offending scan (PGS / Spectral). Read-only."""
+    out = []
+
+    def add(category, scan_type, pherc, uuid, detail):
+        out.append([category, scan_type, pherc or "", uuid or "", detail])
+
+    result = cross_check(db, rows)
+    for a in result.buckets["PHERC_MISMATCH"] + result.buckets["SUBDIV_MISMATCH"]:
+        add("WRONG_SAMPLE_UUID", a.source, a.path_pherc_raw,
+            a.sample_uuid, _scan_review_detail(a))
+    for a in result.buckets["UUID_NOT_IN_DB"]:
+        add("ORPHAN_SAMPLE_UUID", a.source, a.path_pherc_raw,
+            a.sample_uuid, _scan_review_detail(a))
+
+    out.sort(key=lambda r: (REVIEW_CATEGORIES.index(r[0]) if r[0] in REVIEW_CATEGORIES else 9,
+                            natural_key(r[2])))
+    return out
+
+
 def build_row(artifact_row, pgs, spec, institution):
     return [
         artifact_row["pherc"],
@@ -119,15 +201,17 @@ def build_row(artifact_row, pgs, spec, institution):
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Generate scan-completeness CSV reports across every PHerc in "
-            "the Neo4j database. Writes two files: a full report (every "
-            "artifact, every UUID) and an issues-only report (rows where "
-            "any scan is missing/incomplete or the artifact has no UUID)."
+            "Generate scan-completeness CSV reports across every PHerc in the "
+            "Neo4j database. Writes a full report (every artifact, every UUID) "
+            "and an issues-only report (missing/incomplete or no-UUID). With "
+            "--scans-from-csv, scan coverage is read directly from the scan "
+            "CSVs (no DB scan-node load required) and a third review report of "
+            "wrong/missing/inconsistent entries is also written."
         )
     )
     parser.add_argument(
         "--out-dir", default=".",
-        help="Directory where the two CSV files are written (default: .).",
+        help="Directory where the CSV files are written (default: .).",
     )
     parser.add_argument(
         "--full-name", default="scan_completeness_full.csv",
@@ -137,18 +221,50 @@ def main():
         "--issues-name", default="scan_completeness_issues.csv",
         help="File name for the issues-only report (default: scan_completeness_issues.csv).",
     )
+    parser.add_argument(
+        "--review-name", default="scan_completeness_review.csv",
+        help="File name for the human-review report (default: scan_completeness_review.csv). "
+             "Only written with --scans-from-csv.",
+    )
+    parser.add_argument(
+        "--scans-from-csv", action="store_true",
+        help="Read PGS/Spectral coverage directly from the scan CSVs instead of "
+             "loaded Neo4j scan nodes. Read-only on the DB; no scan-load needed.",
+    )
+    parser.add_argument(
+        "--pgs-csv", default=DEFAULT_PGS_CSV,
+        help=f"PGS scan CSV for --scans-from-csv (default: {DEFAULT_PGS_CSV}).",
+    )
+    parser.add_argument(
+        "--spectral-csv", default=DEFAULT_SPECTRAL_CSV,
+        help=f"Spectral scan CSV for --scans-from-csv (default: {DEFAULT_SPECTRAL_CSV}).",
+    )
+    parser.add_argument(
+        "--no-review", action="store_true",
+        help="Skip the review report (only relevant with --scans-from-csv).",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     full_csv = out_dir / args.full_name
     issues_csv = out_dir / args.issues_name
+    review_csv = out_dir / args.review_name
 
     config.request_required()
     db = hercdb.connect()
     if not db.verify_connection():
         print("Failed to connect to Neo4j.", file=sys.stderr)
         sys.exit(1)
+
+    # When sourcing coverage from the CSVs, read them once and prefetch the
+    # REPLACES chains so a scan on a retired predecessor UUID still counts.
+    coverage = pred_map = scan_rows = None
+    if args.scans_from_csv:
+        print("Reading scan coverage from CSVs (read-only; no scan-node load)...")
+        scan_rows = load_scan_rows(args.pgs_csv, args.spectral_csv)
+        coverage = build_coverage(scan_rows)
+        pred_map = db.find_predecessor_uuid_map()
 
     phercs = db.list_all_pherc_display_names()
     print(f"Walking {len(phercs)} PHerc nodes...")
@@ -164,11 +280,14 @@ def main():
         )
         for artifact_row in artifact_rows:
             uuid = artifact_row["uuid"]
-            if uuid:
+            if not uuid:
+                pgs = spec = BLANK_STATUS
+            elif args.scans_from_csv:
+                pgs = classify_from_csv(coverage, uuid, pred_map, "PGS")
+                spec = classify_from_csv(coverage, uuid, pred_map, "Spectral")
+            else:
                 pgs = classify(db, uuid, DatasetType.PGSRaw)
                 spec = classify(db, uuid, DatasetType.SpectralRaw)
-            else:
-                pgs = spec = BLANK_STATUS
 
             row = build_row(artifact_row, pgs, spec, institution)
             is_issue = (not uuid
@@ -195,6 +314,21 @@ def main():
 
     print(f"Wrote {total_rows} rows to {full_csv}")
     print(f"Wrote {issues_rows} rows to {issues_csv}")
+
+    # Curated human-review report (CSV-sourced mode only — the cross-check
+    # needs the scan CSVs).
+    if args.scans_from_csv and not args.no_review:
+        review_rows = build_review_rows(db, scan_rows)
+        with open(review_csv, "w", encoding="utf-8-sig", newline="") as f_rev:
+            writer_rev = csv.writer(f_rev)
+            writer_rev.writerow(REVIEW_HEADER)
+            writer_rev.writerows(review_rows)
+        counts = {}
+        for r in review_rows:
+            counts[r[0]] = counts.get(r[0], 0) + 1
+        print(f"Wrote {len(review_rows)} rows to {review_csv}")
+        for category in REVIEW_CATEGORIES:
+            print(f"    {category:<20}: {counts.get(category, 0)}")
 
 
 if __name__ == "__main__":
