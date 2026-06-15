@@ -263,10 +263,17 @@ class GraphDBConnection:
         return None
 
     def find_pherc_by_display_name(self, display_name) -> tuple:
-        """Look up a PHerc by its display name."""
-        
+        """Look up a PHerc by its display name or any alias (exact match).
+
+        Matches the canonical `displayName` or any member of `aliases`, so a
+        known alternate form (uuid-sheet name, Casetta synonym like
+        "Casetta 20" for displayName "Cass.20") resolves to the same node.
+        For noisy/typo'd names use `fuzzy_find_node` / the `/resolve` endpoint.
+        """
         records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc {displayName:$display_name})
+            MATCH (ph:PHerc)
+            WHERE ph.displayName = $display_name
+               OR $display_name IN coalesce(ph.aliases, [])
             RETURN ph
             """, display_name=display_name)
         return records, summary, keys
@@ -363,12 +370,17 @@ class GraphDBConnection:
         Returns:
             List of dicts with keys 'display_name' (str) and 'is_casetta' (bool),
             ordered by displayName.
+
+        Falls back to `name` / first alias when `displayName` is null so the
+        scan-completeness walk never emits a nameless PHerc row (post-migration
+        every node has a displayName; this guards any residual/un-migrated data).
         """
         records, _, _ = self._run_query("""
             MATCH (ph:PHerc)
-            RETURN ph.displayName AS display_name,
+            WITH ph, coalesce(ph.displayName, ph.name, head(coalesce(ph.aliases, []))) AS display_name
+            RETURN display_name,
                    'Casetta' IN labels(ph) AS is_casetta
-            ORDER BY ph.displayName
+            ORDER BY display_name
             """)
         if not records:
             return []
@@ -437,6 +449,14 @@ class GraphDBConnection:
 
         def _norm(s):
             return "".join((s or "").split()).lower()
+
+        def _forms(node, dn):
+            """All raw name forms to match a candidate against: its displayName
+            plus every alias. Display still uses displayName; aliases only widen
+            the match surface (uuid-sheet names, Casetta synonyms, variants)."""
+            forms = [dn] if dn else []
+            forms += [a for a in (node.get("aliases") or []) if a]
+            return forms or [dn]
 
         query_norm = _norm(name)
         if not query_norm:
@@ -573,11 +593,11 @@ class GraphDBConnection:
 
         # Exact-match short-circuit: same normalized name can map to
         # multiple Cornici/Pezzi under different parents — return all of
-        # them at score 100.
+        # them at score 100. Matches against displayName OR any alias.
         exact = [
             (node, dn, ph_dn, c_dn)
             for node, dn, ph_dn, c_dn in candidates
-            if _norm(dn) == query_norm
+            if any(_norm(s) == query_norm for s in _forms(node, dn))
         ]
         if exact:
             return [
@@ -593,7 +613,11 @@ class GraphDBConnection:
 
         scored = []
         for node, dn, ph_dn, c_dn in candidates:
-            score = int(round(fuzz.ratio(query_norm, _norm(dn))))
+            # Score against the best-matching form (displayName or any alias).
+            score = max(
+                (int(round(fuzz.ratio(query_norm, _norm(s)))) for s in _forms(node, dn)),
+                default=0,
+            )
             if score < threshold:
                 continue
             scored.append({
@@ -605,13 +629,13 @@ class GraphDBConnection:
             })
 
         # Primary: score desc. Secondary: substring matches first (query
-        # appears verbatim in the candidate), so e.g. "118a"/"1180" rank
-        # above "1168" when searching "118", and "Cass."/"Cassetta" rank
-        # above unrelated names when searching "cass". Tertiary: alphabetical.
+        # appears verbatim in any form), so e.g. "118a"/"1180" rank above
+        # "1168" when searching "118", and "Cass."/"Cassetta" rank above
+        # unrelated names when searching "cass". Tertiary: alphabetical.
         scored.sort(key=lambda r: (
             -r["score"],
-            query_norm not in _norm(r["displayName"]),
-            r["displayName"],
+            not any(query_norm in _norm(s) for s in _forms(r["node"], r["displayName"])),
+            r["displayName"] or "",
         ))
         return scored[:limit]
 
@@ -907,6 +931,37 @@ class GraphDBConnection:
                 'artifact_name': self._format_dataset_name(info),
             })
         return results
+
+    def find_predecessor_uuid_map(self) -> dict:
+        """Map every EduceLabID uuid to its full REPLACES chain (itself plus
+        all predecessors reachable via [:REPLACES*0..]).
+
+        Lets a caller pool scans across the chain: a scan whose `sample uuid`
+        is a retired predecessor still counts toward the active artifact's
+        UUID. Read-only. Returns {uuid: set(chain_uuids)}.
+        """
+        records, _, _ = self._run_query("""
+            MATCH (e:EduceLabID)-[:REPLACES*0..]->(p:EduceLabID)
+            RETURN e.uuid AS uuid, collect(DISTINCT p.uuid) AS chain
+        """)
+        return {r["uuid"]: set(r["chain"]) for r in (records or []) if r["uuid"]}
+
+    def find_unassigned_educelabids(self) -> list[dict]:
+        """EduceLabIDs that exist (loaded from the uuid file) but are linked to
+        no artifact, and are neither deliberately retired nor superseded by a
+        successor. These are source gaps: a UUID with no artifact name.
+
+        Read-only. Returns [{'uuid': str}, ...].
+        """
+        records, _, _ = self._run_query("""
+            MATCH (e:EduceLabID)
+            WHERE NOT (e)-[:ASSIGNED_TO]->()
+              AND NOT (e)<-[:REPLACES]-(:EduceLabID)
+              AND coalesce(e.retired, false) = false
+            RETURN e.uuid AS uuid
+            ORDER BY uuid
+        """)
+        return [{"uuid": r["uuid"]} for r in (records or [])]
 
     def find_all_artifacts_and_educelabids_for_pherc(self, pherc_display_name: str) -> list[dict]:
         """For one PHerc, return one record per (artifact, UUID) pair, plus a

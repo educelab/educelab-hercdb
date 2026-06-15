@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime
 from neo4j import GraphDatabase
 from educelab.hercdb import config
@@ -55,8 +56,69 @@ class PhercGraphDatabaseLoader:
             MATCH (n)
             DETACH DELETE n
             """
-        ) 
+        )
         print("All nodes deleted.")
+
+    # ----- Name model: canonical displayName + aliases match-surface -----
+    #
+    # `displayName` is the single curated name shown to users; `aliases` is the
+    # de-duplicated set of every known form (displayName + uuid-sheet name +
+    # Casetta synonyms + spelling variants) used only for resolution/matching.
+    # See .claude/plans/name_displayname_alias_model.md.
+    #
+    # Append `$alias_vals` (already trimmed + deduped in Python) into a node's
+    # aliases and guarantee a displayName. Assumes the node is bound to `n`.
+    # `$primary_name` is the provisional displayName used only when the node
+    # has none yet (coalesce keeps a curated displayName already set by the
+    # metadata phase). Requires APOC (available, v5.22).
+    _ALIAS_SET = """
+        SET n.aliases = apoc.coll.toSet(coalesce(n.aliases, []) + $alias_vals),
+            n.displayName = coalesce(n.displayName, $primary_name)
+    """
+
+    # Recognize the casetta forms Italians use — abbreviation 'Cass.'/'cass.',
+    # and the words Casetta/Casetto/Cassetta/Cassetto — but ONLY when a DIGIT
+    # follows (the casette are numbered). This way 'Cass. 20' / 'Casetto 2 s.n.'
+    # match, while the bare word 'Cassetto' (no number) is left untouched.
+    # Longer tokens are listed first so 'cassetta' matches as a whole.
+    _CASETTA_RE = re.compile(
+        r"(?i)^\s*(?:cassetta|cassetto|casetta|casetto|cass\.?)\s*\.?\s*(\d.*?)\s*$"
+    )
+
+    @classmethod
+    def _casetta_synonyms(cls, name):
+        """Every common spelling form for a numbered casetta name, else [].
+
+        'Cass. 20' / 'Cass.20' / 'Casetta 20' / 'Casetto 20' all map to
+        ['Cass.20', 'Casetta 20', 'Casetto 20'] so any spelling resolves. The
+        remainder (e.g. '78 s.n.') is preserved verbatim. Names where the token
+        is not followed by a number (e.g. the bare word 'Cassetto') return [].
+        """
+        if not name:
+            return []
+        m = cls._CASETTA_RE.match(name)
+        if not m:
+            return []
+        rem = m.group(1).strip()
+        return [f"Cass.{rem}", f"Casetta {rem}", f"Casetto {rem}"]
+
+    @classmethod
+    def _expand_aliases(cls, *names):
+        """Trim, expand Casetta synonyms, and de-dupe (order-preserving) a set
+        of raw name forms into the alias list to store on a node.
+        """
+        out = []
+        for n in names:
+            if n and n.strip():
+                out.append(n.strip())
+                out.extend(cls._casetta_synonyms(n))
+        seen = set()
+        result = []
+        for x in out:
+            if x not in seen:
+                seen.add(x)
+                result.append(x)
+        return result
 
 
 
@@ -94,18 +156,28 @@ class PhercGraphDatabaseLoader:
         """
         UUID phase helper: when an EduceLabID is already assigned to a
         Cornice/Pezzo (linked during the metadata phase), record the UUID
-        sheet's short name as `name` on the existing node instead of MERGE-
-        creating a duplicate keyed off a different displayName. Also sets
-        `name` on the ancestor PHerc/Casetta.
+        sheet's short name as an alias on the existing node instead of MERGE-
+        creating a duplicate keyed off a different displayName. Also adds the
+        alias on the ancestor PHerc/Casetta. The curated metadata displayName
+        is preserved (coalesce only fills it when missing).
         """
+        node_aliases = self._expand_aliases(alias_name)
+        ph_aliases = self._expand_aliases(ph_name)
         self._run_query("""
             MATCH (e:EduceLabID {uuid: $uuid})-[:ASSIGNED_TO]->(n)
-            SET n.name = $alias_name
+            SET n.name = $alias_name,
+                n.aliases = apoc.coll.toSet(coalesce(n.aliases, []) + $node_aliases),
+                n.displayName = coalesce(n.displayName, $node_primary)
             WITH n
             OPTIONAL MATCH (n)<-[:HAS*1..2]-(p)
             WHERE p:PHerc OR p:Casetta
-            SET p.name = $ph_name
-            """, uuid=uuid, alias_name=alias_name, ph_name=ph_name)
+            SET p.name = $ph_name,
+                p.aliases = apoc.coll.toSet(coalesce(p.aliases, []) + $ph_aliases),
+                p.displayName = coalesce(p.displayName, $ph_primary)
+            """, uuid=uuid, alias_name=alias_name, ph_name=ph_name,
+            node_aliases=node_aliases, ph_aliases=ph_aliases,
+            node_primary=(node_aliases[0] if node_aliases else None),
+            ph_primary=(ph_aliases[0] if ph_aliases else None))
 
     # Add EduceLabID nodes
     # Each EduceLabID node has an id and a uuid
@@ -117,24 +189,37 @@ class PhercGraphDatabaseLoader:
         )
     
     def set_pherc_and_pezzo_names(self, uuid, pherc_display_name, pherc_name, pezzo_name):
+        pezzo_aliases = self._expand_aliases(pezzo_name)
+        ph_aliases = self._expand_aliases(pherc_name)
         records, summary, keys = self._run_query("""
-
             MATCH (e: EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(p:Pezzo)<-[:HAS*1..2]-(ph:PHerc {displayName:$pherc_display_name})
-            SET p.name = $pezzo_name
-            SET ph.name = $pherc_name                                   
-            """, uuid=uuid, pherc_display_name=pherc_display_name, pezzo_name=pezzo_name, pherc_name=pherc_name
+            SET p.name = $pezzo_name,
+                p.aliases = apoc.coll.toSet(coalesce(p.aliases, []) + $pezzo_aliases),
+                p.displayName = coalesce(p.displayName, $pezzo_primary),
+                ph.name = $pherc_name,
+                ph.aliases = apoc.coll.toSet(coalesce(ph.aliases, []) + $ph_aliases)
+            """, uuid=uuid, pherc_display_name=pherc_display_name,
+            pezzo_name=pezzo_name, pherc_name=pherc_name,
+            pezzo_aliases=pezzo_aliases, ph_aliases=ph_aliases,
+            pezzo_primary=(pezzo_aliases[0] if pezzo_aliases else None)
         )
 
     def set_pherc_and_cornice_names(self, uuid, pherc_display_name, pherc_name, cornice_name):
+        cor_aliases = self._expand_aliases(cornice_name)
+        ph_aliases = self._expand_aliases(pherc_name)
         records, summary, keys = self._run_query("""
             MATCH (e:EduceLabID {uuid:$uuid})
             MATCH (ph:PHerc {displayName:$pherc_display_name})
             MERGE (ph)-[:HAS]->(c:Cornice {displayName: $cornice_name})
             MERGE (e)-[:ASSIGNED_TO]->(c)
-            SET c.name = $cornice_name
-            SET ph.name = $pherc_name
-            """, uuid=uuid, pherc_display_name=pherc_display_name, cornice_name=cornice_name, pherc_name=pherc_name
-        )    
+            SET c.name = $cornice_name,
+                c.aliases = apoc.coll.toSet(coalesce(c.aliases, []) + $cor_aliases),
+                ph.name = $pherc_name,
+                ph.aliases = apoc.coll.toSet(coalesce(ph.aliases, []) + $ph_aliases)
+            """, uuid=uuid, pherc_display_name=pherc_display_name,
+            cornice_name=cornice_name, pherc_name=pherc_name,
+            cor_aliases=cor_aliases, ph_aliases=ph_aliases
+        )
 
     def set_ph_name(self, uuid, pherc_name):
         """
@@ -146,12 +231,16 @@ class PhercGraphDatabaseLoader:
         metadata phase. If the EduceLabID has no PHerc/Casetta ancestor at
         all, fall back to creating one keyed on pherc_name as displayName.
         """
+        ph_aliases = self._expand_aliases(pherc_name)
         records, _, _ = self._run_query("""
             MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)<-[:HAS*0..2]-(p)
             WHERE p:PHerc OR p:Casetta
-            SET p.name = $pherc_name
+            SET p.name = $pherc_name,
+                p.aliases = apoc.coll.toSet(coalesce(p.aliases, []) + $ph_aliases),
+                p.displayName = coalesce(p.displayName, $ph_primary)
             RETURN count(p) AS matched
-            """, uuid=uuid, pherc_name=pherc_name
+            """, uuid=uuid, pherc_name=pherc_name, ph_aliases=ph_aliases,
+            ph_primary=(ph_aliases[0] if ph_aliases else None)
         )
         if records and records[0]['matched'] > 0:
             return
@@ -160,17 +249,36 @@ class PhercGraphDatabaseLoader:
         self._run_query("""
             MATCH (e:EduceLabID {uuid:$uuid})
             MERGE (e)-[:ASSIGNED_TO]->(ph:PHerc {displayName: $pherc_name})
-            SET ph.name = $pherc_name
-            """, uuid=uuid, pherc_name=pherc_name
+            SET ph.name = $pherc_name,
+                ph.aliases = apoc.coll.toSet(coalesce(ph.aliases, []) + $ph_aliases)
+            """, uuid=uuid, pherc_name=pherc_name, ph_aliases=ph_aliases
         )
 
     def add_pherc_and_cornice_nodes_from_uuid_sheet(self, uuid, pherc_name, cornice_name):
-        records,summary, keys = self._run_query("""
+        """UUID-phase fallback: no metadata node exists for this UUID, so create
+        PHerc + Cornice from the uuid sheet. Keys both on a *trimmed
+        displayName* (not a bare `name`) so whitespace variants collapse and the
+        nodes are never left without a displayName — the previous `MERGE
+        (ph:PHerc {name:...})` / unkeyed Cornice produced the null-displayName
+        and duplicate (e.g. 'tavoletta' / 'tavoletta ') nodes. Casetta synonyms
+        are added so 'Cass.N' / 'Casetta N' both resolve.
+        """
+        ph_display = (pherc_name or "").strip()
+        cor_display = (cornice_name or "").strip()
+        ph_aliases = self._expand_aliases(pherc_name)
+        cor_aliases = self._expand_aliases(cornice_name)
+        records, summary, keys = self._run_query("""
             MATCH (e:EduceLabID {uuid:$uuid})
-            MERGE (ph:PHerc {name:$pherc_name})         
-            MERGE (e)-[:ASSIGNED_TO]->(c:Cornice)<-[:HAS]-(ph)
-            SET c.name = $cornice_name                                   
-            """, uuid=uuid,  cornice_name=cornice_name, pherc_name=pherc_name
+            MERGE (ph:PHerc {displayName:$ph_display})
+            SET ph.name = $pherc_name,
+                ph.aliases = apoc.coll.toSet(coalesce(ph.aliases, []) + $ph_aliases)
+            MERGE (ph)-[:HAS]->(c:Cornice {displayName:$cor_display})
+            MERGE (e)-[:ASSIGNED_TO]->(c)
+            SET c.name = $cornice_name,
+                c.aliases = apoc.coll.toSet(coalesce(c.aliases, []) + $cor_aliases)
+            """, uuid=uuid, ph_display=ph_display, cor_display=cor_display,
+            pherc_name=pherc_name, cornice_name=cornice_name,
+            ph_aliases=ph_aliases, cor_aliases=cor_aliases
         )
 
     # Add Replacement EduceLabID nodes
@@ -201,36 +309,42 @@ class PhercGraphDatabaseLoader:
     # Each PHerc node has a name
     def add_pherc_node(self, uuid, ph_display_name, is_casetta=False):
         casetta_set = "SET p:Casetta" if is_casetta else ""
+        ph_aliases = self._expand_aliases(ph_display_name)
         if uuid:
             # Very few cases where uuid is provided (currently only PHerc 72, 1362, 1363)
             records, summary, keys = self._run_query(f"""
                 MERGE (e:EduceLabID {{uuid: $uuid}})
                 MERGE (p:PHerc {{displayName: $ph_display_name}})<-[:ASSIGNED_TO]-(e)
+                SET p.aliases = apoc.coll.toSet(coalesce(p.aliases, []) + $ph_aliases)
                 {casetta_set}
-                """, ph_display_name=ph_display_name, uuid=uuid,
+                """, ph_display_name=ph_display_name, uuid=uuid, ph_aliases=ph_aliases,
             )
         else:
             records, summary, keys = self._run_query(f"""
                 MERGE (p:PHerc {{displayName: $ph_display_name}})
+                SET p.aliases = apoc.coll.toSet(coalesce(p.aliases, []) + $ph_aliases)
                 {casetta_set}
-                """, ph_display_name=ph_display_name,
+                """, ph_display_name=ph_display_name, ph_aliases=ph_aliases,
             )
- 
+
     # Add Cornice nodes and attach them to PHerc and EduceLabID nodes
     # Note: Perhaps do this from the metadata file side first
     def add_cornice_nodes_and_attach(self, uuid, ph_display_name, cornice_display_name):
+        cor_aliases = self._expand_aliases(cornice_display_name)
         if uuid:
             records, summary, keys = self._run_query("""
                 MATCH (p:PHerc {displayName: $ph_display_name})
                 MERGE (e:EduceLabID {uuid: $uuid})
-                MERGE (p)-[:HAS]->(:Cornice {displayName: $cornice_display_name})<-[:ASSIGNED_TO]-(e)
-                """, ph_display_name=ph_display_name, uuid=uuid, cornice_display_name=cornice_display_name,
+                MERGE (p)-[:HAS]->(c:Cornice {displayName: $cornice_display_name})<-[:ASSIGNED_TO]-(e)
+                SET c.aliases = apoc.coll.toSet(coalesce(c.aliases, []) + $cor_aliases)
+                """, ph_display_name=ph_display_name, uuid=uuid, cornice_display_name=cornice_display_name, cor_aliases=cor_aliases,
             )
         else:
             records, summary, keys = self._run_query("""
                 MATCH (p:PHerc {displayName: $ph_display_name})
-                MERGE (p)-[:HAS]->(:Cornice {displayName: $cornice_display_name})
-                """, ph_display_name=ph_display_name, cornice_display_name=cornice_display_name,
+                MERGE (p)-[:HAS]->(c:Cornice {displayName: $cornice_display_name})
+                SET c.aliases = apoc.coll.toSet(coalesce(c.aliases, []) + $cor_aliases)
+                """, ph_display_name=ph_display_name, cornice_display_name=cornice_display_name, cor_aliases=cor_aliases,
             )
 
     # Note: this has to be from the metadata file
@@ -241,35 +355,41 @@ class PhercGraphDatabaseLoader:
             print("Error: Either ph_display_name or cornice_display_name must be provided.")
             return
 
+        pz_aliases = self._expand_aliases(pezzo_display_name)
+
         if cornice_display_name:
             if uuid:
                 records, summary, keys = self._run_query("""
                     MATCH (p:PHerc {displayName: $ph_display_name})-[:HAS]->(c:Cornice {displayName: $cornice_display_name})
                     MERGE (e:EduceLabID {uuid: $uuid})
-                    MERGE (c)-[:HAS]->(:Pezzo {displayName: $pezzo_display_name})<-[:ASSIGNED_TO]-(e)
-                    """, ph_display_name=ph_display_name, cornice_display_name=cornice_display_name, uuid=uuid, pezzo_display_name=pezzo_display_name,
+                    MERGE (c)-[:HAS]->(pz:Pezzo {displayName: $pezzo_display_name})<-[:ASSIGNED_TO]-(e)
+                    SET pz.aliases = apoc.coll.toSet(coalesce(pz.aliases, []) + $pz_aliases)
+                    """, ph_display_name=ph_display_name, cornice_display_name=cornice_display_name, uuid=uuid, pezzo_display_name=pezzo_display_name, pz_aliases=pz_aliases,
                 )
             else:
                 records, summary, keys = self._run_query("""
                     MATCH (p:PHerc {displayName: $ph_display_name})-[:HAS]->(c:Cornice {displayName: $cornice_display_name})
-                    MERGE (c)-[:HAS]->(:Pezzo {displayName: $pezzo_display_name})
-                    """, ph_display_name=ph_display_name, cornice_display_name=cornice_display_name, pezzo_display_name=pezzo_display_name,
+                    MERGE (c)-[:HAS]->(pz:Pezzo {displayName: $pezzo_display_name})
+                    SET pz.aliases = apoc.coll.toSet(coalesce(pz.aliases, []) + $pz_aliases)
+                    """, ph_display_name=ph_display_name, cornice_display_name=cornice_display_name, pezzo_display_name=pezzo_display_name, pz_aliases=pz_aliases,
                 )
 
         elif ph_display_name:
             # If only ph_display_name is provided, attach Pezzo directly to PHerc
             if uuid:
-                records, summary, keys = self._run_query("""          
+                records, summary, keys = self._run_query("""
                     MATCH (p:PHerc {displayName: $ph_display_name})
                     MERGE (e:EduceLabID {uuid: $uuid})
-                    MERGE (p)-[:HAS]->(:Pezzo {displayName: $pezzo_display_name})<-[:ASSIGNED_TO]-(e)
-                    """, ph_display_name=ph_display_name, uuid=uuid, pezzo_display_name=pezzo_display_name,
+                    MERGE (p)-[:HAS]->(pz:Pezzo {displayName: $pezzo_display_name})<-[:ASSIGNED_TO]-(e)
+                    SET pz.aliases = apoc.coll.toSet(coalesce(pz.aliases, []) + $pz_aliases)
+                    """, ph_display_name=ph_display_name, uuid=uuid, pezzo_display_name=pezzo_display_name, pz_aliases=pz_aliases,
                 )
             else:
                 records, summary, keys = self._run_query("""
                     MATCH (p:PHerc {displayName: $ph_display_name})
-                    MERGE (p)-[:HAS]->(:Pezzo {displayName: $pezzo_display_name})
-                    """, ph_display_name=ph_display_name, pezzo_display_name=pezzo_display_name,
+                    MERGE (p)-[:HAS]->(pz:Pezzo {displayName: $pezzo_display_name})
+                    SET pz.aliases = apoc.coll.toSet(coalesce(pz.aliases, []) + $pz_aliases)
+                    """, ph_display_name=ph_display_name, pezzo_display_name=pezzo_display_name, pz_aliases=pz_aliases,
                 )
 
     # Add Desegni node and attach to PHerc
@@ -574,32 +694,51 @@ class PhercGraphDatabaseLoader:
         
         self._run_query(query, **params)
 
-    def add_pgs_raw_node(self, pgs_path, scan_uuid, datetime_start, datetime_end=None, complete=False, sample_uuid=None):
+    def add_pgs_raw_node(self, pgs_path, scan_uuid, datetime_start, datetime_end=None,
+                         complete=False, sample_uuid=None, file_count=None,
+                         missing_files=None, zero_byte_files=None, short_files=None,
+                         bad_format_files=None):
         params = {
             "pgs_path": pgs_path,
             "scan_uuid": scan_uuid,
             "datetime_start": datetime_start,
             "datetime_end": datetime_end,
             "complete": complete,
-            "sample_uuid": sample_uuid
+            "sample_uuid": sample_uuid,
+            "file_count": file_count,
+            "missing_files": missing_files,
+            "zero_byte_files": zero_byte_files,
+            "short_files": short_files,
+            "bad_format_files": bad_format_files
         }
-        
+
+        # MERGE on the scan uuid alone (a unique key); path/date_start are SET so a
+        # changed path on re-load updates the node in place rather than duplicating it.
+        # The file counts are always SET (a legitimate 0 must be stored).
         query = """
-            MERGE (pg:PGSRaw {uuid: $scan_uuid,
-            path: $pgs_path,
-            date_start: $datetime_start})
+            MERGE (pg:PGSRaw {uuid: $scan_uuid})
+            SET pg.path = $pgs_path,
+                pg.date_start = $datetime_start,
+                pg.file_count = $file_count,
+                pg.missing_files = $missing_files,
+                pg.zero_byte_files = $zero_byte_files,
+                pg.short_files = $short_files,
+                pg.bad_format_files = $bad_format_files
         """
         if datetime_end:
             query += " SET pg.date_end = $datetime_end"
         if complete:
             query += " SET pg.complete = $complete"
-        
+
         if sample_uuid:
             query = "MATCH (e:EduceLabID {uuid: $sample_uuid}) " + query + " MERGE (e)<-[:BELONGS_TO]-(pg)"
-            
+
         self._run_query(query, **params)
-    
-    def add_spectral_raw_node(self, spectral_path, scan_uuid, datetime_start, datetime_end=None, complete=False, sample_uuid=None, sample_uuid2=None):    
+
+    def add_spectral_raw_node(self, spectral_path, scan_uuid, datetime_start, datetime_end=None,
+                              complete=False, sample_uuid=None, file_count=None,
+                              missing_files=None, zero_byte_files=None, short_files=None,
+                              bad_format_files=None):
         params = {
             "spectral_path": spectral_path,
             "scan_uuid": scan_uuid,
@@ -607,24 +746,41 @@ class PhercGraphDatabaseLoader:
             "datetime_end": datetime_end,
             "complete": complete,
             "sample_uuid": sample_uuid,
-            "sample_uuid2": sample_uuid2
+            "file_count": file_count,
+            "missing_files": missing_files,
+            "zero_byte_files": zero_byte_files,
+            "short_files": short_files,
+            "bad_format_files": bad_format_files
         }
-        
+
+        # See add_pgs_raw_node for the MERGE-on-uuid / always-SET-counts rationale.
         query = """
-            MERGE (s:SpectralRaw {uuid: $scan_uuid,
-            path: $spectral_path,
-            date_start: $datetime_start})
+            MERGE (s:SpectralRaw {uuid: $scan_uuid})
+            SET s.path = $spectral_path,
+                s.date_start = $datetime_start,
+                s.file_count = $file_count,
+                s.missing_files = $missing_files,
+                s.zero_byte_files = $zero_byte_files,
+                s.short_files = $short_files,
+                s.bad_format_files = $bad_format_files
         """
         if datetime_end:
             query += " SET s.date_end = $datetime_end"
         if complete:
-            query += " SET s.complete = $complete"       
+            query += " SET s.complete = $complete"
         if sample_uuid:
             query = "MATCH (e:EduceLabID {uuid: $sample_uuid}) " + query + " MERGE (e)<-[:BELONGS_TO]-(s)"
-        if sample_uuid2:
-            query += " WITH s MATCH (e2:EduceLabID {uuid: $sample_uuid2}) MERGE (e2)<-[:BELONGS_TO]-(s)"
-            
+
         self._run_query(query, **params)
+
+    def delete_all_scan_nodes(self):
+        """Remove every PGSRaw and SpectralRaw node (and their relationships).
+
+        Used before a full reload so changed paths / dropped rows can't leave
+        stale or duplicate nodes behind. FlatbedScanDataset nodes are untouched.
+        """
+        query = "MATCH (n) WHERE n:PGSRaw OR n:SpectralRaw DETACH DELETE n"
+        self._run_query(query)
         
         
 ################ For the image processing pipeline ################
