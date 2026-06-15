@@ -98,7 +98,6 @@ educelab-hercdb/
 │       ├── search.py
 │       └── scan_completeness.py
 │
-├── old_scripts/              # Legacy experimental scripts, not currently in use
 ├── preprocessing/            # Data preparation (notebooks, etc.)
 ├── tests/
 │   ├── integration/          # Tests requiring Neo4j
@@ -127,7 +126,6 @@ educelab-hercdb/
 
 **src/educelab/hercdb/loader/graph_loader.py**: Database loading utilities
 - `PhercGraphDatabaseLoader`: Class for bulk data loading operations
-- Used by scripts in `old_scripts/` directory to populate the database
 - `mark_educelabid_retired(uuid, reason)` sets `retired = true` and stores a reason string on an EduceLabID; called by `metadata_loader.py` when a Replacement UUID is a sentinel like `"discarded"` or `"."` rather than a real UUID
 
 **src/educelab/hercdb/loader/scan_loader.py**: Scan-data loader
@@ -281,7 +279,6 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 - Config loading differs between 3.10 (configparser) and 3.11+ (tomllib)
 
 ### Data Loading
-- Scripts in `old_scripts/` directory load data into Neo4j
 - `educelab.hercdb.loader` module contains utilities for bulk operations
 - `preprocessing/` has Jupyter notebooks for data preparation from Google Sheets
 - `scan_loader.py` normalizes the `complete` CSV column case-insensitively to `"True"` / `"False"` / `"unknown"`. With `--replace` (default) it wipes and reloads PGSRaw/SpectralRaw, MERGE-ing on the scan `uuid`, so all nodes carry the canonical `complete` and the 2026 integer count columns after a reload
