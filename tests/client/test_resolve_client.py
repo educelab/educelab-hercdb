@@ -55,12 +55,4 @@ results = client.resolve("1", threshold=0, limit=3)
 assert len(results) <= 3
 print(f"  ✓ {len(results)} <= limit=3")
 
-
-# --- search (exact display_name) ---
-
-print("\nclient.search(display_name='421') exact path:")
-res = client.search(display_name="421")
-assert res["PHercs"] == ["421"]
-print("  ✓ snake_case key passthrough works")
-
 print("\nAll resolve-client tests passed!")

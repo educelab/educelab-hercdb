@@ -8,68 +8,12 @@ class TestPhercDbQueries(unittest.TestCase):
         cls.query_runner = hercdb.connect()
         cls.query_runner.verify_connection()
 
-    def test_find_pherc_by_uuid(self):
-        records, summary, keys = self.query_runner.find_pherc_by_uuid("d65a2db0-ffec-5c15-8d3e-b28cf9326a32")
-        self.assertTrue(len(records) > 0)
-        display_names = [record.data()['ph']['displayName'] for record in records]
-        print(f"[find_pherc_by_uuid] Found {len(display_names)} PHerc(s): {display_names}")
-
     def test_find_artifact_name_by_uuid(self):
         result = self.query_runner.find_artifact_name_by_uuid("d65a2db0-ffec-5c15-8d3e-b28cf9326a32")
         self.assertIsNotNone(result)
         self.assertIn('pherc', result)
         self.assertIsNotNone(result['pherc'])
         print(f"[find_artifact_name_by_uuid] Result: {result}")
-
-    def test_find_pherc_by_display_name(self):
-        records, summary, keys = self.query_runner.find_pherc_by_display_name("421")
-        display_names = [record.data()['ph']['displayName'] for record in records]
-        self.assertIn("421", display_names)
-
-    def test_find_pherc_by_custodial_institution(self):
-        pass
-
-    def test_find_pherc_by_language(self):
-        records, summary, keys = self.query_runner.find_pherc_by_language("grc")
-        display_names = [record.data()['ph']['displayName'] for record in records]
-        self.assertIn("421", display_names)
-        print(f"[find_pherc_by_language 'grc'] Found {len(display_names)} PHerc(s): {display_names}")
-
-    def test_find_unrolled_phercs(self):
-        records, summary, keys = self.query_runner.find_pherc_by_property_value("unrolling_status", "Partially unrolled")
-        display_names = [record.data()['ph']['displayName'] for record in records]
-        self.assertTrue(len(display_names) > 0)
-        print(f"[find_pherc unrolling_status='Partially unrolled'] Found {len(display_names)} PHerc(s): {display_names}")
-
-    def test_find_pherc_by_scorze_value(self):
-        records, summary, keys = self.query_runner.find_pherc_by_property_value("scorze", "yes")
-        display_names = [record.data()['ph']['displayName'] for record in records]
-        self.assertTrue(len(display_names) > 0)
-        print(f"[find_pherc scorze='yes'] Found {len(display_names)} PHerc(s): {display_names}")
-
-    def test_find_unroll_attempted_phercs(self):
-        records, summary, keys = self.query_runner.find_pherc_by_property_value("unrolling_status", "Unrolling Attempted")
-        display_names = [record.data()['ph']['displayName'] for record in records]
-        self.assertTrue(len(display_names) > 0)
-        print(f"[find_pherc unrolling_status='Unrolling Attempted'] Found {len(display_names)} PHerc(s): {display_names}")
-
-    def test_find_pherc_by_unroller_name(self):
-        records, summary, keys = self.query_runner.find_pherc_by_unroller_name("H. Davy")
-        display_names = [record.data()['ph']['displayName'] for record in records]
-        self.assertTrue(len(display_names) > 0)
-        print(f"[find_pherc_by_unroller_name 'H. Davy'] Found {len(display_names)} PHerc(s): {display_names}")
-
-    def test_find_pherc_by_unrolled_date(self):
-        records, summary, keys = self.query_runner.find_pherc_by_property_value("unrolled_date", "1863")
-        display_names = [record.data()['ph']['displayName'] for record in records]
-        self.assertTrue(len(display_names) > 0)
-        print(f"[find_pherc unrolled_date='1863'] Found {len(display_names)} PHerc(s): {display_names}")
-
-    def test_find_pherc_by_literary_work(self):
-        records, summary, keys = self.query_runner.find_pherc_by_property_value("literary_work", "Echelaus")
-        display_names = [record.data()['ph']['displayName'] for record in records]
-        self.assertTrue(len(display_names) > 0)
-        print(f"[find_pherc literary_work='Echelaus'] Found {len(display_names)} PHerc(s): {display_names}")
 
     def test_find_newest_dataset(self):
         records, summary, keys = self.query_runner.find_datasets(hercdb.DatasetType.PGSRaw, "1044", cornice="6", newest_completed=False, properties_only=False)

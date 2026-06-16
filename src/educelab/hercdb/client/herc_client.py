@@ -181,20 +181,6 @@ class HercClient:
         resp.raise_for_status()
         return resp.json()
 
-    def search(self, **criteria) -> dict:
-        """Search for PHercs using multiple criteria.
-
-        Keyword arguments are passed directly as the JSON body to
-        ``POST /search``. All keys are ``snake_case`` and map 1:1 to the
-        ``SearchQuery`` model fields on the server.
-
-        Args:
-            **criteria: Search params (e.g. ``author``, ``language``,
-                ``literary_work``, ``display_name="421"``…). ``display_name``
-                is an exact (regex) match on the PHerc displayName.
-        """
-        return self._post("/search", json=criteria).json()
-
     def resolve(
         self,
         name: str,

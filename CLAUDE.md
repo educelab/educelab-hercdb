@@ -31,7 +31,7 @@ uv run python -m unittest tests/integration/test_db_queries.py
 
 # Run a specific test class or method
 uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries
-uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries.test_find_pherc_by_uuid
+uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries.test_find_artifact_name_by_uuid
 
 # Run test scripts directly
 uv run tests/integration/test_pipeline_loader.py
@@ -122,7 +122,7 @@ educelab-hercdb/
 **src/educelab/hercdb/rest/server.py**: FastAPI REST API
 - Token-based authentication using `~/.tokens` file
 - Endpoints for querying PHerc, Cornice, Pezzo nodes and their relationships
-- `/search` endpoint supports complex multi-parameter queries
+- `/resolve` endpoint fuzzy-resolves a noisy displayName to ranked candidates
 
 **src/educelab/hercdb/loader/graph_loader.py**: Database loading utilities
 - `PhercGraphDatabaseLoader`: Class for bulk data loading operations
@@ -188,11 +188,8 @@ Key relationships:
 
 The `GraphDBConnection` class provides two patterns for queries:
 
-1. **Specific lookups** (return records, summary, keys):
-   - `find_pherc_by_uuid()`, `find_pherc_by_display_name()`
-   - `find_pherc_by_author()`, `find_pherc_by_language()`
-   - `find_pherc_by_property_value()` (case-insensitive partial match)
-   - `find_pherc_by_numeric_property()` (diameter, height, width, weight)
+1. **Name resolution** (resolve a noisy/approximate displayName to nodes):
+   - `fuzzy_find_node(name, label, parent_pherc, parent_cornice, threshold, limit)` — ranked candidates against displayName + aliases (see "Fuzzy name lookup" below). The old per-property `find_pherc_by_*` lookups (display_name, author, language, property_value, numeric_property, unrolled_year, etc.) were removed along with the `POST /search` endpoint.
 
 2. **Dataset queries**:
    - `find_datasets(ds_type, pherc, cornice=None, pezzo=None, newest_completed=False, properties_only=True)`
@@ -243,7 +240,6 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 - `GET /pherc/{pherc_id}/educelabids` - List all EduceLabIDs under PHerc
 - `GET /artifacts/{uuid}` - Get display name for an artifact by UUID
 - `GET /educelabid/{uuid}/datasets` - Get datasets for specific EduceLabID
-- `POST /search` - Complex search with multiple parameters (supports intersection of multiple criteria). The request body is the `SearchQuery` Pydantic model (all keys `snake_case`, all fields optional; unknown keys ignored), so the body schema is now introspectable in Swagger. The `display_name` filter is a strict regex (exact-name) match; to resolve a noisy displayName first, use `GET /resolve`. Note: keys were migrated from hyphenated to `snake_case` (e.g. `display-name` → `display_name`) and the `instituion` typo was fixed to `institution` — a breaking change to the request contract.
 - `GET /resolve` - Fuzzy-resolve a noisy PHerc/Cornice/Pezzo displayName to ranked candidates. Query params: `name` (required), `label` (`PHerc` | `Cornice` | `Pezzo`, default `PHerc`), `parent_pherc`, `parent_cornice`, `threshold` (default 75), `limit` (default 10). Returns a JSON list with `displayName`, `name`, `score`, `nodeID` (Neo4j element ID), `parent_pherc`, `parent_cornice`. Empty result returns `200 []` (discovery endpoint, not "fetch this thing"); invalid `label` returns 400.
 - `GET /pipelines` - Get all pipelines with status summaries
 - `GET /pipelines/{pipeline_id}/stages` - Get all process stages for a pipeline
@@ -259,7 +255,7 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 
 ### Display Names vs Internal Names
 - **`displayName`** is the single canonical, user-facing name on every PHerc/Cornice/Pezzo (e.g. "421", "118a", "Cass. 20") and is **always populated**. It is the only name to display.
-- **`aliases`** (string array) is the match surface: the de-duplicated set of all known forms (displayName + the legacy uuid-sheet `name` + Casetta synonyms + spelling variants). Never display from `aliases`; use it only to *resolve* a possibly-noisy input to a node. Loaders append to `aliases` (they don't overwrite); `fuzzy_find_node` scores against it; `find_pherc_by_display_name` matches displayName **or** any alias (exact); a full-text index `artifact_names` covers `[displayName, aliases]`.
+- **`aliases`** (string array) is the match surface: the de-duplicated set of all known forms (displayName + the legacy uuid-sheet `name` + Casetta synonyms + spelling variants). Never display from `aliases`; use it only to *resolve* a possibly-noisy input to a node. Loaders append to `aliases` (they don't overwrite); `fuzzy_find_node` scores against it (matching displayName **or** any alias, with exact matches short-circuiting to score 100); a full-text index `artifact_names` covers `[displayName, aliases]`.
 - Older `name` property is deprecated (kept as one of the alias sources during transition); `human_name` is no longer set by current loaders.
 - Methods marked "Soon to be deprecated" should be avoided in new code.
 - The canonical-displayName + aliases model, the one-time migration (`preprocessing/migrate_name_aliases.py`), and the duplicate-node merge are described in `.claude/plans/name_displayname_alias_model.md`.
@@ -272,7 +268,6 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 ### Query Methods
 - Most find methods perform case-insensitive partial matching using Cypher regex: `(?i).*{value}.*`
 - Results are typically ordered by `ph.displayName`
-- `find_pherc_by_unrolled_year()` handles complex date formats like "1420, 1820-1858"
 
 ### Python Version Support
 - Minimum: Python 3.10

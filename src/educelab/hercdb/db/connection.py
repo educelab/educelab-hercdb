@@ -110,15 +110,6 @@ class GraphDBConnection:
         )
         return records
 
-    def _find_pherc_by_related_node(self, rel_type, label, value) -> tuple:
-        """Find PHercs connected to a node via relationship, case-insensitive partial match."""
-        query = f"""
-            MATCH (ph:PHerc)-[:{rel_type}]->(n:{label})
-            WHERE n.name =~ '(?i).*' + $value + '.*'
-            RETURN ph ORDER BY ph.displayName
-        """
-        return self._run_query(query, value=value)
-
     @staticmethod
     def _serialize_dataset(record) -> dict:
         """Convert a Neo4j dataset record to a JSON-safe dict."""
@@ -211,14 +202,6 @@ class GraphDBConnection:
         )
         return records, summary, keys
     
-    def find_pherc_by_uuid(self, uuid) -> tuple:
-        """Look up a PHerc by its UUID. Currently only returns the PHerc node."""
-        records, summary, keys = self._run_query("""
-            MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)<-[:HAS*0..2]-(ph:PHerc)
-            RETURN ph
-            """, uuid=uuid)
-        return records, summary, keys
-
     def find_artifact_name_by_uuid(self, uuid) -> dict | None:
         """
         Looks up the PHerc, Cornice, and Pezzo display names for a given UUID.
@@ -261,108 +244,6 @@ class GraphDBConnection:
                 'pezzo': record['pezzo_name']
             }
         return None
-
-    def find_pherc_by_display_name(self, display_name) -> tuple:
-        """Look up a PHerc by its display name or any alias (exact match).
-
-        Matches the canonical `displayName` or any member of `aliases`, so a
-        known alternate form (uuid-sheet name, Casetta synonym like
-        "Casetta 20" for displayName "Cass.20") resolves to the same node.
-        For noisy/typo'd names use `fuzzy_find_node` / the `/resolve` endpoint.
-        """
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc)
-            WHERE ph.displayName = $display_name
-               OR $display_name IN coalesce(ph.aliases, [])
-            RETURN ph
-            """, display_name=display_name)
-        return records, summary, keys
-
-    def find_pherc_by_property_value(self, property_name, property_value) -> tuple:
-        """Look up a PHerc by a property value (case-insensitive partial match)."""
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc)
-            WHERE ph[$property_name] =~ '(?i).*' + $property_value + '.*'
-            RETURN ph ORDER BY ph.displayName
-            """, property_name=property_name, property_value=property_value)
-        return records, summary, keys
-    
-    def find_pherc_by_language(self, lang) -> tuple:
-        # names: "grc", "lat", "inc.", "grc?", "inc", "lat?"
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc)-[:HAS_LANGUAGE]->(l:Language)
-            WHERE toLower(l.name) CONTAINS toLower($language)
-            RETURN ph ORDER BY ph.displayName
-            """, language=lang)
-        return records, summary, keys
-    
-    def find_pherc_by_unroller_name(self, unroller_name) -> tuple:
-        return self._find_pherc_by_related_node("UNROLLED_BY", "Unroller", unroller_name)
-
-    def find_pherc_by_unrolling_method(self, unrolling_method) -> tuple:
-        return self._find_pherc_by_related_node("UNROLLED_BY_METHOD", "UnrollingMethod", unrolling_method)
-
-    def find_pherc_by_author(self, author_name) -> tuple:
-        return self._find_pherc_by_related_node("AUTHORED_BY", "Author", author_name)
-
-    def find_pherc_by_cavallo_scribal_style(self, scribal_style) -> tuple:
-        return self._find_pherc_by_related_node("STYLE", "CavalloScribalStyle", scribal_style)
-
-    def find_pherc_by_custodial_institution(self, institution_name) -> tuple:
-        return self._find_pherc_by_related_node("STORED_AT", "CustodialInstitution", institution_name)
-    
-    def find_pherc_by_numeric_property(self, property, operator, value) -> tuple:
-        """Look up PHercs by a numeric property (e.g. width, weight)."""
-        query_string = f"""
-            MATCH (ph:PHerc)
-            WHERE toFloat(ph.{property}) {operator} {value}
-            RETURN ph ORDER BY ph.displayName
-        """
-        records, summary, keys = self._run_query(
-            query_string,
-        )
-        return records, summary, keys
-    
-    def find_pherc_by_unrolled_year(self, operator, year) -> tuple:
-        """Find PHercs by unrolled year, handling date ranges like '1420, 1820-1858'."""
-        query_string = f"""
-            WITH {year} AS targetYear
-            MATCH (ph:PHerc)
-            WHERE ph.unrolled_date IS NOT NULL
-            WITH ph, SPLIT(ph.unrolled_date, ',') AS parts, targetYear
-            UNWIND parts AS part
-            WITH ph, TRIM(part) AS p, targetYear
-            WITH ph, 
-                CASE 
-                    WHEN p CONTAINS '-' THEN TOINTEGER(SPLIT(p, '-')[1])  // end of range
-                    ELSE TOINTEGER(p)
-                END AS maxYear,
-                CASE 
-                    WHEN p CONTAINS '-' THEN TOINTEGER(SPLIT(p, '-')[0])  // start of range
-                    ELSE TOINTEGER(p)
-                END AS minYear,
-                targetYear
-            WHERE (
-                '{operator}' = '=' AND targetYear >= minYear AND targetYear <= maxYear
-                OR '{operator}' = '<=' AND minYear <= targetYear
-                OR '{operator}' = '>=' AND maxYear >= targetYear
-            )
-            RETURN DISTINCT ph ORDER BY ph.displayName
-        """
-        records, summary, keys = self._run_query(query_string)
-        return records, summary, keys
-
-    def find_pherc_with_any_property_value(self, property_name) -> tuple:
-        """Find all PHercs that have a non-null value for the given property."""
-        query_string = f"""
-            MATCH (ph:PHerc)
-            WHERE ph.{property_name} IS NOT NULL
-            RETURN ph ORDER BY ph.displayName
-        """
-        records, summary, keys = self._run_query(
-            query_string,
-        )
-        return records, summary, keys
 
     def list_all_pherc_display_names(self) -> list[dict]:
         """List every PHerc node, flagging which are also labeled :Casetta.

@@ -28,36 +28,6 @@ print("/pherc/<pherc_id>/cornice/<cornice_id>/pezzo/<pezzo_id> endpoint:")
 print(requests.get(f"http://{host_ip}:8000/pherc/238/cornice/Scorze da 238 a 239/pezzo/5 (238e)", headers=headers).json())
 
 
-# /search endpoint
-print("/search endpoint:")
-payload = {
-    "uuid": "",
-    "display_name": "",
-    "author": "",
-    "language": "",
-    "unrolling_status": "",
-    "scorze": "",
-    "unrolling_method": "",
-    "unroller": "",
-    "literary_work": "",
-    "editions": "",
-    "institution": "",
-    "diameter_operator": "",
-    "diameter_value": "",
-    "height_operator": "",
-    "height_value": "",
-    "width_operator": "",
-    "width_value": "",
-    "weight_operator": "",
-    "weight_value": "",
-    "unrolled_year_operator": "",
-    "unrolled_year_value": "",
-    'cavallo_scribal_style': "Gruppo N"
-}
-
-print(payload)
-print(requests.post(f"http://{host_ip}:8000/search", json=payload, headers=headers).json())
-
 # /pherc/<pherc_id>/datasets/<dataset_type> endpoint
 print("/pherc/<pherc_id>/datasets/<dataset_type> endpoint:")
 print(requests.get(f"http://{host_ip}:8000/pherc/1044/datasets/SpectralRaw?cornice=6", headers=headers).json())

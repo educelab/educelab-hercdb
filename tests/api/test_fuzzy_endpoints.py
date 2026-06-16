@@ -16,10 +16,6 @@ def get(path, params=None):
     return requests.get(f"{BASE}{path}", headers=HEADERS, params=params)
 
 
-def post(path, json):
-    return requests.post(f"{BASE}{path}", headers=HEADERS, json=json)
-
-
 # --- GET /resolve ---
 
 print("GET /resolve exact PHerc '421':")
@@ -78,15 +74,5 @@ resp = get(
 assert resp.status_code == 200
 assert len(resp.json()) <= 3
 print(f"  ✓ Returned {len(resp.json())} <= limit=3")
-
-
-# --- POST /search strict display_name path ---
-
-print("\nPOST /search strict 'display_name' returns exact match:")
-resp = post("/search", {"display_name": "421"})
-print(f"  Status: {resp.status_code}")
-assert resp.status_code == 200
-assert resp.json()["PHercs"] == ["421"]
-print("  ✓ Strict path returns exact match")
 
 print("\nAll fuzzy endpoint tests passed!")

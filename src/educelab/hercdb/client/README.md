@@ -61,7 +61,6 @@ HercClient(host, token, port=8000, scheme="http")
 | `get_artifact(uuid)` | Get the display name for an artifact by its UUID. |
 | `get_datasets_for_educelabid(uuid, ...)` | Get all datasets for a specific EduceLabID. |
 | `resolve(name, label="PHerc", parent_pherc=None, parent_cornice=None, threshold=75, limit=10)` | Fuzzy-resolve a noisy displayName to ranked PHerc / Cornice / Pezzo candidates. |
-| `search(**criteria)` | For the Database Web GUI -- Search for PHercs using multiple criteria (AND logic). `display_name` is an exact (regex) match on the PHerc displayName. |
 
 ### Pipelines
 
@@ -121,17 +120,6 @@ for eid in eids:
     datasets = client.get_datasets_for_educelabid(eid["uuid"])
     for ds in datasets:
         print(f"  [{ds['type']}] {ds.get('path', '')}")
-```
-
-### Search with multiple criteria
-
-```python
-results = client.search(language="grc", author="Epicurus")
-print(results["PHercs"])  # list of matching PHerc display names
-
-# display_name is an exact (regex) match -- enter the precise displayName.
-# To resolve a noisy/approximate name first, use client.resolve() (below).
-results = client.search(display_name="421", language="grc")
 ```
 
 ### Fuzzy name lookup (resolve)

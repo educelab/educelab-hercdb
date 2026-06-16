@@ -51,7 +51,6 @@ Tokens are loaded from `~/.tokens`. Each line has the format `username = token`.
 | GET | `/artifacts/{uuid}` | Get display name for an artifact by UUID |
 | GET | `/educelabid/{uuid}/datasets` | Get datasets for a specific EduceLabID |
 | GET | `/resolve` | Fuzzy-resolve a noisy displayName to ranked PHerc/Cornice/Pezzo candidates |
-| POST | `/search` | Search for PHercs using multiple criteria (exact displayName matching) |
 
 ### Pipelines
 
@@ -274,52 +273,6 @@ GET /resolve?name=Cass&label=Cornice&parent_pherc=72
 ```
 
 Scores are computed with `rapidfuzz.fuzz.ratio` on whitespace-stripped, lowercased names. Exact matches (after normalization) short-circuit to score 100. Invalid `label` values return `400`.
-
----
-
-### POST /search
-
-Search for PHercs using multiple criteria. All provided filters are intersected (AND logic). Returns a list of matching PHerc display names.
-
-The `display_name` filter is a strict (regex) match — enter the exact PHerc displayName. To resolve a noisy/approximate name first, use the `GET /resolve` endpoint.
-
-**Request body (all fields optional):**
-```json
-{
-  "uuid": "",
-  "display_name": "",
-  "author": "",
-  "language": "",
-  "unrolling_status": "",
-  "scorze": "",
-  "unrolling_method": "",
-  "unroller": "",
-  "literary_work": "",
-  "editions": "",
-  "subscriptio": "",
-  "institution": "",
-  "initial_end_title": "",
-  "recto_verso_title": "",
-  "multiple_hands": "",
-  "neapolitan_drawings": "",
-  "oxonian_drawings": "",
-  "cavallo_scribal_style": "",
-  "diameter_operator": "",
-  "diameter_value": "",
-  "height_operator": "",
-  "height_value": "",
-  "width_operator": "",
-  "width_value": "",
-  "weight_operator": "",
-  "weight_value": "",
-  "unrolled_year_operator": "",
-  "unrolled_year_value": ""
-}
-```
-
-For `editions`, `literary_work`, `neapolitan_drawings`, and `oxonian_drawings`, use the value `"ALL"` to match any PHerc that has that property set.
-
-Numeric operators (`diameter_operator`, etc.) accept: `=`, `<=`, `>=`.
 
 ### GET /pipelines
 
