@@ -48,63 +48,34 @@ class HercClient:
         """Call the welcome endpoint."""
         return self._get("/home").json()
 
-    def get_pherc(self, pherc_id: str) -> dict:
-        """Get a PHerc and all its directly attached nodes."""
-        return self._get(f"/pherc/{pherc_id}").json()
-
-    def get_cornice(self, pherc_id: str, cornice_id: str) -> dict:
-        """Get a Cornice and its attached nodes."""
-        return self._get(f"/pherc/{pherc_id}/cornice/{cornice_id}").json()
-
-    def get_pezzo(self, pherc_id: str, pezzo_id: str, cornice_id: str = None) -> dict:
-        """Get a Pezzo and its attached nodes.
-
-        If *cornice_id* is provided the Pezzo is looked up under that Cornice;
-        otherwise it is looked up directly under the PHerc.
-        """
-        if cornice_id:
-            path = f"/pherc/{pherc_id}/cornice/{cornice_id}/pezzo/{pezzo_id}"
-        else:
-            path = f"/pherc/{pherc_id}/pezzo/{pezzo_id}"
-        return self._get(path).json()
-
-    def get_subdivisions(self, pherc_id: str) -> dict:
-        """List all Cornici and Pezzi for a given PHerc."""
-        return self._get(f"/pherc/{pherc_id}/subdivisions").json()
-
-    def get_datasets(
+    def get_artifact_by_name(
         self,
-        pherc_id: str,
-        dataset_type: str,
+        pherc: str,
         cornice: str = None,
         pezzo: str = None,
-        newest_completed: bool = False,
-    ) -> list[dict]:
-        """Get imaging datasets for a PHerc.
+    ) -> dict:
+        """Get full detail for one artifact (PHerc / Cornice / Pezzo) by name.
 
-        Args:
-            pherc_id: PHerc display name.
-            dataset_type: One of "FlatbedScan", "PGSRaw", "SpectralRaw".
-            cornice: Optional Cornice display name filter.
-            pezzo: Optional Pezzo display name filter.
-            newest_completed: If True, return only the newest completed dataset.
+        ``pherc`` is required; add *cornice* and/or *pezzo* to address a
+        subdivision. Names must be exact displayNames — resolve noisy input
+        with :meth:`resolve` first. Returns the artifact's own properties,
+        attached metadata, assigned ``educelabids``, and child counts.
+        Datasets are not included (use the dataset methods).
         """
-        params: dict = {}
+        params: dict = {"pherc": pherc}
         if cornice is not None:
             params["cornice"] = cornice
         if pezzo is not None:
             params["pezzo"] = pezzo
-        if newest_completed:
-            params["newest_completed"] = "true"
-        resp = requests.get(
-            f"{self._base_url}/pherc/{pherc_id}/datasets/{dataset_type}",
-            headers=self._headers(),
-            params=params,
-        )
-        if resp.status_code == 404:
-            return []
-        resp.raise_for_status()
-        return resp.json()
+        return self._get("/artifacts", params=params).json()
+
+    def get_subdivisions(self, pherc_id: str) -> dict:
+        """List all Cornici and Pezzi for a PHerc.
+
+        Returns ``{pherc, cornici, pezzi}`` where each node is
+        ``{displayName, aliases, educelabids}``.
+        """
+        return self._get(f"/pherc/{pherc_id}/subdivisions").json()
 
     def get_all_datasets_for_pherc(
         self,
@@ -138,19 +109,13 @@ class HercClient:
         resp.raise_for_status()
         return resp.json()
 
-    def get_educelabids_for_pherc(self, pherc_id: str) -> list[dict]:
-        """List all EduceLabIDs under a PHerc umbrella."""
-        resp = requests.get(
-            f"{self._base_url}/pherc/{pherc_id}/educelabids",
-            headers=self._headers(),
-        )
-        if resp.status_code == 404:
-            return []
-        resp.raise_for_status()
-        return resp.json()
-
     def get_artifact(self, uuid: str) -> dict:
-        """Get the display name for an artifact by its UUID."""
+        """Resolve a UUID to its physical artifact (the UUID -> artifact bridge).
+
+        Returns ``{uuid, type, displayName, pherc, cornice, pezzo, parent,
+        location}``. Lightweight — for full detail look the artifact up by name
+        via :meth:`get_artifact_by_name`.
+        """
         return self._get(f"/artifacts/{uuid}").json()
 
     def get_datasets_for_educelabid(
@@ -160,6 +125,10 @@ class HercClient:
         newest_completed: bool = False,
     ) -> list[dict]:
         """Get all datasets for a specific EduceLabID.
+
+        Datasets are pooled across the UUID's replacement (REPLACES) chain; each
+        carries ``belongs_to_uuid`` (the EduceLabID it actually belongs to) so a
+        scan on a retired predecessor UUID is visible.
 
         Args:
             uuid: The EduceLabID UUID.
@@ -180,20 +149,6 @@ class HercClient:
             return []
         resp.raise_for_status()
         return resp.json()
-
-    def search(self, **criteria) -> dict:
-        """Search for PHercs using multiple criteria.
-
-        Keyword arguments are passed directly as the JSON body to
-        ``POST /search``. All keys are ``snake_case`` and map 1:1 to the
-        ``SearchQuery`` model fields on the server.
-
-        Args:
-            **criteria: Search params (e.g. ``author``, ``language``,
-                ``literary_work``, ``display_name="421"``…). ``display_name``
-                is an exact (regex) match on the PHerc displayName.
-        """
-        return self._post("/search", json=criteria).json()
 
     def resolve(
         self,

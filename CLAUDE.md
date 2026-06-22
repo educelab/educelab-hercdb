@@ -31,7 +31,7 @@ uv run python -m unittest tests/integration/test_db_queries.py
 
 # Run a specific test class or method
 uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries
-uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries.test_find_pherc_by_uuid
+uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries.test_find_artifact_name_by_uuid
 
 # Run test scripts directly
 uv run tests/integration/test_pipeline_loader.py
@@ -113,6 +113,7 @@ educelab-hercdb/
 - `connect()`: Factory function that uses config to create connections
 - Contains all query methods for finding and filtering PHerc nodes
 - `fuzzy_find_node(name, label, parent_pherc, parent_cornice, threshold, limit)`: standalone reusable primitive for fuzzy-resolving noisy PHerc/Cornice/Pezzo displayNames to ranked candidates; see "Fuzzy name lookup" under API Query Patterns
+- `get_artifact_info(pherc, cornice, pezzo)`: full artifact detail by exact name (own props + metadata + assigned `educelabids` + child counts), backs `GET /artifacts?...`. `find_artifact_location_by_uuid(uuid)`: the UUID → artifact bridge, backs `GET /artifacts/{uuid}`. Both added in the API consolidation that removed `get_directly_attached_nodes`/`records_to_label_json`/`find_datasets`/`find_educelabids_for_pherc`.
 - Key enums: `DatasetType` (FlatbedScan, PGSRaw, SpectralRaw)
 
 **src/educelab/hercdb/config.py**: Configuration management
@@ -121,8 +122,8 @@ educelab-hercdb/
 
 **src/educelab/hercdb/rest/server.py**: FastAPI REST API
 - Token-based authentication using `~/.tokens` file
-- Endpoints for querying PHerc, Cornice, Pezzo nodes and their relationships
-- `/search` endpoint supports complex multi-parameter queries
+- One `/artifacts` resource for PHerc/Cornice/Pezzo artifacts — by name (`?pherc=&cornice=&pezzo=`, full detail) or by UUID (`/{uuid}`, location bridge); plus `/subdivisions`, `/all-datasets`, `/educelabid/{uuid}/datasets`, `/resolve`
+- `/resolve` endpoint fuzzy-resolves a noisy displayName to ranked candidates (the only fuzzy entry point; fetch endpoints match `displayName` exactly)
 
 **src/educelab/hercdb/loader/graph_loader.py**: Database loading utilities
 - `PhercGraphDatabaseLoader`: Class for bulk data loading operations
@@ -138,7 +139,7 @@ educelab-hercdb/
 - Generates `scan_completeness_full.csv` and `scan_completeness_issues.csv` (and, in `--scans-from-csv` mode, `scan_completeness_review.csv`)
 - Wired up as the `el-hercdb-scan-report` shell command via `[project.scripts]`
 - Walks `REPLACES` so pre-replacement scans on retired predecessor UUIDs still count toward an artifact's coverage
-- A dataset counts as **complete** only when `complete == "True"` AND `missing_files == 0 AND zero_byte_files == 0 AND short_files == 0 AND bad_format_files == 0` (see `_is_fully_complete`). This is stricter than the raw `complete` flag and is local to this report — `find_datasets` / `find_datasets_for_educelabid` / `find_all_datasets_for_pherc` still filter on the raw flag Cypher-side and need reconciling (tracked in memory).
+- A dataset counts as **complete** only when `complete == "True"` AND `missing_files == 0 AND zero_byte_files == 0 AND short_files == 0 AND bad_format_files == 0` (see `_is_fully_complete`). This is stricter than the raw `complete` flag and is local to this report — `find_datasets_for_educelabid` / `find_datasets_for_educelabid_with_predecessors` / `find_all_datasets_for_pherc` still filter on the raw flag Cypher-side and need reconciling (tracked in memory).
 - **Two coverage sources.** Default: loaded PGSRaw/SpectralRaw nodes via `classify()`. `--scans-from-csv`: coverage read directly from the scan CSVs (`load_scan_rows` + `build_coverage` + `classify_from_csv`), pooling scans across each UUID's `REPLACES` chain via `db.find_predecessor_uuid_map()`. The CSV path is **read-only on the DB and needs no scan-load** — used to answer "what still needs scanning + which museum" before the new scans are loaded. Both apply the same strict `_is_fully_complete` / `sample_uuid_check.is_row_complete` rule. **Artifact attribution is always by `sample uuid` → exact Neo4j node**, so `118a`/`118b` (distinct PHerc nodes, distinct UUIDs) are never conflated; the path is used only for the cross-check.
 - **Review report** (`--scans-from-csv` only): flags **sample-uuid data errors only** — `WRONG_SAMPLE_UUID` and `ORPHAN_SAMPLE_UUID` (both high, scan-side from `sample_uuid_check.cross_check`). Deliberately **excluded**: `INCOMPLETE_FILES` (scanned-but-not-good artifacts — they already appear in the issues CSV with an `incomplete` status, so not duplicated here) and `UNLINKED_UUID` (minted UUIDs with no artifact — out of scope for "what needs scanning"; `db.find_unassigned_educelabids()` still exists for that lookup but is no longer called). Note: the cross-check compares PHerc number **sets**, so it cannot detect an `118a`↔`118b` swap (paths omit the alpha suffix); documented in `cli/sample_uuid_check.py`.
 
@@ -188,27 +189,24 @@ Key relationships:
 
 The `GraphDBConnection` class provides two patterns for queries:
 
-1. **Specific lookups** (return records, summary, keys):
-   - `find_pherc_by_uuid()`, `find_pherc_by_display_name()`
-   - `find_pherc_by_author()`, `find_pherc_by_language()`
-   - `find_pherc_by_property_value()` (case-insensitive partial match)
-   - `find_pherc_by_numeric_property()` (diameter, height, width, weight)
+1. **Name resolution** (resolve a noisy/approximate displayName to nodes):
+   - `fuzzy_find_node(name, label, parent_pherc, parent_cornice, threshold, limit)` — ranked candidates against displayName + aliases (see "Fuzzy name lookup" below). The old per-property `find_pherc_by_*` lookups (display_name, author, language, property_value, numeric_property, unrolled_year, etc.) were removed along with the `POST /search` endpoint.
 
-2. **Dataset queries**:
-   - `find_datasets(ds_type, pherc, cornice=None, pezzo=None, newest_completed=False, properties_only=True)`
-   - `find_datasets_for_educelabid(uuid, ds_type=None, newest_completed=False)` - datasets for a specific EduceLabID (single-UUID view used by the REST endpoint)
-   - `find_datasets_for_educelabid_with_predecessors(uuid, ds_type=None)` - same shape, but walks `[:REPLACES*0..]` from the given UUID so pre-replacement scans on retired predecessor UUIDs are pooled in. Used by the scan-completeness report; do not use for REST responses unless you intend to include the full chain.
-   - `find_all_datasets_for_pherc(pherc_display_name, ds_type=None, newest_completed=False)` - all datasets grouped by EduceLabID
-   - `find_educelabids_for_pherc(pherc_display_name)` - list all EduceLabIDs under a PHerc (UUIDs-only view; drops artifacts without UUIDs)
+2. **Dataset queries** (both REST dataset endpoints pool the `[:REPLACES*0..]` chain and tag each dataset with `belongs_to_uuid`):
+   - `find_datasets_for_educelabid_with_predecessors(uuid, ds_type=None, newest_completed=False)` - datasets for a UUID, pooled across its REPLACES chain; each dataset carries `belongs_to_uuid` (the EduceLabID it actually belongs to). Backs `GET /educelabid/{uuid}/datasets` **and** the scan-completeness report.
+   - `find_datasets_for_educelabid(uuid, ds_type=None, newest_completed=False)` - single-UUID view (no chain pooling). Retained as a primitive; not wired to a REST endpoint.
+   - `find_all_datasets_for_pherc(pherc_display_name, ds_type=None, newest_completed=False)` - all datasets grouped by the active/assigned EduceLabID, chain-pooled, each dataset carrying `belongs_to_uuid`.
    - `find_all_artifacts_and_educelabids_for_pherc(pherc_display_name)` - one record per (artifact, UUID) pair, plus a sentinel record for any artifact with no UUID. Suppresses the PHerc-itself row when the PHerc has Cornici/Pezzi children but no direct UUID. Used by the scan-completeness report.
+   - (Removed: `find_datasets` and `find_educelabids_for_pherc` — along with the `/datasets/{type}` and `/educelabids` endpoints they backed.)
 
-3. **Node traversal**:
-   - `get_directly_attached_nodes()` - gets all nodes connected to a given node
-   - `list_cornici_pezzi(pherc)` / `list_cornici_and_pezzi_for_pherc(pherc_display_name)` - full hierarchy of Cornici and Pezzi
-   - `records_to_label_json()` - static method to convert Neo4j records to JSON
+3. **Artifact detail & traversal**:
+   - `get_artifact_info(pherc, cornice=None, pezzo=None)` - full detail for one artifact by exact displayName: own props, attached metadata grouped by label, assigned `educelabids`, and child counts (`cornici_count`/`pezzi_count`). No datasets. Backs `GET /artifacts?pherc=...`. Returns `None` if not found.
+   - `list_cornici_and_pezzi_for_pherc(pherc_display_name)` - full hierarchy of Cornici and Pezzi; returns `{pherc, cornici, pezzi}` where each node is `{displayName, aliases, educelabids}`. Backs `GET /subdivisions`. Returns `None` if the PHerc doesn't exist.
+   - (Removed: `get_directly_attached_nodes` / `records_to_label_json`, which backed the old per-node endpoints. The deprecated `list_cornici_pezzi` is still present pending search-CLI cleanup.)
 
 4. **UUID lookups**:
-   - `find_artifact_name_by_uuid(uuid)` - returns dict with `pherc`, `cornice`, `pezzo` display names for a UUID
+   - `find_artifact_name_by_uuid(uuid)` - returns dict with `pherc`, `cornice`, `pezzo` display names for a UUID (used internally by pipeline summaries).
+   - `find_artifact_location_by_uuid(uuid)` - the UUID → artifact bridge: `{type, displayName, pherc, cornice, pezzo, parent}`. Backs `GET /artifacts/{uuid}` (the handler adds `uuid` + a composed `location`).
 
 5. **Pipeline queries**:
    - `find_pipelines()` - returns list of all pipelines with their `pipeline_id` and `artifact_uuid`
@@ -232,19 +230,16 @@ The `GraphDBConnection` class provides two patterns for queries:
 
 Protected by Bearer token authentication (tokens in `~/.tokens`):
 
+A **PHerc / Cornice / Pezzo is an "artifact"**, addressed on one `/artifacts` resource two ways: **by name** (query params, full detail) or **by UUID** (path, lightweight location bridge). The two personas the API bridges via UUID: papyrologists arrive by name, computer scientists by UUID. By-name fetch endpoints match `displayName` **exactly** — resolve noisy input with `/resolve` first (fuzzy matching lives only there).
+
 - `GET /check-token` - Verify token validity
-- `GET /pherc/{pherc_id}` - Get PHerc and all attached nodes
-- `GET /pherc/{pherc_id}/cornice/{cornice_id}` - Get specific Cornice
-- `GET /pherc/{pherc_id}/pezzo/{pezzo_id}` - Get Pezzo directly under PHerc
-- `GET /pherc/{pherc_id}/cornice/{cornice_id}/pezzo/{pezzo_id}` - Get Pezzo under Cornice
-- `GET /pherc/{pherc_id}/subdivisions` - List all Cornici and Pezzi (full hierarchy traversal)
-- `GET /pherc/{pherc_id}/datasets/{dataset_type}` - Get imaging datasets with optional filtering
-- `GET /pherc/{pherc_id}/all-datasets` - Get all datasets grouped by EduceLabID
-- `GET /pherc/{pherc_id}/educelabids` - List all EduceLabIDs under PHerc
-- `GET /artifacts/{uuid}` - Get display name for an artifact by UUID
-- `GET /educelabid/{uuid}/datasets` - Get datasets for specific EduceLabID
-- `POST /search` - Complex search with multiple parameters (supports intersection of multiple criteria). The request body is the `SearchQuery` Pydantic model (all keys `snake_case`, all fields optional; unknown keys ignored), so the body schema is now introspectable in Swagger. The `display_name` filter is a strict regex (exact-name) match; to resolve a noisy displayName first, use `GET /resolve`. Note: keys were migrated from hyphenated to `snake_case` (e.g. `display-name` → `display_name`) and the `instituion` typo was fixed to `institution` — a breaking change to the request contract.
+- `GET /artifacts?pherc=&cornice=&pezzo=` - Full detail for one artifact by exact name (own props, metadata, assigned `educelabids`, child counts; no datasets). `pherc` required; missing → 422, not found → 404. Backed by `get_artifact_info`.
+- `GET /artifacts/{uuid}` - Resolve a UUID to its artifact: `{uuid, type, displayName, pherc, cornice, pezzo, parent, location}`. Backed by `find_artifact_location_by_uuid`.
+- `GET /pherc/{pherc_id}/subdivisions` - List all Cornici and Pezzi (full hierarchy); each node is `{displayName, aliases, educelabids}`.
+- `GET /pherc/{pherc_id}/all-datasets` - All datasets grouped by active/assigned EduceLabID, pooled across REPLACES chains; each dataset carries `belongs_to_uuid`. Optional `dataset_type` / `newest_completed`.
+- `GET /educelabid/{uuid}/datasets` - Datasets for a UUID, pooled across its REPLACES chain; each carries `belongs_to_uuid`. Optional `dataset_type` / `newest_completed`.
 - `GET /resolve` - Fuzzy-resolve a noisy PHerc/Cornice/Pezzo displayName to ranked candidates. Query params: `name` (required), `label` (`PHerc` | `Cornice` | `Pezzo`, default `PHerc`), `parent_pherc`, `parent_cornice`, `threshold` (default 75), `limit` (default 10). Returns a JSON list with `displayName`, `name`, `score`, `nodeID` (Neo4j element ID), `parent_pherc`, `parent_cornice`. Empty result returns `200 []` (discovery endpoint, not "fetch this thing"); invalid `label` returns 400.
+- (Removed in the API consolidation: `GET /pherc/{pherc_id}`, `.../cornice/{cornice_id}`, `.../pezzo/{pezzo_id}`, `.../cornice/{cornice_id}/pezzo/{pezzo_id}`, `.../datasets/{dataset_type}`, `.../educelabids` — superseded by `/artifacts`, `/all-datasets`, and the enriched `/subdivisions`.)
 - `GET /pipelines` - Get all pipelines with status summaries
 - `GET /pipelines/{pipeline_id}/stages` - Get all process stages for a pipeline
 - `POST /pipelines` - Create a new pipeline linked to an EduceLabID
@@ -259,7 +254,7 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 
 ### Display Names vs Internal Names
 - **`displayName`** is the single canonical, user-facing name on every PHerc/Cornice/Pezzo (e.g. "421", "118a", "Cass. 20") and is **always populated**. It is the only name to display.
-- **`aliases`** (string array) is the match surface: the de-duplicated set of all known forms (displayName + the legacy uuid-sheet `name` + Casetta synonyms + spelling variants). Never display from `aliases`; use it only to *resolve* a possibly-noisy input to a node. Loaders append to `aliases` (they don't overwrite); `fuzzy_find_node` scores against it; `find_pherc_by_display_name` matches displayName **or** any alias (exact); a full-text index `artifact_names` covers `[displayName, aliases]`.
+- **`aliases`** (string array) is the match surface: the de-duplicated set of all known forms (displayName + the legacy uuid-sheet `name` + Casetta synonyms + spelling variants). Never display from `aliases`; use it only to *resolve* a possibly-noisy input to a node. Loaders append to `aliases` (they don't overwrite); `fuzzy_find_node` scores against it (matching displayName **or** any alias, with exact matches short-circuiting to score 100); a full-text index `artifact_names` covers `[displayName, aliases]`.
 - Older `name` property is deprecated (kept as one of the alias sources during transition); `human_name` is no longer set by current loaders.
 - Methods marked "Soon to be deprecated" should be avoided in new code.
 - The canonical-displayName + aliases model, the one-time migration (`preprocessing/migrate_name_aliases.py`), and the duplicate-node merge are described in `.claude/plans/name_displayname_alias_model.md`.
@@ -272,7 +267,6 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 ### Query Methods
 - Most find methods perform case-insensitive partial matching using Cypher regex: `(?i).*{value}.*`
 - Results are typically ordered by `ph.displayName`
-- `find_pherc_by_unrolled_year()` handles complex date formats like "1420, 1820-1858"
 
 ### Python Version Support
 - Minimum: Python 3.10

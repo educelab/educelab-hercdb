@@ -36,22 +36,20 @@ Tokens are loaded from `~/.tokens`. Each line has the format `username = token`.
 |--------|------|-------------|
 | GET | `/check-token` | Verify if the provided token is valid |
 
-### PHerc Queries
+### Artifact & Dataset Queries
+
+A PHerc / Cornice / Pezzo is an **artifact**, reachable two ways on one
+`/artifacts` resource: **by name** (query params) or **by UUID** (path). Names
+match `displayName` **exactly** — resolve noisy input with `/resolve` first.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/pherc/{pherc_id}` | Get a PHerc and all directly attached nodes |
-| GET | `/pherc/{pherc_id}/subdivisions` | List all Cornici and Pezzi for a PHerc |
-| GET | `/pherc/{pherc_id}/cornice/{cornice_id}` | Get a specific Cornice and its attached nodes |
-| GET | `/pherc/{pherc_id}/cornice/{cornice_id}/pezzo/{pezzo_id}` | Get a Pezzo under a specific Cornice |
-| GET | `/pherc/{pherc_id}/pezzo/{pezzo_id}` | Get a Pezzo directly under a PHerc |
-| GET | `/pherc/{pherc_id}/datasets/{dataset_type}` | Get imaging datasets for a PHerc |
-| GET | `/pherc/{pherc_id}/all-datasets` | Get all datasets under a PHerc, grouped by artifact |
-| GET | `/pherc/{pherc_id}/educelabids` | List all EduceLabIDs under a PHerc |
-| GET | `/artifacts/{uuid}` | Get display name for an artifact by UUID |
-| GET | `/educelabid/{uuid}/datasets` | Get datasets for a specific EduceLabID |
+| GET | `/artifacts?pherc=&cornice=&pezzo=` | Full detail for one artifact by name (properties, metadata, `educelabids`, child counts) |
+| GET | `/artifacts/{uuid}` | Resolve a UUID to its artifact (type, displayName, hierarchy, parent, location) |
+| GET | `/pherc/{pherc_id}/subdivisions` | List all Cornici and Pezzi for a PHerc (each with `aliases` + `educelabids`) |
+| GET | `/pherc/{pherc_id}/all-datasets` | All datasets under a PHerc, grouped by artifact (chain-pooled, `belongs_to_uuid`) |
+| GET | `/educelabid/{uuid}/datasets` | Datasets for a specific EduceLabID (chain-pooled, `belongs_to_uuid`) |
 | GET | `/resolve` | Fuzzy-resolve a noisy displayName to ranked PHerc/Cornice/Pezzo candidates |
-| POST | `/search` | Search for PHercs using multiple criteria (exact displayName matching) |
 
 ### Pipelines
 
@@ -67,18 +65,74 @@ Tokens are loaded from `~/.tokens`. Each line has the format `username = token`.
 
 ## Endpoint Details
 
-### GET /pherc/{pherc_id}
+### GET /artifacts (by name)
 
-Returns a PHerc and all its directly attached nodes (metadata, Cornici, direct Pezzi, etc.).
+Returns full detail for one artifact (PHerc / Cornice / Pezzo), resolved by
+**exact** `displayName`. `pherc` is always required; add `cornice` and/or
+`pezzo` to address a subdivision. Returns the node's own properties, attached
+metadata nodes, the `educelabids` assigned to it, and child counts. Datasets are
+**not** included — use `/all-datasets` or `/educelabid/{uuid}/datasets`.
+
+For noisy names, call `/resolve` first to get the canonical `displayName`.
+
+**Query parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `pherc` | string | required | PHerc displayName (exact) |
+| `cornice` | string | - | Cornice displayName (exact) |
+| `pezzo` | string | - | Pezzo displayName (exact) |
 
 **Example:**
 ```
-GET /pherc/211
+GET /artifacts?pherc=1044
+GET /artifacts?pherc=1044&cornice=6
 ```
+
+**Response:**
+```json
+{
+  "type": "Cornice",
+  "displayName": "6",
+  "aliases": ["6", "Cr. 6"],
+  "educelabids": ["abc-123"],
+  "metadata": { "CustodialInstitution": { "name": "..." } },
+  "pezzi_count": 3
+}
+```
+
+Returns `404` if no matching artifact exists; `422` if `pherc` is omitted.
+
+### GET /artifacts/{uuid} (by UUID)
+
+Resolves a UUID to the physical artifact it is assigned to — the UUID → artifact
+bridge. Lightweight: for full detail, look the artifact up by name.
+
+**Example:**
+```
+GET /artifacts/85f7b1ea-e57a-5d98-b481-658d75ac2dcf
+```
+
+**Response:**
+```json
+{
+  "uuid": "85f7b1ea-e57a-5d98-b481-658d75ac2dcf",
+  "type": "Cornice",
+  "displayName": "1",
+  "pherc": "10",
+  "cornice": "1",
+  "pezzo": null,
+  "parent": { "type": "PHerc", "displayName": "10" },
+  "location": "PHerc10 Cornice 1"
+}
+```
+
+Returns `404` if no artifact is found for the UUID.
 
 ### GET /pherc/{pherc_id}/subdivisions
 
-Lists all Cornici and Pezzi for a PHerc, including Pezzi nested under Cornici. Returns only `name` and `displayName` for each subdivision.
+Lists all Cornici and Pezzi for a PHerc, including Pezzi nested under Cornici.
+Each node (the PHerc itself, every Cornice, every Pezzo) is returned as
+`{displayName, aliases, educelabids}` — no other physical characteristics.
 
 **Example:**
 ```
@@ -88,49 +142,23 @@ GET /pherc/238/subdivisions
 **Response:**
 ```json
 {
-  "pherc": { "displayName": "238", ... },
+  "pherc": { "displayName": "238", "aliases": ["238"], "educelabids": [] },
   "cornici": [
-    { "name": "Scorza", "displayName": "Scorze da 238 a 239" }
+    { "displayName": "Scorze da 238 a 239", "aliases": ["Scorza"], "educelabids": ["..."] }
   ],
   "pezzi": [
-    { "name": null, "displayName": "1 (238a)" },
-    { "name": null, "displayName": "2 (238b)" }
+    { "displayName": "1 (238a)", "aliases": [], "educelabids": ["..."] }
   ]
 }
 ```
 
-### GET /pherc/{pherc_id}/datasets/{dataset_type}
-
-Returns imaging datasets for a PHerc. The `dataset_type` path parameter must be one of: `FlatbedScan`, `PGSRaw`, `SpectralRaw`.
-
-**Query parameters:**
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `cornice` | string | - | Filter by Cornice display name |
-| `pezzo` | string | - | Filter by Pezzo display name |
-| `newest_completed` | bool | false | Return only the newest completed dataset |
-
-**Example:**
-```
-GET /pherc/1044/datasets/SpectralRaw?cornice=4
-```
-
-**Response:**
-```json
-[
-  {
-    "path": "Dailies/Spectral/MVDaily_20221102/PHerc1044Cr04",
-    "date_start": "2022-11-02T09:37:25.000000000+00:00",
-    "date_end": "2022-11-02T09:38:30.000000000+00:00",
-    "complete": "True",
-    "uuid": "331cf7c0-631c-41cd-9be4-fa6fbd6b1288"
-  }
-]
-```
-
 ### GET /pherc/{pherc_id}/all-datasets
 
-Returns all datasets under a PHerc umbrella, grouped by EduceLabID (physical artifact). Traverses the full hierarchy: PHerc itself, its Cornici, and all Pezzi.
+Returns all datasets under a PHerc umbrella, grouped by EduceLabID (physical
+artifact). Traverses the full hierarchy: PHerc itself, its Cornici, and all
+Pezzi. Datasets are pooled across each artifact's UUID-replacement (REPLACES)
+chain and grouped by the active/assigned UUID; each dataset carries
+`belongs_to_uuid` (the UUID it actually belongs to).
 
 **Query parameters:**
 | Parameter | Type | Default | Description |
@@ -160,7 +188,8 @@ GET /pherc/1044/all-datasets?dataset_type=PGSRaw&newest_completed=true
           "type": "PGSRaw",
           "path": "Dailies/PGS/...",
           "complete": "True",
-          "date_end": "2022-11-02T09:38:30.000000000+00:00"
+          "date_end": "2022-11-02T09:38:30.000000000+00:00",
+          "belongs_to_uuid": "abc-123"
         }
       ]
     }
@@ -168,51 +197,11 @@ GET /pherc/1044/all-datasets?dataset_type=PGSRaw&newest_completed=true
 }
 ```
 
-### GET /pherc/{pherc_id}/educelabids
-
-Lists all EduceLabIDs assigned to artifacts under a PHerc umbrella.
-
-**Example:**
-```
-GET /pherc/1044/educelabids
-```
-
-**Response:**
-```json
-[
-  {
-    "uuid": "abc-123",
-    "pherc": "1044",
-    "cornice": "6",
-    "pezzo": null,
-    "artifact_name": "PHerc1044 Cornice 6"
-  }
-]
-```
-
-### GET /artifacts/{uuid}
-
-Returns the display name of a physical artifact (PHerc, Cornice, Pezzo) for the given UUID.
-
-**Example:**
-```
-GET /artifacts/85f7b1ea-e57a-5d98-b481-658d75ac2dcf
-```
-
-**Response:**
-```json
-{
-  "display_name": "PHerc10 Cornice 1"
-}
-```
-
-Returns `404` if no artifact is found for the UUID.
-
----
-
 ### GET /educelabid/{uuid}/datasets
 
-Returns all datasets for a specific EduceLabID.
+Returns all datasets for a specific EduceLabID, pooled across the UUID's
+replacement (REPLACES) chain. Each dataset carries `belongs_to_uuid` so a scan
+sitting on a retired predecessor UUID is visible.
 
 **Query parameters:**
 | Parameter | Type | Default | Description |
@@ -233,7 +222,8 @@ GET /educelabid/abc-123/datasets?dataset_type=SpectralRaw&newest_completed=true
     "type": "PGSRaw",
     "path": "Dailies/PGS/...",
     "complete": "True",
-    "date_end": "2022-11-02T09:38:30.000000000+00:00"
+    "date_end": "2022-11-02T09:38:30.000000000+00:00",
+    "belongs_to_uuid": "abc-123"
   }
 ]
 ```
@@ -274,52 +264,6 @@ GET /resolve?name=Cass&label=Cornice&parent_pherc=72
 ```
 
 Scores are computed with `rapidfuzz.fuzz.ratio` on whitespace-stripped, lowercased names. Exact matches (after normalization) short-circuit to score 100. Invalid `label` values return `400`.
-
----
-
-### POST /search
-
-Search for PHercs using multiple criteria. All provided filters are intersected (AND logic). Returns a list of matching PHerc display names.
-
-The `display_name` filter is a strict (regex) match — enter the exact PHerc displayName. To resolve a noisy/approximate name first, use the `GET /resolve` endpoint.
-
-**Request body (all fields optional):**
-```json
-{
-  "uuid": "",
-  "display_name": "",
-  "author": "",
-  "language": "",
-  "unrolling_status": "",
-  "scorze": "",
-  "unrolling_method": "",
-  "unroller": "",
-  "literary_work": "",
-  "editions": "",
-  "subscriptio": "",
-  "institution": "",
-  "initial_end_title": "",
-  "recto_verso_title": "",
-  "multiple_hands": "",
-  "neapolitan_drawings": "",
-  "oxonian_drawings": "",
-  "cavallo_scribal_style": "",
-  "diameter_operator": "",
-  "diameter_value": "",
-  "height_operator": "",
-  "height_value": "",
-  "width_operator": "",
-  "width_value": "",
-  "weight_operator": "",
-  "weight_value": "",
-  "unrolled_year_operator": "",
-  "unrolled_year_value": ""
-}
-```
-
-For `editions`, `literary_work`, `neapolitan_drawings`, and `oxonian_drawings`, use the value `"ALL"` to match any PHerc that has that property set.
-
-Numeric operators (`diameter_operator`, etc.) accept: `=`, `<=`, `>=`.
 
 ### GET /pipelines
 

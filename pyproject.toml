@@ -8,7 +8,7 @@ include = ["educelab.hercdb*"]
 
 [project]
 name = "educelab-hercdb"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
     "requests>=2.32.5",
 ]
@@ -44,7 +44,6 @@ server = [
 Repository = "https://gitlab.com/educelab/educelab-hercdb"
 
 [project.scripts]
-el-hercdb-search = "educelab.hercdb.cli.search:main"
 el-hercdb-scan-report = "educelab.hercdb.cli.scan_completeness:main"
 el-hercdb-sample-uuid-check = "educelab.hercdb.cli.sample_uuid_check:main"
 

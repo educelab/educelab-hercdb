@@ -45,7 +45,7 @@ uv run python -m unittest tests/integration/test_db_queries.py
 uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries
 
 # A specific test method
-uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries.test_find_pherc_by_uuid
+uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries.test_find_artifact_name_by_uuid
 ```
 
 Note: `api/` and `client/` test files are scripts rather than standard `unittest.TestCase` classes — run them directly:

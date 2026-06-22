@@ -1,12 +1,19 @@
 """Integration tests for the /resolve endpoint.
 
-Requires a running REST API server. Configure token and host_ip below.
-Run: uv run tests/api/test_fuzzy_endpoints.py
+Requires a running REST API server. Pass the token and host_ip on the command line.
+Run: uv run tests/api/test_fuzzy_endpoints.py <token> [host_ip]
 """
+import argparse
+
 import requests
 
-token = "<token>"
-host_ip = "localhost"
+parser = argparse.ArgumentParser(description="Integration tests for the /resolve endpoint.")
+parser.add_argument("token", help="Bearer token for the REST API")
+parser.add_argument("host_ip", nargs="?", default="localhost", help="Host IP of the REST API server (default: localhost)")
+args = parser.parse_args()
+
+token = args.token
+host_ip = args.host_ip
 
 BASE = f"http://{host_ip}:8000"
 HEADERS = {"Authorization": f"Bearer {token}"}
@@ -14,10 +21,6 @@ HEADERS = {"Authorization": f"Bearer {token}"}
 
 def get(path, params=None):
     return requests.get(f"{BASE}{path}", headers=HEADERS, params=params)
-
-
-def post(path, json):
-    return requests.post(f"{BASE}{path}", headers=HEADERS, json=json)
 
 
 # --- GET /resolve ---
@@ -78,15 +81,5 @@ resp = get(
 assert resp.status_code == 200
 assert len(resp.json()) <= 3
 print(f"  ✓ Returned {len(resp.json())} <= limit=3")
-
-
-# --- POST /search strict display_name path ---
-
-print("\nPOST /search strict 'display_name' returns exact match:")
-resp = post("/search", {"display_name": "421"})
-print(f"  Status: {resp.status_code}")
-assert resp.status_code == 200
-assert resp.json()["PHercs"] == ["421"]
-print("  ✓ Strict path returns exact match")
 
 print("\nAll fuzzy endpoint tests passed!")

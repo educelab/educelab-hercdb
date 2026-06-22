@@ -1,7 +1,14 @@
+import argparse
+
 import requests
 
-token = "<token>"
-host_ip = "<local host or server IP>"
+parser = argparse.ArgumentParser(description="Integration test script for the REST API server.")
+parser.add_argument("token", help="Bearer token for the REST API")
+parser.add_argument("host_ip", nargs="?", default="localhost", help="Host IP of the REST API server (default: localhost)")
+args = parser.parse_args()
+
+token = args.token
+host_ip = args.host_ip
 
 headers = {
     "Authorization": f"Bearer {token}"
@@ -15,52 +22,18 @@ print(requests.get(f"http://{host_ip}:8000/check-token", headers=headers).json()
 print("/home endpoint:") 
 print(requests.get(f"http://{host_ip}:8000/home", headers=headers).json())
 
-# /pherc/<pherc_id> endpoint    
-print("/pherc/<pherc_id> endpoint:")
-print(requests.get(f"http://{host_ip}:8000/pherc/211", headers=headers).json())
+# /artifacts (by name) endpoint — PHerc
+print("/artifacts?pherc=211 endpoint:")
+print(requests.get(f"http://{host_ip}:8000/artifacts", headers=headers, params={"pherc": "211"}).json())
 
-# /pherc/<pherc_id>/cornice/<cornice_id> endpoint
-print("/pherc/<pherc_id>/cornice/<cornice_id> endpoint:")
-print(requests.get(f"http://{host_ip}:8000/pherc/18/cornice/1", headers=headers).json())
+# /artifacts (by name) endpoint — Cornice
+print("/artifacts?pherc=18&cornice=1 endpoint:")
+print(requests.get(f"http://{host_ip}:8000/artifacts", headers=headers, params={"pherc": "18", "cornice": "1"}).json())
 
-# /pherc/<pherc_id>/cornice/<cornice_id>/pezzo/<pezzo_id> endpoint
-print("/pherc/<pherc_id>/cornice/<cornice_id>/pezzo/<pezzo_id> endpoint:")
-print(requests.get(f"http://{host_ip}:8000/pherc/238/cornice/Scorze da 238 a 239/pezzo/5 (238e)", headers=headers).json())
-
-
-# /search endpoint
-print("/search endpoint:")
-payload = {
-    "uuid": "",
-    "display_name": "",
-    "author": "",
-    "language": "",
-    "unrolling_status": "",
-    "scorze": "",
-    "unrolling_method": "",
-    "unroller": "",
-    "literary_work": "",
-    "editions": "",
-    "institution": "",
-    "diameter_operator": "",
-    "diameter_value": "",
-    "height_operator": "",
-    "height_value": "",
-    "width_operator": "",
-    "width_value": "",
-    "weight_operator": "",
-    "weight_value": "",
-    "unrolled_year_operator": "",
-    "unrolled_year_value": "",
-    'cavallo_scribal_style': "Gruppo N"
-}
-
-print(payload)
-print(requests.post(f"http://{host_ip}:8000/search", json=payload, headers=headers).json())
-
-# /pherc/<pherc_id>/datasets/<dataset_type> endpoint
-print("/pherc/<pherc_id>/datasets/<dataset_type> endpoint:")
-print(requests.get(f"http://{host_ip}:8000/pherc/1044/datasets/SpectralRaw?cornice=6", headers=headers).json())
+# /artifacts (by name) endpoint — Pezzo under Cornice
+print("/artifacts?pherc=238&cornice=...&pezzo=... endpoint:")
+print(requests.get(f"http://{host_ip}:8000/artifacts", headers=headers,
+                   params={"pherc": "238", "cornice": "Scorze da 238 a 239", "pezzo": "5 (238e)"}).json())
 
 # /pherc/<pherc_id>/all-datasets endpoint
 print("\n/pherc/<pherc_id>/all-datasets endpoint:")
@@ -80,16 +53,28 @@ resp = requests.get(f"http://{host_ip}:8000/pherc/1044/all-datasets?newest_compl
 print(f"  Status: {resp.status_code}")
 print(f"  Response: {resp.json()}")
 
-# /pherc/<pherc_id>/educelabids endpoint
-print("\n/pherc/<pherc_id>/educelabids endpoint:")
-resp = requests.get(f"http://{host_ip}:8000/pherc/1044/educelabids", headers=headers)
+# /pherc/<pherc_id>/subdivisions endpoint (now returns aliases + educelabids per node)
+print("\n/pherc/<pherc_id>/subdivisions endpoint:")
+resp = requests.get(f"http://{host_ip}:8000/pherc/1044/subdivisions", headers=headers)
 print(f"  Status: {resp.status_code}")
-educelabids = resp.json()
-print(f"  Response: {educelabids}")
+subs = resp.json()
+print(f"  Response: {subs}")
 
-# /educelabid/<uuid>/datasets endpoint (use first UUID from above)
-if educelabids and len(educelabids) > 0:
-    test_uuid = educelabids[0]['uuid']
+# Gather a UUID from subdivisions to exercise the UUID-keyed endpoints
+uuids = []
+for node in [subs.get("pherc")] + subs.get("cornici", []) + subs.get("pezzi", []):
+    if node:
+        uuids.extend(node.get("educelabids", []))
+
+if uuids:
+    test_uuid = uuids[0]
+    # /artifacts/<uuid> endpoint (UUID -> artifact location bridge)
+    print(f"\n/artifacts/{test_uuid} endpoint:")
+    resp = requests.get(f"http://{host_ip}:8000/artifacts/{test_uuid}", headers=headers)
+    print(f"  Status: {resp.status_code}")
+    print(f"  Response: {resp.json()}")
+
+    # /educelabid/<uuid>/datasets endpoint (chain-pooled, belongs_to_uuid per dataset)
     print(f"\n/educelabid/{test_uuid}/datasets endpoint:")
     resp = requests.get(f"http://{host_ip}:8000/educelabid/{test_uuid}/datasets", headers=headers)
     print(f"  Status: {resp.status_code}")
@@ -100,10 +85,6 @@ if educelabids and len(educelabids) > 0:
     resp = requests.get(f"http://{host_ip}:8000/educelabid/{test_uuid}/datasets?dataset_type=PGSRaw", headers=headers)
     print(f"  Status: {resp.status_code}")
     print(f"  Response: {resp.json()}")
-
-# /pherc/<pherc_id>/subdivisions endpoint
-print("/pherc/<pherc_id>/subdivisions endpoint:")
-print(requests.get(f"http://{host_ip}:8000/pherc/238/subdivisions", headers=headers).json())
 
 # /pipelines/<pipeline_id>/stages endpoint
 print("/pipelines/<pipeline_id>/stages endpoint:")

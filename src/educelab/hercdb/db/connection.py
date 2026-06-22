@@ -95,30 +95,6 @@ class GraphDBConnection:
         assert isinstance(count, int)
         return count
 
-    # TODO: migrate cli/search.py to use list_cornici_and_pezzi_for_pherc, then remove this
-    def list_cornici_pezzi(self, pherc) -> list:
-        print("Deprecated: use list_cornici_and_pezzi_for_pherc method instead")
-        # Use display names
-        records, summary, keys = self.driver.execute_query(
-            """
-            MATCH (ph:PHerc {human_name: $ph})
-            OPTIONAL MATCH (ph)-[:HAS]-(cr:Cornice)
-            OPTIONAL MATCH (cr)-[:HAS]-(pz:Pezzo)
-            RETURN ph, cr, pz       
-            """, ph=pherc,
-            database_="neo4j",
-        )
-        return records
-
-    def _find_pherc_by_related_node(self, rel_type, label, value) -> tuple:
-        """Find PHercs connected to a node via relationship, case-insensitive partial match."""
-        query = f"""
-            MATCH (ph:PHerc)-[:{rel_type}]->(n:{label})
-            WHERE n.name =~ '(?i).*' + $value + '.*'
-            RETURN ph ORDER BY ph.displayName
-        """
-        return self._run_query(query, value=value)
-
     @staticmethod
     def _serialize_dataset(record) -> dict:
         """Convert a Neo4j dataset record to a JSON-safe dict."""
@@ -182,23 +158,110 @@ class GraphDBConnection:
             print("Error: Node not found")
             return None
 
-    def get_directly_attached_nodes(self, node_type, pherc_display_name, cornice_display_name=None, pezzo_display_name=None, disegni_name=None) -> tuple:
-        """Retrieve all nodes directly attached to a specified node."""
-        node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
-        if node_id is None:
-            print(f"Error: Node of type {node_type} with specified names not found.")
-            return None, None, None
-        
-        query = """
-            MATCH (org_node)--(attached_nodes)
-            WHERE elementId(org_node) = $node_id
-            RETURN org_node, attached_nodes
+    # Structural / dataset labels that are NOT "metadata" about an artifact.
+    # Anything attached to a PHerc/Cornice/Pezzo whose label is outside this set
+    # (Author, Language, Unroller, CustodialInstitution, Disegni, ...) is treated
+    # as metadata by get_artifact_info.
+    _STRUCTURAL_LABELS = [
+        'PHerc', 'Casetta', 'Cornice', 'Pezzo', 'EduceLabID',
+        'FlatbedScanDataset', 'PGSRaw', 'SpectralRaw',
+    ]
+
+    @staticmethod
+    def _primary_label(labels, prefer=('PHerc', 'Casetta', 'Cornice', 'Pezzo')) -> str | None:
+        """Pick the most relevant label from a node's label set.
+
+        PHerc nodes may also carry :Casetta; ``prefer`` decides which wins.
+        Defaults to reporting such a node as 'PHerc'; pass a Casetta-first
+        order when a Casetta parent should surface as 'Casetta'.
         """
-        params = {"node_id": node_id}
+        if not labels:
+            return None
+        for p in prefer:
+            if p in labels:
+                return p
+        return labels[0]
 
-        return  self._run_query(query, **params)
+    def get_artifact_info(self, pherc, cornice=None, pezzo=None) -> dict | None:
+        """Full detail for a single artifact (PHerc / Cornice / Pezzo) resolved
+        by exact displayName. Backs ``GET /artifacts?pherc=...``.
 
-    
+        Returns the node's own properties (displayName, aliases, backing, ...)
+        plus its attached metadata nodes, the EduceLabID uuid(s) assigned to it,
+        and child counts. Datasets are intentionally excluded (they hang off the
+        EduceLabID; use the dataset endpoints). Children are summarized as counts,
+        not expanded (use ``/subdivisions`` or a child lookup for detail).
+
+        Returns ``None`` when no such node exists.
+        """
+        if pezzo:
+            node_type = "Pezzo"
+        elif cornice:
+            node_type = "Cornice"
+        else:
+            node_type = "PHerc"
+
+        node_id = self._get_node_id(node_type, pherc, cornice, pezzo)
+        if node_id is None:
+            return None
+
+        records, _, _ = self._run_query("""
+            MATCH (n) WHERE elementId(n) = $node_id
+            OPTIONAL MATCH (n)<-[:ASSIGNED_TO]-(eid:EduceLabID)
+            OPTIONAL MATCH (n)-[:HAS]->(child)
+            WHERE child:Cornice OR child:Pezzo
+            OPTIONAL MATCH (n)--(meta)
+            WHERE NONE(l IN labels(meta) WHERE l IN $structural)
+            WITH n,
+                 collect(DISTINCT eid.uuid) AS educelabids,
+                 collect(DISTINCT child) AS children,
+                 collect(DISTINCT meta) AS metas
+            RETURN n, educelabids,
+                   size([c IN children WHERE 'Cornice' IN labels(c)]) AS cornici_count,
+                   size([c IN children WHERE 'Pezzo' IN labels(c)]) AS pezzi_count,
+                   metas
+            """, node_id=node_id, structural=self._STRUCTURAL_LABELS)
+
+        if not records:
+            return None
+
+        record = records[0]
+        result = self._jsonify_props(dict(record['n']))
+        result['type'] = node_type
+        result['educelabids'] = [u for u in record['educelabids'] if u]
+
+        metadata = {}
+        for meta in record['metas']:
+            if meta is None:
+                continue
+            label = next(iter(meta.labels))
+            props = self._jsonify_props(dict(meta))
+            if label in metadata:
+                if isinstance(metadata[label], list):
+                    metadata[label].append(props)
+                else:
+                    metadata[label] = [metadata[label], props]
+            else:
+                metadata[label] = props
+        result['metadata'] = metadata
+
+        if node_type == "PHerc":
+            result['cornici_count'] = record['cornici_count']
+            result['pezzi_count'] = record['pezzi_count']
+        elif node_type == "Cornice":
+            result['pezzi_count'] = record['pezzi_count']
+
+        return result
+
+    @staticmethod
+    def _jsonify_props(props: dict) -> dict:
+        """Convert any non-JSON-safe values (e.g. Neo4j DateTime) to strings."""
+        for key, value in list(props.items()):
+            if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
+                props[key] = str(value)
+        return props
+
+
     def find_node_type_connected_to_object_node(self, obj_node_type, display_name, connected_node_type: str) -> tuple:
         """Find nodes of a specific type connected to an object node by its display name."""
         query = f"""
@@ -211,14 +274,6 @@ class GraphDBConnection:
         )
         return records, summary, keys
     
-    def find_pherc_by_uuid(self, uuid) -> tuple:
-        """Look up a PHerc by its UUID. Currently only returns the PHerc node."""
-        records, summary, keys = self._run_query("""
-            MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)<-[:HAS*0..2]-(ph:PHerc)
-            RETURN ph
-            """, uuid=uuid)
-        return records, summary, keys
-
     def find_artifact_name_by_uuid(self, uuid) -> dict | None:
         """
         Looks up the PHerc, Cornice, and Pezzo display names for a given UUID.
@@ -262,107 +317,63 @@ class GraphDBConnection:
             }
         return None
 
-    def find_pherc_by_display_name(self, display_name) -> tuple:
-        """Look up a PHerc by its display name or any alias (exact match).
+    def find_artifact_location_by_uuid(self, uuid: str) -> dict | None:
+        """Lightweight UUID -> artifact bridge. Backs ``GET /artifacts/{uuid}``.
 
-        Matches the canonical `displayName` or any member of `aliases`, so a
-        known alternate form (uuid-sheet name, Casetta synonym like
-        "Casetta 20" for displayName "Cass.20") resolves to the same node.
-        For noisy/typo'd names use `fuzzy_find_node` / the `/resolve` endpoint.
+        Returns the type and displayName of the node the UUID is assigned to,
+        the PHerc/Cornice/Pezzo names in its hierarchy, and its immediate
+        ``HAS``-parent (with a Casetta parent surfaced as such). Deliberately
+        lighter than ``get_artifact_info`` (no metadata/counts); a caller who
+        needs full detail re-queries by name. Returns ``None`` if the UUID is
+        not assigned to any artifact.
         """
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc)
-            WHERE ph.displayName = $display_name
-               OR $display_name IN coalesce(ph.aliases, [])
-            RETURN ph
-            """, display_name=display_name)
-        return records, summary, keys
+        records, _, _ = self._run_query("""
+            MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)
+            OPTIONAL MATCH (n)<-[:HAS]-(parent1)
+            OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
+            WITH n, parent1, parent2,
+                 CASE
+                     WHEN 'PHerc' IN labels(n) THEN n
+                     WHEN 'PHerc' IN labels(parent1) THEN parent1
+                     WHEN 'PHerc' IN labels(parent2) THEN parent2
+                 END AS pherc,
+                 CASE
+                     WHEN 'Cornice' IN labels(n) THEN n
+                     WHEN 'Cornice' IN labels(parent1) THEN parent1
+                 END AS cornice,
+                 CASE
+                     WHEN 'Pezzo' IN labels(n) THEN n
+                 END AS pezzo
+            RETURN labels(n) AS node_labels,
+                   n.displayName AS display_name,
+                   pherc.displayName AS pherc_name,
+                   cornice.displayName AS cornice_name,
+                   pezzo.displayName AS pezzo_name,
+                   labels(parent1) AS parent_labels,
+                   parent1.displayName AS parent_name
+            """, uuid=uuid)
 
-    def find_pherc_by_property_value(self, property_name, property_value) -> tuple:
-        """Look up a PHerc by a property value (case-insensitive partial match)."""
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc)
-            WHERE ph[$property_name] =~ '(?i).*' + $property_value + '.*'
-            RETURN ph ORDER BY ph.displayName
-            """, property_name=property_name, property_value=property_value)
-        return records, summary, keys
-    
-    def find_pherc_by_language(self, lang) -> tuple:
-        # names: "grc", "lat", "inc.", "grc?", "inc", "lat?"
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc)-[:HAS_LANGUAGE]->(l:Language)
-            WHERE toLower(l.name) CONTAINS toLower($language)
-            RETURN ph ORDER BY ph.displayName
-            """, language=lang)
-        return records, summary, keys
-    
-    def find_pherc_by_unroller_name(self, unroller_name) -> tuple:
-        return self._find_pherc_by_related_node("UNROLLED_BY", "Unroller", unroller_name)
+        if not records:
+            return None
 
-    def find_pherc_by_unrolling_method(self, unrolling_method) -> tuple:
-        return self._find_pherc_by_related_node("UNROLLED_BY_METHOD", "UnrollingMethod", unrolling_method)
-
-    def find_pherc_by_author(self, author_name) -> tuple:
-        return self._find_pherc_by_related_node("AUTHORED_BY", "Author", author_name)
-
-    def find_pherc_by_cavallo_scribal_style(self, scribal_style) -> tuple:
-        return self._find_pherc_by_related_node("STYLE", "CavalloScribalStyle", scribal_style)
-
-    def find_pherc_by_custodial_institution(self, institution_name) -> tuple:
-        return self._find_pherc_by_related_node("STORED_AT", "CustodialInstitution", institution_name)
-    
-    def find_pherc_by_numeric_property(self, property, operator, value) -> tuple:
-        """Look up PHercs by a numeric property (e.g. width, weight)."""
-        query_string = f"""
-            MATCH (ph:PHerc)
-            WHERE toFloat(ph.{property}) {operator} {value}
-            RETURN ph ORDER BY ph.displayName
-        """
-        records, summary, keys = self._run_query(
-            query_string,
-        )
-        return records, summary, keys
-    
-    def find_pherc_by_unrolled_year(self, operator, year) -> tuple:
-        """Find PHercs by unrolled year, handling date ranges like '1420, 1820-1858'."""
-        query_string = f"""
-            WITH {year} AS targetYear
-            MATCH (ph:PHerc)
-            WHERE ph.unrolled_date IS NOT NULL
-            WITH ph, SPLIT(ph.unrolled_date, ',') AS parts, targetYear
-            UNWIND parts AS part
-            WITH ph, TRIM(part) AS p, targetYear
-            WITH ph, 
-                CASE 
-                    WHEN p CONTAINS '-' THEN TOINTEGER(SPLIT(p, '-')[1])  // end of range
-                    ELSE TOINTEGER(p)
-                END AS maxYear,
-                CASE 
-                    WHEN p CONTAINS '-' THEN TOINTEGER(SPLIT(p, '-')[0])  // start of range
-                    ELSE TOINTEGER(p)
-                END AS minYear,
-                targetYear
-            WHERE (
-                '{operator}' = '=' AND targetYear >= minYear AND targetYear <= maxYear
-                OR '{operator}' = '<=' AND minYear <= targetYear
-                OR '{operator}' = '>=' AND maxYear >= targetYear
-            )
-            RETURN DISTINCT ph ORDER BY ph.displayName
-        """
-        records, summary, keys = self._run_query(query_string)
-        return records, summary, keys
-
-    def find_pherc_with_any_property_value(self, property_name) -> tuple:
-        """Find all PHercs that have a non-null value for the given property."""
-        query_string = f"""
-            MATCH (ph:PHerc)
-            WHERE ph.{property_name} IS NOT NULL
-            RETURN ph ORDER BY ph.displayName
-        """
-        records, summary, keys = self._run_query(
-            query_string,
-        )
-        return records, summary, keys
+        r = records[0]
+        parent = None
+        if r['parent_name'] is not None:
+            parent = {
+                'type': self._primary_label(
+                    r['parent_labels'],
+                    prefer=('Casetta', 'PHerc', 'Cornice', 'Pezzo'),
+                ),
+                'displayName': r['parent_name'],
+            }
+        return {
+            'type': self._primary_label(r['node_labels']),
+            'displayName': r['display_name'],
+            'pherc': r['pherc_name'],
+            'cornice': r['cornice_name'],
+            'pezzo': r['pezzo_name'],
+            'parent': parent,
+        }
 
     def list_all_pherc_display_names(self) -> list[dict]:
         """List every PHerc node, flagging which are also labeled :Casetta.
@@ -389,18 +400,57 @@ class GraphDBConnection:
             for r in records
         ]
 
-    def list_cornici_and_pezzi_for_pherc(self, pherc_display_name) -> list:
-        """List all Cornici and Pezzi for a given PHerc displayName."""
-        records, summary, keys = self._run_query("""
-            MATCH (ph:PHerc {displayName:$pherc_display_name})
-            OPTIONAL MATCH (ph)-[:HAS]->(c:Cornice)
-            OPTIONAL MATCH (ph)-[:HAS]->(c)-[:HAS]->(p1:Pezzo)
-            OPTIONAL MATCH (ph)-[:HAS]->(p2:Pezzo)
-            WITH ph, COLLECT(DISTINCT c) AS cr, COLLECT(DISTINCT p1) + COLLECT(DISTINCT p2) AS pz
-            RETURN ph, cr, pz
+    def list_cornici_and_pezzi_for_pherc(self, pherc_display_name) -> dict | None:
+        """Full Cornici + Pezzi listing for a PHerc. Backs ``GET /subdivisions``.
 
+        Each node (the PHerc itself, every Cornice, every Pezzo) is reported as
+        ``{displayName, aliases, educelabids}`` — the resolution surface plus the
+        UUID bridge, with no other physical characteristics (those live on the
+        ``/artifacts`` detail view). Returns ``None`` if the PHerc doesn't exist.
+        """
+        records, _, _ = self._run_query("""
+            MATCH (ph:PHerc {displayName:$pherc_display_name})
+            OPTIONAL MATCH (ph)<-[:ASSIGNED_TO]-(pe:EduceLabID)
+            WITH ph, collect(DISTINCT pe.uuid) AS ph_uuids
+            OPTIONAL MATCH (ph)-[:HAS*1..2]->(node)
+            WHERE node:Cornice OR node:Pezzo
+            OPTIONAL MATCH (node)<-[:ASSIGNED_TO]-(eid:EduceLabID)
+            RETURN ph.displayName AS ph_display,
+                   ph.aliases AS ph_aliases,
+                   ph_uuids,
+                   node.displayName AS node_display,
+                   node.aliases AS node_aliases,
+                   labels(node) AS node_labels,
+                   collect(DISTINCT eid.uuid) AS educelabids
+            ORDER BY node_display
             """, pherc_display_name=pherc_display_name)
-        return records
+
+        if not records:
+            return None
+
+        first = records[0]
+        result = {
+            'pherc': {
+                'displayName': first['ph_display'],
+                'aliases': first['ph_aliases'] or [],
+                'educelabids': [u for u in (first['ph_uuids'] or []) if u],
+            },
+            'cornici': [],
+            'pezzi': [],
+        }
+        for r in records:
+            if r['node_display'] is None:
+                continue  # PHerc exists but this row carried no child
+            entry = {
+                'displayName': r['node_display'],
+                'aliases': r['node_aliases'] or [],
+                'educelabids': [u for u in r['educelabids'] if u],
+            }
+            if 'Cornice' in r['node_labels']:
+                result['cornici'].append(entry)
+            elif 'Pezzo' in r['node_labels']:
+                result['pezzi'].append(entry)
+        return result
 
     def fuzzy_find_node(
         self,
@@ -639,60 +689,6 @@ class GraphDBConnection:
         ))
         return scored[:limit]
 
-    def find_datasets(self, ds_type: DatasetType, pherc, cornice=None, pezzo=None, newest_completed=False, properties_only=True) -> list[dict] | tuple:
-        """Find datasets of a specific type for a PHerc, Cornice, or Pezzo."""
-
-        if cornice:
-            base_query = """
-                MATCH (ph:PHerc {displayName: $ph})-[:HAS]->(cr:Cornice {displayName: $cor})
-                MATCH (cr)<-[:ASSIGNED_TO]-(e:EduceLabID)
-                MATCH (e)<-[:BELONGS_TO]-(n)
-                WHERE $data_t IN LABELS(n)
-            """
-            params = {"data_t": str(ds_type), "ph": pherc, "cor": cornice}
-        elif pezzo:
-            base_query = """
-                MATCH (ph:PHerc {displayName: $ph})-[:HAS*1..2]->(pz:Pezzo {displayName: $pz})
-                MATCH (pz)<-[:ASSIGNED_TO]-(e:EduceLabID)
-                MATCH (e)<-[:BELONGS_TO]-(n)
-                WHERE $data_t IN LABELS(n)
-            """
-            params = {"data_t": str(ds_type), "ph": pherc, "pz": pezzo}
-        else:
-            base_query = """
-                MATCH (ph:PHerc {displayName: $ph})<-[:ASSIGNED_TO]-(e:EduceLabID)
-                MATCH (e)<-[:BELONGS_TO]-(n)
-                WHERE $data_t IN LABELS(n)
-            """
-            params = {"data_t": str(ds_type), "ph": pherc}
-        if newest_completed:
-            query = base_query + """
-                AND n.complete = "True"
-                WITH e, n ORDER BY datetime(n.date_end) DESC
-                RETURN n, e.uuid AS educelabid_uuid LIMIT 1
-            """
-        else:
-            query = base_query + """
-                RETURN n, e.uuid AS educelabid_uuid
-            """
-
-        records, summary, keys = self._run_query(query, **params)
-
-        if not records:
-            return [] if properties_only else ([], summary, keys)
-
-        if properties_only:
-            properties = []
-            for record in records:
-                dataset = dict(record["n"])
-                dataset["educelabid_uuid"] = record["educelabid_uuid"]
-                properties.append(dataset)
-
-            return properties
-
-        else:
-            return records, summary, keys
-   
     def find_pipelines(self) -> list[dict]:
         """Find all pipelines and return their pipeline_id and associated artifact_uuid."""
         records, _, _ = self._run_query("""
@@ -884,54 +880,6 @@ class GraphDBConnection:
 
         return summaries
 
-    def find_educelabids_for_pherc(self, pherc_display_name: str) -> list[dict]:
-        """Find all EduceLabIDs under a PHerc umbrella (PHerc, Cornici, Pezzi)."""
-        records, _, _ = self._run_query("""
-            MATCH (ph:PHerc {displayName: $pherc_display_name})
-            MATCH (ph)-[:HAS*0..2]->(artifact)
-            WHERE artifact:PHerc OR artifact:Cornice OR artifact:Pezzo
-            MATCH (eid:EduceLabID)-[:ASSIGNED_TO]->(artifact)
-            OPTIONAL MATCH (artifact)<-[:HAS]-(parent1)
-            OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
-            WITH eid, artifact, parent1, parent2,
-                 CASE
-                     WHEN 'PHerc' IN labels(artifact) THEN artifact
-                     WHEN 'PHerc' IN labels(parent1) THEN parent1
-                     WHEN 'PHerc' IN labels(parent2) THEN parent2
-                 END AS pherc_node,
-                 CASE
-                     WHEN 'Cornice' IN labels(artifact) THEN artifact
-                     WHEN 'Cornice' IN labels(parent1) THEN parent1
-                 END AS cornice_node,
-                 CASE
-                     WHEN 'Pezzo' IN labels(artifact) THEN artifact
-                 END AS pezzo_node
-            RETURN DISTINCT eid.uuid AS uuid,
-                   pherc_node.displayName AS pherc_name,
-                   cornice_node.displayName AS cornice_name,
-                   pezzo_node.displayName AS pezzo_name
-            ORDER BY pherc_name, cornice_name, pezzo_name
-            """, pherc_display_name=pherc_display_name)
-
-        if not records:
-            return []
-
-        results = []
-        for record in records:
-            info = {
-                'pherc': record['pherc_name'],
-                'cornice': record['cornice_name'],
-                'pezzo': record['pezzo_name'],
-            }
-            results.append({
-                'uuid': record['uuid'],
-                'pherc': record['pherc_name'],
-                'cornice': record['cornice_name'],
-                'pezzo': record['pezzo_name'],
-                'artifact_name': self._format_dataset_name(info),
-            })
-        return results
-
     def find_predecessor_uuid_map(self) -> dict:
         """Map every EduceLabID uuid to its full REPLACES chain (itself plus
         all predecessors reachable via [:REPLACES*0..]).
@@ -1055,27 +1003,38 @@ class GraphDBConnection:
 
         return [self._serialize_dataset(record) for record in records]
 
-    def find_datasets_for_educelabid_with_predecessors(self, uuid: str, ds_type: DatasetType = None) -> list[dict]:
+    def find_datasets_for_educelabid_with_predecessors(self, uuid: str, ds_type: DatasetType = None, newest_completed: bool = False) -> list[dict]:
         """Like find_datasets_for_educelabid, but also returns datasets
         BELONGING_TO any predecessor UUID reached by walking [:REPLACES*0..]
         from the given UUID.
 
-        Used by the scan-completeness report so that an artifact whose UUID
-        was replaced still surfaces its pre-replacement scans (which still
-        BELONG_TO the original EduceLabID and were never reattached during
-        the replacement).
+        Pools scans across a UUID-replacement chain: an artifact whose UUID was
+        replaced still surfaces its pre-replacement scans (which still BELONG_TO
+        the original EduceLabID and were never reattached). Each returned dataset
+        carries ``belongs_to_uuid`` — the EduceLabID it actually belongs to — so
+        scans sitting on a retired predecessor UUID are obvious. Backs both
+        ``GET /educelabid/{uuid}/datasets`` and the scan-completeness report.
         """
         dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
         type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
+        completed_filter = 'AND d.complete = "True"' if newest_completed else ""
+
+        grouping = """
+            ORDER BY datetime(d.date_end) DESC
+            WITH ds_type, collect({d: d, belongs_to_uuid: belongs_to_uuid})[0] AS top
+            RETURN top.d AS d, ds_type, top.belongs_to_uuid AS belongs_to_uuid
+        """ if newest_completed else "RETURN d, ds_type, belongs_to_uuid"
 
         query = f"""
             MATCH (e:EduceLabID {{uuid: $uuid}})-[:REPLACES*0..]->(predecessor:EduceLabID)
             MATCH (predecessor)<-[:BELONGS_TO]-(d)
             WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
+            {completed_filter}
             {type_filter}
             WITH DISTINCT d,
+                 predecessor.uuid AS belongs_to_uuid,
                  [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
-            RETURN d, ds_type
+            {grouping}
         """
 
         params = {"uuid": uuid, "dataset_labels": dataset_labels}
@@ -1087,7 +1046,12 @@ class GraphDBConnection:
         if not records:
             return []
 
-        return [self._serialize_dataset(record) for record in records]
+        results = []
+        for record in records:
+            ds = self._serialize_dataset(record)
+            ds['belongs_to_uuid'] = record['belongs_to_uuid']
+            results.append(ds)
+        return results
 
     def find_all_datasets_for_pherc(self, pherc_display_name: str, ds_type: DatasetType = None, newest_completed: bool = False) -> list[dict]:
         """
@@ -1104,7 +1068,10 @@ class GraphDBConnection:
 
         Returns:
             list: List of artifact dicts, each with keys: uuid, artifact_name,
-                pherc, cornice, pezzo, datasets.
+                pherc, cornice, pezzo, datasets. Datasets are pooled across each
+                artifact's UUID-replacement (REPLACES) chain and each carries
+                ``belongs_to_uuid`` (the EduceLabID it actually belongs to);
+                grouping is by the active/assigned UUID.
         """
         dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
         type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
@@ -1115,13 +1082,14 @@ class GraphDBConnection:
             MATCH (ph)-[:HAS*0..2]->(artifact)
             WHERE artifact:PHerc OR artifact:Cornice OR artifact:Pezzo
             MATCH (eid:EduceLabID)-[:ASSIGNED_TO]->(artifact)
-            MATCH (eid)<-[:BELONGS_TO]-(d)
+            MATCH (eid)-[:REPLACES*0..]->(pred:EduceLabID)
+            MATCH (pred)<-[:BELONGS_TO]-(d)
             WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
             {type_filter}
             {completed_filter}
             OPTIONAL MATCH (artifact)<-[:HAS]-(parent1)
             OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
-            WITH eid, d, artifact, parent1, parent2,
+            WITH eid, pred, d, artifact, parent1, parent2,
                  [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type,
                  CASE
                      WHEN 'PHerc' IN labels(artifact) THEN artifact
@@ -1135,12 +1103,13 @@ class GraphDBConnection:
                  CASE
                      WHEN 'Pezzo' IN labels(artifact) THEN artifact
                  END AS pezzo_node
-            RETURN eid.uuid AS uuid,
+            RETURN DISTINCT eid.uuid AS uuid,
                    pherc_node.displayName AS pherc_name,
                    cornice_node.displayName AS cornice_name,
                    pezzo_node.displayName AS pezzo_name,
                    d AS dataset,
-                   ds_type AS dataset_type
+                   ds_type AS dataset_type,
+                   pred.uuid AS belongs_to_uuid
             ORDER BY pherc_name, cornice_name, pezzo_name
         """
 
@@ -1176,6 +1145,7 @@ class GraphDBConnection:
                 }
 
             ds = self._serialize_dataset({'d': record['dataset'], 'ds_type': record['dataset_type']})
+            ds['belongs_to_uuid'] = record['belongs_to_uuid']
             grouped[uuid]['datasets'].append(ds)
 
         results = list(grouped.values())
@@ -1415,33 +1385,6 @@ class GraphDBConnection:
             'status': overall_status,
             'stages': processes,
         }
-
-    @staticmethod
-    def records_to_label_json(records) -> dict:
-        """Convert Neo4j records (org_node + attached_nodes) to a label-keyed dict."""
-        if records:
-            org_node = records[0]['org_node']
-            result = dict(org_node)
-
-        for record in records:
-            node = record['attached_nodes']
-            label = next(iter(node.labels))
-            props = dict(node.items())
-            if label in result:
-                if isinstance(result[label], list):
-                    result[label].append(props)
-                else:
-                    result[label] = [result[label], props]
-            else:
-                result[label] = props
-        for label, value in list(result.items()):
-            if label == "org_node":
-                continue
-            if isinstance(value, dict):
-                continue
-            elif isinstance(value, list) and len(value) == 1:
-                result[label] = value[0]
-        return result   
 
 
 def connect(uri=None, user=None, password=None) -> GraphDBConnection:
