@@ -404,9 +404,13 @@ class GraphDBConnection:
         """Full Cornici + Pezzi listing for a PHerc. Backs ``GET /subdivisions``.
 
         Each node (the PHerc itself, every Cornice, every Pezzo) is reported as
-        ``{displayName, aliases, educelabids}`` — the resolution surface plus the
-        UUID bridge, with no other physical characteristics (those live on the
-        ``/artifacts`` detail view). Returns ``None`` if the PHerc doesn't exist.
+        ``{displayName, aliases, educelabids, parent}`` — the resolution surface,
+        the UUID bridge, and the node's immediate parent (so a nested Pezzo can be
+        shown under its Cornice). ``parent`` is ``{type, displayName}`` (e.g. a
+        Pezzo nested under a Cornice carries ``{'type': 'Cornice', ...}``, a Pezzo
+        directly under the PHerc carries ``{'type': 'PHerc', ...}``) or ``None`` for
+        the PHerc itself. No other physical characteristics are included (those live
+        on the ``/artifacts`` detail view). Returns ``None`` if the PHerc doesn't exist.
         """
         records, _, _ = self._run_query("""
             MATCH (ph:PHerc {displayName:$pherc_display_name})
@@ -414,6 +418,7 @@ class GraphDBConnection:
             WITH ph, collect(DISTINCT pe.uuid) AS ph_uuids
             OPTIONAL MATCH (ph)-[:HAS*1..2]->(node)
             WHERE node:Cornice OR node:Pezzo
+            OPTIONAL MATCH (parent)-[:HAS]->(node)
             OPTIONAL MATCH (node)<-[:ASSIGNED_TO]-(eid:EduceLabID)
             RETURN ph.displayName AS ph_display,
                    ph.aliases AS ph_aliases,
@@ -421,6 +426,8 @@ class GraphDBConnection:
                    node.displayName AS node_display,
                    node.aliases AS node_aliases,
                    labels(node) AS node_labels,
+                   parent.displayName AS parent_display,
+                   labels(parent) AS parent_labels,
                    collect(DISTINCT eid.uuid) AS educelabids
             ORDER BY node_display
             """, pherc_display_name=pherc_display_name)
@@ -434,6 +441,7 @@ class GraphDBConnection:
                 'displayName': first['ph_display'],
                 'aliases': first['ph_aliases'] or [],
                 'educelabids': [u for u in (first['ph_uuids'] or []) if u],
+                'parent': None,
             },
             'cornici': [],
             'pezzi': [],
@@ -441,10 +449,17 @@ class GraphDBConnection:
         for r in records:
             if r['node_display'] is None:
                 continue  # PHerc exists but this row carried no child
+            parent = None
+            if r['parent_display'] is not None:
+                parent = {
+                    'type': self._primary_label(r['parent_labels']),
+                    'displayName': r['parent_display'],
+                }
             entry = {
                 'displayName': r['node_display'],
                 'aliases': r['node_aliases'] or [],
                 'educelabids': [u for u in r['educelabids'] if u],
+                'parent': parent,
             }
             if 'Cornice' in r['node_labels']:
                 result['cornici'].append(entry)

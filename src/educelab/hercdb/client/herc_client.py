@@ -73,7 +73,9 @@ class HercClient:
         """List all Cornici and Pezzi for a PHerc.
 
         Returns ``{pherc, cornici, pezzi}`` where each node is
-        ``{displayName, aliases, educelabids}``.
+        ``{displayName, aliases, educelabids, parent}``. ``parent`` is
+        ``{type, displayName}`` (a nested Pezzo's parent Cornice, or the PHerc
+        for a directly-attached node) or ``None`` for the PHerc itself.
         """
         return self._get(f"/pherc/{pherc_id}/subdivisions").json()
 
