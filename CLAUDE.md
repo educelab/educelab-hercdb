@@ -201,7 +201,7 @@ The `GraphDBConnection` class provides two patterns for queries:
 
 3. **Artifact detail & traversal**:
    - `get_artifact_info(pherc, cornice=None, pezzo=None)` - full detail for one artifact by exact displayName: own props, attached metadata grouped by label, assigned `educelabids`, and child counts (`cornici_count`/`pezzi_count`). No datasets. Backs `GET /artifacts?pherc=...`. Returns `None` if not found.
-   - `list_cornici_and_pezzi_for_pherc(pherc_display_name)` - full hierarchy of Cornici and Pezzi; returns `{pherc, cornici, pezzi}` where each node is `{displayName, aliases, educelabids}`. Backs `GET /subdivisions`. Returns `None` if the PHerc doesn't exist.
+   - `list_cornici_and_pezzi_for_pherc(pherc_display_name)` - full hierarchy of Cornici and Pezzi; returns `{pherc, cornici, pezzi}` where each node is `{displayName, aliases, educelabids, parent}`. `parent` is `{type, displayName}` — a nested Pezzo's parent Cornice, or the PHerc for a directly-attached node (and `None` for the PHerc itself) — so consumers can render a Pezzo under its Cornice. Backs `GET /subdivisions`. Returns `None` if the PHerc doesn't exist.
    - (Removed: `get_directly_attached_nodes` / `records_to_label_json`, which backed the old per-node endpoints. The deprecated `list_cornici_pezzi` is still present pending search-CLI cleanup.)
 
 4. **UUID lookups**:
@@ -235,7 +235,7 @@ A **PHerc / Cornice / Pezzo is an "artifact"**, addressed on one `/artifacts` re
 - `GET /check-token` - Verify token validity
 - `GET /artifacts?pherc=&cornice=&pezzo=` - Full detail for one artifact by exact name (own props, metadata, assigned `educelabids`, child counts; no datasets). `pherc` required; missing → 422, not found → 404. Backed by `get_artifact_info`.
 - `GET /artifacts/{uuid}` - Resolve a UUID to its artifact: `{uuid, type, displayName, pherc, cornice, pezzo, parent, location}`. Backed by `find_artifact_location_by_uuid`.
-- `GET /pherc/{pherc_id}/subdivisions` - List all Cornici and Pezzi (full hierarchy); each node is `{displayName, aliases, educelabids}`.
+- `GET /pherc/{pherc_id}/subdivisions` - List all Cornici and Pezzi (full hierarchy); each node is `{displayName, aliases, educelabids, parent}` (`parent` = `{type, displayName}`, or `None` for the PHerc — a nested Pezzo carries its parent Cornice).
 - `GET /pherc/{pherc_id}/all-datasets` - All datasets grouped by active/assigned EduceLabID, pooled across REPLACES chains; each dataset carries `belongs_to_uuid`. Optional `dataset_type` / `newest_completed`.
 - `GET /educelabid/{uuid}/datasets` - Datasets for a UUID, pooled across its REPLACES chain; each carries `belongs_to_uuid`. Optional `dataset_type` / `newest_completed`.
 - `GET /resolve` - Fuzzy-resolve a noisy PHerc/Cornice/Pezzo displayName to ranked candidates. Query params: `name` (required), `label` (`PHerc` | `Cornice` | `Pezzo`, default `PHerc`), `parent_pherc`, `parent_cornice`, `threshold` (default 75), `limit` (default 10). Returns a JSON list with `displayName`, `name`, `score`, `nodeID` (Neo4j element ID), `parent_pherc`, `parent_cornice`. Empty result returns `200 []` (discovery endpoint, not "fetch this thing"); invalid `label` returns 400.

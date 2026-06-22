@@ -117,9 +117,10 @@ async def get_subdivisions(pherc_id: str, user: str = Depends(get_current_user))
     """List all Cornici and Pezzi for a PHerc.
 
     Each node (the PHerc itself, every Cornice, every Pezzo) is returned as
-    ``{displayName, aliases, educelabids}`` — the alternate name forms plus the
-    UUID bridge, with no other physical characteristics (those live on the
-    ``/artifacts`` detail view).
+    ``{displayName, aliases, educelabids, parent}`` — the alternate name forms,
+    the UUID bridge, and the node's immediate parent (``{type, displayName}``, or
+    ``None`` for the PHerc) so a nested Pezzo can be shown under its Cornice. No
+    other physical characteristics are included (those live on ``/artifacts``).
     """
     logger.info(f"User {user} called /pherc/{pherc_id}/subdivisions")
     result = db.list_cornici_and_pezzi_for_pherc(pherc_id)

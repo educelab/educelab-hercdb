@@ -91,13 +91,23 @@ class TestPhercDbQueries(unittest.TestCase):
         self.assertIn('pherc', result)
         self.assertIn('cornici', result)
         self.assertIn('pezzi', result)
-        # Every listed node carries the enriched shape
+        # Every listed node carries the enriched shape, including its parent
         for node in result['cornici'] + result['pezzi']:
             self.assertIn('displayName', node)
             self.assertIn('aliases', node)
             self.assertIn('educelabids', node)
+            self.assertIn('parent', node)
+        # Cornici hang off the PHerc itself
+        for cornice in result['cornici']:
+            self.assertIsNotNone(cornice['parent'])
+            self.assertEqual(cornice['parent']['type'], 'PHerc')
+        # Every pezzo's parent is either a Cornice (nested) or the PHerc (direct)
+        for pezzo in result['pezzi']:
+            self.assertIsNotNone(pezzo['parent'])
+            self.assertIn(pezzo['parent']['type'], ('Cornice', 'PHerc'))
         print(f"[list_cornici_and_pezzi_for_pherc '238'] "
-              f"{len(result['cornici'])} cornici, {len(result['pezzi'])} pezzi")
+              f"{len(result['cornici'])} cornici, {len(result['pezzi'])} pezzi; "
+              f"pezzo parents: {[(p['displayName'], p['parent']['type'], p['parent']['displayName']) for p in result['pezzi']]}")
 
     def test_list_cornici_and_pezzi_for_pherc_not_found(self):
         self.assertIsNone(self.query_runner.list_cornici_and_pezzi_for_pherc("nonexistent_pherc"))
