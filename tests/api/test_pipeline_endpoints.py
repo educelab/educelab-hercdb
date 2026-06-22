@@ -1,13 +1,27 @@
 """Integration tests for pipeline CRUD REST endpoints.
 
-Requires a running REST API server. Configure token and host_ip below.
-Run: uv run tests/api/test_pipeline_endpoints.py
+Requires a running REST API server AND a live Neo4j connection: the script seeds
+the temporary PGSRaw/SpectralRaw input nodes the process endpoints need, then
+removes them (and the test pipeline) on exit.
+
+Pass the token and host_ip on the command line.
+Run: uv run tests/api/test_pipeline_endpoints.py <token> [host_ip]
 """
+import argparse
+import atexit
+
 import requests
 from datetime import datetime
 
-token = "<token>"
-host_ip = "localhost"
+from educelab import hercdb
+
+parser = argparse.ArgumentParser(description="Integration tests for pipeline CRUD REST endpoints.")
+parser.add_argument("token", help="Bearer token for the REST API")
+parser.add_argument("host_ip", nargs="?", default="localhost", help="Host IP of the REST API server (default: localhost)")
+args = parser.parse_args()
+
+token = args.token
+host_ip = args.host_ip
 
 BASE = f"http://{host_ip}:8000"
 HEADERS = {"Authorization": f"Bearer {token}"}
@@ -18,8 +32,7 @@ TEST_PIPELINE_ID = f"TEST-API-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 TEST_DATETIME = datetime.now().isoformat()
 
 # These paths must match PGSRaw/SpectralRaw nodes linked to the test UUID.
-# The DB integration test creates temporary ones; for this test, use paths
-# that exist in your DB or run the DB integration test first.
+# This script seeds them in the DB below and tears them down on exit.
 PGS_RAW_INPUT = "/test/pgs_raw/input"
 SPEC_RAW_INPUT = "/test/spectral_raw/input"
 PGS_PROCESSED_OUTPUT = f"/test/pgs_processed/{TEST_PIPELINE_ID}"
@@ -41,6 +54,49 @@ def put(path, json):
 def get(path):
     resp = requests.get(f"{BASE}{path}", headers=HEADERS)
     return resp
+
+
+# --- DB seed: create the temporary raw input datasets the process endpoints
+# need, and register cleanup so they (and the test pipeline) are removed on exit
+# even if an assertion fails. ---
+
+hercdb.config._load_config()
+db = hercdb.connect()
+db.verify_connection()
+
+artifact = db.find_artifact_name_by_uuid(TEST_ARTIFACT_UUID)
+assert artifact is not None, (
+    f"Test artifact UUID {TEST_ARTIFACT_UUID} not found in DB. "
+    "Update TEST_ARTIFACT_UUID to a valid EduceLabID."
+)
+print(f"Using artifact: {artifact} (UUID: {TEST_ARTIFACT_UUID})")
+print(f"Test pipeline ID: {TEST_PIPELINE_ID}\n")
+
+db._run_query("""
+    MATCH (e:EduceLabID {uuid: $uuid})
+    MERGE (pgs:PGSRaw {path: $pgs_path})
+    MERGE (spec:SpectralRaw {path: $spec_path})
+    MERGE (pgs)-[:BELONGS_TO]->(e)
+    MERGE (spec)-[:BELONGS_TO]->(e)
+    """, uuid=TEST_ARTIFACT_UUID, pgs_path=PGS_RAW_INPUT, spec_path=SPEC_RAW_INPUT)
+
+
+def _cleanup():
+    """Remove all test nodes created during the run. Runs on exit (incl. failure)."""
+    db._run_query("""
+        MATCH (p:Pipeline {pipeline_id: $pipeline_id})
+        OPTIONAL MATCH (p)<-[:STAGE_OF]-(proc:Process)
+        OPTIONAL MATCH (proc)-[:OUTPUT]->(out)
+        DETACH DELETE proc, out, p
+        """, pipeline_id=TEST_PIPELINE_ID)
+    for path in [PGS_RAW_INPUT, SPEC_RAW_INPUT, PGS_PROCESSED_OUTPUT,
+                 SPEC_PROCESSED_OUTPUT, REGISTERED_OUTPUT, WEB_OUTPUT]:
+        db._run_query("MATCH (n {path: $path}) DETACH DELETE n", path=path)
+    print(f"\nCleaned up test pipeline: {TEST_PIPELINE_ID}")
+    db.close()
+
+
+atexit.register(_cleanup)
 
 
 # --- POST /pipelines ---
@@ -75,7 +131,7 @@ print("  ✓ Correctly returned 404")
 
 print(f"\nPOST /pipelines/{TEST_PIPELINE_ID}/processes (PGS):")
 resp = post(f"/pipelines/{TEST_PIPELINE_ID}/processes", {
-    "stage": "PGS",
+    "proc_type": "PGS",
     "input_dataset_paths": [PGS_RAW_INPUT],
     "output_dataset_path": PGS_PROCESSED_OUTPUT,
     "slurm_id": "99001",
@@ -93,7 +149,7 @@ print("  ✓ PGS process created")
 
 print(f"\nPOST /pipelines/{TEST_PIPELINE_ID}/processes (SPEC):")
 resp = post(f"/pipelines/{TEST_PIPELINE_ID}/processes", {
-    "stage": "SPEC",
+    "proc_type": "SPEC",
     "input_dataset_paths": [SPEC_RAW_INPUT],
     "output_dataset_path": SPEC_PROCESSED_OUTPUT,
     "slurm_id": "99002",
@@ -108,7 +164,7 @@ print("  ✓ SPEC process created")
 # Invalid stage
 print(f"\nPOST /pipelines/{TEST_PIPELINE_ID}/processes (invalid stage):")
 resp = post(f"/pipelines/{TEST_PIPELINE_ID}/processes", {
-    "stage": "INVALID",
+    "proc_type": "INVALID",
     "input_dataset_paths": ["/fake"],
     "output_dataset_path": "/fake/out",
     "slurm_id": "0",
@@ -177,4 +233,3 @@ assert resp.status_code == 404
 print("  ✓ Correctly returned 404")
 
 print(f"\nAll pipeline endpoint tests passed! (pipeline: {TEST_PIPELINE_ID})")
-print("NOTE: Test nodes remain in the DB. Run the DB integration test for full cleanup.")

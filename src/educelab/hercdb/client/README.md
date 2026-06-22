@@ -21,8 +21,8 @@ client = HercClient(host="api.example.com", token="my-token")
 # Verify your token
 client.check_token()
 
-# Get a PHerc and all its attached nodes
-pherc = client.get_pherc("211")
+# Get full detail for an artifact by name (PHerc / Cornice / Pezzo)
+pherc = client.get_artifact_by_name("211")
 ```
 
 ## Constructor
@@ -47,19 +47,18 @@ HercClient(host, token, port=8000, scheme="http")
 | `check_token()` | Verify that the current token is valid. Returns user info. |
 | `home()` | Call the welcome endpoint. |
 
-### PHerc Queries
+### Artifact & Dataset Queries
+
+Names are matched **exactly** (by `displayName`). For noisy input, resolve first
+with `resolve()`, then look up by the canonical name or — better — by UUID.
 
 | Method | Description |
 |--------|-------------|
-| `get_pherc(pherc_id)` | Get a PHerc and all its directly attached nodes. |
-| `get_cornice(pherc_id, cornice_id)` | Get a Cornice and its attached nodes. |
-| `get_pezzo(pherc_id, pezzo_id, cornice_id=None)` | Get a Pezzo. If `cornice_id` is given, looks up the Pezzo under that Cornice. |
-| `get_subdivisions(pherc_id)` | List all Cornici and Pezzi for a PHerc. |
-| `get_datasets(pherc_id, dataset_type, ...)` | Get imaging datasets. `dataset_type` is one of `"FlatbedScan"`, `"PGSRaw"`, `"SpectralRaw"`. |
-| `get_all_datasets_for_pherc(pherc_id, ...)` | Get all datasets under a PHerc, grouped by EduceLabID. |
-| `get_educelabids_for_pherc(pherc_id)` | List all EduceLabIDs under a PHerc umbrella. |
-| `get_artifact(uuid)` | Get the display name for an artifact by its UUID. |
-| `get_datasets_for_educelabid(uuid, ...)` | Get all datasets for a specific EduceLabID. |
+| `get_artifact_by_name(pherc, cornice=None, pezzo=None)` | Full detail for one artifact (PHerc / Cornice / Pezzo) by exact name: own properties, attached metadata, assigned `educelabids`, child counts. No datasets. |
+| `get_artifact(uuid)` | Resolve a UUID to its artifact (the UUID → artifact bridge): `type`, `displayName`, `pherc`/`cornice`/`pezzo`, `parent`, composed `location`. |
+| `get_subdivisions(pherc_id)` | List all Cornici and Pezzi for a PHerc; each node carries `displayName`, `aliases`, `educelabids`. |
+| `get_all_datasets_for_pherc(pherc_id, ...)` | All datasets under a PHerc, grouped by EduceLabID. Pooled across REPLACES chains; each dataset carries `belongs_to_uuid`. Optional `dataset_type` / `newest_completed`. |
+| `get_datasets_for_educelabid(uuid, ...)` | All datasets for a UUID, pooled across its REPLACES chain; each carries `belongs_to_uuid`. Optional `dataset_type` / `newest_completed`. |
 | `resolve(name, label="PHerc", parent_pherc=None, parent_cornice=None, threshold=75, limit=10)` | Fuzzy-resolve a noisy displayName to ranked PHerc / Cornice / Pezzo candidates. |
 
 ### Pipelines
@@ -84,25 +83,28 @@ for cornice in subs["cornici"]:
     print(cornice["displayName"])
 ```
 
-### Get datasets
+### Get full detail for an artifact by name
 
 ```python
-datasets = client.get_datasets("1044", "SpectralRaw", cornice="4")
-for ds in datasets:
-    print(ds["path"], ds["complete"])
+art = client.get_artifact_by_name("1044")            # a PHerc
+print(art["displayName"], art["cornici_count"], art["pezzi_count"])
+print(art["educelabids"])                            # UUID(s) assigned to it
 
-# Get only the newest completed dataset
-newest = client.get_datasets("1044", "PGSRaw", newest_completed=True)
+cor = client.get_artifact_by_name("1044", cornice="6")   # a Cornice
+print(cor["type"], cor.get("pezzi_count"))
 ```
 
 ### Get all datasets under a PHerc
+
+Datasets are pooled across each artifact's UUID-replacement (REPLACES) chain;
+each carries `belongs_to_uuid` (the UUID it actually belongs to).
 
 ```python
 result = client.get_all_datasets_for_pherc("1044")
 for artifact in result["artifacts"]:
     print(f"{artifact['artifact_name']} ({artifact['uuid']})")
     for ds in artifact["datasets"]:
-        print(f"  [{ds['type']}] {ds.get('path', '')}")
+        print(f"  [{ds['type']}] {ds.get('path', '')} (belongs_to {ds['belongs_to_uuid']})")
 
 # Filter to only PGSRaw datasets
 result = client.get_all_datasets_for_pherc("1044", dataset_type="PGSRaw")
@@ -111,15 +113,19 @@ result = client.get_all_datasets_for_pherc("1044", dataset_type="PGSRaw")
 result = client.get_all_datasets_for_pherc("1044", newest_completed=True)
 ```
 
-### Two-step approach (EduceLabIDs then datasets)
+### UUID-first approach (datasets for one EduceLabID)
 
 ```python
-eids = client.get_educelabids_for_pherc("1044")
-for eid in eids:
-    print(f"{eid['artifact_name']} ({eid['uuid']})")
-    datasets = client.get_datasets_for_educelabid(eid["uuid"])
-    for ds in datasets:
-        print(f"  [{ds['type']}] {ds.get('path', '')}")
+# Already hold a UUID (e.g. from a pipeline or filename)? Go straight to it.
+datasets = client.get_datasets_for_educelabid("abc-123")
+for ds in datasets:
+    print(f"  [{ds['type']}] {ds.get('path', '')} (belongs_to {ds['belongs_to_uuid']})")
+
+# Or discover UUIDs under a PHerc from its subdivisions, then drill in.
+subs = client.get_subdivisions("1044")
+for node in subs["cornici"] + subs["pezzi"]:
+    for uuid in node["educelabids"]:
+        print(node["displayName"], uuid, client.get_datasets_for_educelabid(uuid))
 ```
 
 ### Fuzzy name lookup (resolve)
@@ -204,10 +210,10 @@ All methods raise `requests.HTTPError` on non-2xx responses. You can catch these
 import requests
 
 try:
-    pherc = client.get_pherc("nonexistent")
+    pherc = client.get_artifact_by_name("nonexistent")
 except requests.HTTPError as e:
     if e.response.status_code == 404:
-        print("PHerc not found")
+        print("Artifact not found")
     else:
         raise
 ```

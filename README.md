@@ -60,7 +60,7 @@ source .venv/bin/activate
 from educelab.hercdb.client import HercClient
 
 client = HercClient(host="api.example.com", token="my-token")
-pherc = client.get_pherc("211")
+pherc = client.get_artifact_by_name("211")
 ```
 
 See [src/educelab/hercdb/client/README.md](src/educelab/hercdb/client/README.md) for the full API reference.

@@ -81,137 +81,55 @@ async def check_token(user: str = Depends(get_current_user)):
         }
     )
 
-@app.get('/pherc/{pherc_id}')
-async def get_pherc_by_id(pherc_id: str, user: str = Depends(get_current_user)):
-    """Get a PHerc and all its directly attached nodes by display name."""
-    logger.info(f"User {user} requested PHerc with ID: {pherc_id}")
-    records,_,_ = db.get_directly_attached_nodes(node_type="PHerc", pherc_display_name=pherc_id)
-    logger.debug(f"Found records: {records}")
-    if records and len(records) > 0:
-        record_json = db.records_to_label_json(records)
-        return JSONResponse(record_json, status_code=200)
-    else:
-        return HTTPException(status_code=404, detail=f"No PHerc found with displayName '{pherc_id}'")
-
-@app.get("/pherc/{pherc_id}/cornice/{cornice_id}")
-async def get_cornice_by_id(pherc_id: str, cornice_id: str, user: str = Depends(get_current_user)):
-    """Get a Cornice and all its directly attached nodes (excluding the parent PHerc)."""
-    logger.info(f"User {user} called /pherc/{pherc_id}/cornice/{cornice_id}")
-    records, _, _ = db.get_directly_attached_nodes(node_type="Cornice", pherc_display_name=pherc_id, cornice_display_name=cornice_id)
-    if records and len(records) > 0:
-        record_json = db.records_to_label_json(records)
-        if isinstance(record_json, dict) and "PHerc" in record_json:
-            record_json.pop("PHerc")
-        return JSONResponse(content=record_json)
-    else:
-        raise HTTPException(status_code=404, detail=f"No Cornice found with displayName '{cornice_id}' in PHerc '{pherc_id}'")
-
-
-@app.get("/pherc/{pherc_id}/cornice/{cornice_id}/pezzo/{pezzo_id}")
-async def get_pezzo_by_pherc_cornice(pherc_id: str, cornice_id: str, pezzo_id: str, user: str = Depends(get_current_user)):
-    """Get a Pezzo under a specific Cornice and all its directly attached nodes."""
-    logger.info(f"User {user} called /pherc/{pherc_id}/cornice/{cornice_id}/pezzo/{pezzo_id}")
-    records, _, _ = db.get_directly_attached_nodes(
-        node_type="Pezzo",
-        pherc_display_name=pherc_id,
-        cornice_display_name=cornice_id,
-        pezzo_display_name=pezzo_id
-    )
-    if records and len(records) > 0:
-        record_json = db.records_to_label_json(records)
-        if isinstance(record_json, dict):
-            record_json.pop("PHerc", None)
-            record_json.pop("Cornice", None)
-        return JSONResponse(content=record_json)
-    else:
-        raise HTTPException(status_code=404, detail=f"No Pezzo found with displayName '{pezzo_id}' in Cornice '{cornice_id}' of PHerc '{pherc_id}'")
-
-
-@app.get("/pherc/{pherc_id}/pezzo/{pezzo_id}")
-async def get_pezzo_by_pherc(pherc_id, pezzo_id, user: str = Depends(get_current_user)):
-    """Get a Pezzo directly under a PHerc and all its directly attached nodes."""
-    logger.info(f"User {user} called /pherc/{pherc_id}/pezzo/{pezzo_id}")
-    records,_,_ = db.get_directly_attached_nodes(node_type="Pezzo", pherc_display_name=pherc_id, pezzo_display_name=pezzo_id)
-    if records and len(records) > 0:
-        record_json = db.records_to_label_json(records)
-        # Remove the "PHerc" key if present
-        if isinstance(record_json, dict) and "PHerc" in record_json:
-            record_json.pop("PHerc")
-        return JSONResponse(content=record_json), 200
-        
-    else:
-        raise HTTPException(status_code=404, detail=f"No Pezzo found with displayName '{pezzo_id}' in PHerc '{pherc_id}'")
-
-
-@app.get("/pherc/{pherc_id}/datasets/{dataset_type}")
-async def get_datasets(
-    pherc_id: str,
-    dataset_type: str,
-    cornice: Optional[str] = Query(None),
-    pezzo: Optional[str] = Query(None),
-    newest_completed: bool = Query(False),
+@app.get("/artifacts")
+async def get_artifact_by_name(
+    pherc: str = Query(..., description="PHerc displayName (exact)"),
+    cornice: Optional[str] = Query(None, description="Cornice displayName (exact)"),
+    pezzo: Optional[str] = Query(None, description="Pezzo displayName (exact)"),
     user: str = Depends(get_current_user),
 ):
-    """Get imaging datasets for a PHerc, optionally filtered by Cornice or Pezzo.
+    """Get full detail for one artifact (PHerc / Cornice / Pezzo) by exact name.
 
-    Valid dataset types: FlatbedScan, PGSRaw, SpectralRaw.
+    ``pherc`` is always required; add ``cornice`` and/or ``pezzo`` to address a
+    subdivision. Names must be exact displayNames — resolve noisy input via
+    ``/resolve`` first. Returns the artifact's own properties, attached metadata,
+    the ``educelabids`` assigned to it, and child counts. Datasets are not
+    included (use ``/all-datasets`` or ``/educelabid/{uuid}/datasets``).
     """
-    logger.info(f"User {user} called /pherc/{pherc_id}/datasets/{dataset_type}")
-
-    # Validate dataset_type against the DatasetType enum
-    try:
-        ds_type = DatasetType[dataset_type]
-    except KeyError:
-        valid_types = [t.name for t in DatasetType]
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid dataset type '{dataset_type}'. Must be one of: {valid_types}",
-        )
-
-    datasets = db.find_datasets(
-        ds_type, pherc_id, cornice=cornice, pezzo=pezzo,
-        newest_completed=newest_completed, properties_only=True,
+    logger.info(
+        f"User {user} called /artifacts pherc={pherc!r} "
+        f"cornice={cornice!r} pezzo={pezzo!r}"
     )
-
-    if not datasets:
+    info = db.get_artifact_info(pherc, cornice=cornice, pezzo=pezzo)
+    if info is None:
         raise HTTPException(
             status_code=404,
-            detail=f"No {dataset_type} datasets found for PHerc '{pherc_id}'",
+            detail=(
+                f"No artifact found for pherc={pherc!r} "
+                f"cornice={cornice!r} pezzo={pezzo!r}"
+            ),
         )
-
-    # Convert any non-serializable values (e.g. Neo4j DateTime) to strings
-    for dataset in datasets:
-        for key, value in dataset.items():
-            if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
-                dataset[key] = str(value)
-
-    return JSONResponse(content=datasets, status_code=200)
+    return JSONResponse(content=info, status_code=200)
 
 
 @app.get("/pherc/{pherc_id}/subdivisions")
 async def get_subdivisions(pherc_id: str, user: str = Depends(get_current_user)):
-    """List all Cornici and Pezzi for a given PHerc."""
-    logger.info(f"User {user} called /pherc/{pherc_id}/subdivisions")
-    records = db.list_cornici_and_pezzi_for_pherc(pherc_id)
+    """List all Cornici and Pezzi for a PHerc.
 
-    if not records:
+    Each node (the PHerc itself, every Cornice, every Pezzo) is returned as
+    ``{displayName, aliases, educelabids}`` — the alternate name forms plus the
+    UUID bridge, with no other physical characteristics (those live on the
+    ``/artifacts`` detail view).
+    """
+    logger.info(f"User {user} called /pherc/{pherc_id}/subdivisions")
+    result = db.list_cornici_and_pezzi_for_pherc(pherc_id)
+
+    if result is None:
         raise HTTPException(
             status_code=404,
             detail=f"No PHerc found with displayName '{pherc_id}'",
         )
 
-    record = records[0].data()
-    result = {
-        "pherc": dict(record["ph"]) if record["ph"] else {},
-        "cornici": [
-            {"name": c.get("name"), "displayName": c.get("displayName")}
-            for c in record.get("cr", [])
-        ],
-        "pezzi": [
-            {"name": p.get("name"), "displayName": p.get("displayName")}
-            for p in record.get("pz", [])
-        ],
-    }
     return JSONResponse(content=result, status_code=200)
 
 
@@ -314,34 +232,22 @@ async def get_all_datasets_for_pherc(
     )
 
 
-@app.get("/pherc/{pherc_id}/educelabids")
-async def get_educelabids_for_pherc(
-    pherc_id: str,
-    user: str = Depends(get_current_user),
-):
-    """List all EduceLabIDs under a PHerc umbrella."""
-    logger.info(f"User {user} called /pherc/{pherc_id}/educelabids")
-
-    educelabids = db.find_educelabids_for_pherc(pherc_id)
-
-    if not educelabids:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No EduceLabIDs found under PHerc '{pherc_id}'",
-        )
-
-    return JSONResponse(content=educelabids, status_code=200)
-
-
 @app.get("/artifacts/{uuid}")
 async def get_artifact(uuid: str, user: str = Depends(get_current_user)):
-    """Get the display name for an artifact by its UUID."""
+    """Resolve a UUID to its physical artifact (the UUID -> artifact bridge).
+
+    Returns the node's ``type`` and ``displayName``, its place in the hierarchy
+    (``pherc``/``cornice``/``pezzo``), its immediate ``parent`` (PHerc/Casetta in
+    most cases), and a composed ``location`` string. Lightweight — for full
+    detail look the artifact up by name via ``GET /artifacts?pherc=...``.
+    """
     logger.info(f"User {user} called /artifacts/{uuid}")
-    artifact_info = db.find_artifact_name_by_uuid(uuid)
-    if not artifact_info:
+    location = db.find_artifact_location_by_uuid(uuid)
+    if not location:
         raise HTTPException(status_code=404, detail=f"No artifact found for UUID '{uuid}'")
-    display_name = db._format_dataset_name(artifact_info)
-    return {"display_name": display_name}
+    location["uuid"] = uuid
+    location["location"] = db._format_dataset_name(location)
+    return JSONResponse(content=location, status_code=200)
 
 
 @app.get("/educelabid/{uuid}/datasets")
@@ -351,7 +257,12 @@ async def get_datasets_for_educelabid(
     newest_completed: bool = Query(False),
     user: str = Depends(get_current_user),
 ):
-    """Get all datasets for a specific EduceLabID."""
+    """Get all datasets for a specific EduceLabID.
+
+    Datasets are pooled across the UUID's replacement (REPLACES) chain, and each
+    carries ``belongs_to_uuid`` (the EduceLabID it actually belongs to) so scans
+    sitting on a retired predecessor UUID are visible.
+    """
     logger.info(f"User {user} called /educelabid/{uuid}/datasets")
 
     ds_type = None
@@ -365,7 +276,7 @@ async def get_datasets_for_educelabid(
                 detail=f"Invalid dataset type '{dataset_type}'. Must be one of: {valid_types}",
             )
 
-    datasets = db.find_datasets_for_educelabid(
+    datasets = db.find_datasets_for_educelabid_with_predecessors(
         uuid, ds_type=ds_type, newest_completed=newest_completed
     )
 

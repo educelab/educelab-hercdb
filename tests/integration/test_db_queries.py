@@ -1,5 +1,32 @@
 import unittest
+from datetime import datetime
+
 from educelab import hercdb
+
+# Self-seeded pipelines for the get_pipeline_status tests. Created in setUpClass
+# and removed in tearDownClass so the tests don't depend on hand-curated reference
+# data living in whatever DB we point at. IDs are timestamped to avoid collisions.
+_TS = datetime.now().strftime('%Y%m%d%H%M%S')
+STATUS_PIPELINE_ID = f"TEST-STATUS-{_TS}"
+THREE_STAGE_PIPELINE_ID = f"TEST-3STAGE-{_TS}"
+
+# A mixed-status pipeline (one completed stage, one still submitted).
+_STATUS_PROCS = [
+    {'stage': 'PGS', 'status': 'completed', 'slurm_id': '900001',
+     'start_time': '2026-01-01T10:00:00', 'end_time': '2026-01-01T10:30:00'},
+    {'stage': 'SPEC', 'status': 'submitted', 'slurm_id': '900002',
+     'start_time': '2026-01-01T10:31:00', 'end_time': None},
+]
+# Exactly three completed stages: PGS, SPEC, REG (no WEB).
+_THREE_STAGE_PROCS = [
+    {'stage': 'PGS', 'status': 'completed', 'slurm_id': '900101',
+     'start_time': '2026-02-03T09:00:00', 'end_time': '2026-02-03T09:45:00'},
+    {'stage': 'SPEC', 'status': 'completed', 'slurm_id': '900102',
+     'start_time': '2026-02-03T09:46:00', 'end_time': '2026-02-03T10:10:00'},
+    {'stage': 'REG', 'status': 'completed', 'slurm_id': '900103',
+     'start_time': '2026-02-03T10:11:00', 'end_time': '2026-02-03T10:40:00'},
+]
+
 
 class TestPhercDbQueries(unittest.TestCase):
     @classmethod
@@ -7,6 +34,28 @@ class TestPhercDbQueries(unittest.TestCase):
         hercdb.config._load_config()
         cls.query_runner = hercdb.connect()
         cls.query_runner.verify_connection()
+        cls._seed_pipeline(STATUS_PIPELINE_ID, _STATUS_PROCS)
+        cls._seed_pipeline(THREE_STAGE_PIPELINE_ID, _THREE_STAGE_PROCS)
+
+    @classmethod
+    def _seed_pipeline(cls, pipeline_id, procs):
+        cls.query_runner._run_query("""
+            MERGE (p:Pipeline {pipeline_id: $pid})
+            WITH p
+            UNWIND $procs AS proc
+            CREATE (pr:Process)
+            SET pr += proc
+            CREATE (pr)-[:STAGE_OF]->(p)
+            """, pid=pipeline_id, procs=procs)
+
+    @classmethod
+    def tearDownClass(cls):
+        for pid in (STATUS_PIPELINE_ID, THREE_STAGE_PIPELINE_ID):
+            cls.query_runner._run_query("""
+                MATCH (p:Pipeline {pipeline_id: $pid})
+                OPTIONAL MATCH (p)<-[:STAGE_OF]-(proc:Process)
+                DETACH DELETE proc, p
+                """, pid=pid)
 
     def test_find_artifact_name_by_uuid(self):
         result = self.query_runner.find_artifact_name_by_uuid("d65a2db0-ffec-5c15-8d3e-b28cf9326a32")
@@ -15,60 +64,46 @@ class TestPhercDbQueries(unittest.TestCase):
         self.assertIsNotNone(result['pherc'])
         print(f"[find_artifact_name_by_uuid] Result: {result}")
 
-    def test_find_newest_dataset(self):
-        records, summary, keys = self.query_runner.find_datasets(hercdb.DatasetType.PGSRaw, "1044", cornice="6", newest_completed=False, properties_only=False)
-        self.assertTrue(len(records) > 0)
-        #print([record.data() for record in records])
-        
-        properties = []
-        for record in records:
-            dataset = record[0]
-            properties.append(dict(dataset))
-        print(f"[find_datasets PGSRaw, PHerc 1044 Cornice 6] Found {len(properties)} dataset(s):\n  {properties}")
+    def _a_uuid_under_1044(self) -> str:
+        """Pull one EduceLabID uuid under PHerc 1044 (datasets path)."""
+        artifacts = self.query_runner.find_all_datasets_for_pherc("1044")
+        self.assertTrue(len(artifacts) > 0, "Need at least one UUID under 1044 to test")
+        return artifacts[0]['uuid']
 
-    def test_find_newest_dataset_properties_only(self):
-        properties = self.query_runner.find_datasets(hercdb.DatasetType.PGSRaw, "1044", cornice="6", newest_completed=False, properties_only=True)
-        self.assertTrue(len(properties) > 0)
+    def test_get_artifact_info_pherc(self):
+        info = self.query_runner.get_artifact_info("1044")
+        self.assertIsNotNone(info)
+        self.assertEqual(info['type'], 'PHerc')
+        self.assertIn('displayName', info)
+        self.assertIn('educelabids', info)
+        self.assertIsInstance(info['educelabids'], list)
+        self.assertIn('cornici_count', info)
+        self.assertIn('pezzi_count', info)
+        self.assertIn('metadata', info)
+        print(f"[get_artifact_info '1044'] {info}")
 
-        print(f"[find_datasets PGSRaw, PHerc 1044 Cornice 6, properties_only] Found {len(properties)} dataset(s):\n  {properties}")
-    
+    def test_get_artifact_info_not_found(self):
+        self.assertIsNone(self.query_runner.get_artifact_info("nonexistent_pherc"))
+
     def test_list_cornici_and_pezzi_for_pherc(self):
-        records = self.query_runner.list_cornici_and_pezzi_for_pherc("238")
-        self.assertTrue(len(records) > 0)
-        print(f"[list_cornici_and_pezzi_for_pherc '238'] Found {len(records)} record(s):")
-        for record in records:
-            print(f"  {record.data()}")
+        result = self.query_runner.list_cornici_and_pezzi_for_pherc("238")
+        self.assertIsNotNone(result)
+        self.assertIn('pherc', result)
+        self.assertIn('cornici', result)
+        self.assertIn('pezzi', result)
+        # Every listed node carries the enriched shape
+        for node in result['cornici'] + result['pezzi']:
+            self.assertIn('displayName', node)
+            self.assertIn('aliases', node)
+            self.assertIn('educelabids', node)
+        print(f"[list_cornici_and_pezzi_for_pherc '238'] "
+              f"{len(result['cornici'])} cornici, {len(result['pezzi'])} pezzi")
 
-        cornici = records[0].data()['cr']
-        pezzi = records[0].data()['pz']
-        print(f"  Cornici: {cornici}")
-        print(f"  Pezzi: {pezzi}")
-
-    def test_find_educelabids_for_pherc(self):
-        results = self.query_runner.find_educelabids_for_pherc("1044")
-        self.assertIsInstance(results, list)
-        self.assertTrue(len(results) > 0)
-        for entry in results:
-            self.assertIn('uuid', entry)
-            self.assertIn('pherc', entry)
-            self.assertIn('cornice', entry)
-            self.assertIn('pezzo', entry)
-            self.assertIn('artifact_name', entry)
-            self.assertEqual(entry['pherc'], '1044')
-        print(f"Found {len(results)} EduceLabIDs for PHerc 1044:")
-        for entry in results:
-            print(f"  {entry['artifact_name']} ({entry['uuid']})")
-
-    def test_find_educelabids_for_pherc_not_found(self):
-        results = self.query_runner.find_educelabids_for_pherc("nonexistent_pherc")
-        self.assertIsInstance(results, list)
-        self.assertEqual(len(results), 0)
+    def test_list_cornici_and_pezzi_for_pherc_not_found(self):
+        self.assertIsNone(self.query_runner.list_cornici_and_pezzi_for_pherc("nonexistent_pherc"))
 
     def test_find_datasets_for_educelabid(self):
-        # First get a UUID from a known PHerc
-        educelabids = self.query_runner.find_educelabids_for_pherc("1044")
-        self.assertTrue(len(educelabids) > 0, "Need at least one EduceLabID to test")
-        uuid = educelabids[0]['uuid']
+        uuid = self._a_uuid_under_1044()
 
         datasets = self.query_runner.find_datasets_for_educelabid(uuid)
         self.assertIsInstance(datasets, list)
@@ -78,16 +113,16 @@ class TestPhercDbQueries(unittest.TestCase):
             self.assertIn(ds['type'], ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw'])
         print(f"Found {len(datasets)} datasets for UUID {uuid}")
 
-    def test_find_datasets_for_educelabid_with_type_filter(self):
-        educelabids = self.query_runner.find_educelabids_for_pherc("1044")
-        self.assertTrue(len(educelabids) > 0)
-        uuid = educelabids[0]['uuid']
+    def test_find_datasets_for_educelabid_with_predecessors(self):
+        uuid = self._a_uuid_under_1044()
 
-        datasets = self.query_runner.find_datasets_for_educelabid(uuid, ds_type=hercdb.DatasetType.PGSRaw)
+        datasets = self.query_runner.find_datasets_for_educelabid_with_predecessors(uuid)
         self.assertIsInstance(datasets, list)
         for ds in datasets:
-            self.assertEqual(ds['type'], 'PGSRaw')
-        print(f"Found {len(datasets)} PGSRaw datasets for UUID {uuid}")
+            self.assertIn('type', ds)
+            # each dataset is tagged with the UUID it actually belongs to
+            self.assertIn('belongs_to_uuid', ds)
+        print(f"Found {len(datasets)} datasets (chain-pooled) for UUID {uuid}")
 
     def test_find_datasets_for_educelabid_not_found(self):
         datasets = self.query_runner.find_datasets_for_educelabid("nonexistent-uuid")
@@ -109,6 +144,7 @@ class TestPhercDbQueries(unittest.TestCase):
             self.assertEqual(artifact['pherc'], '1044')
             for ds in artifact['datasets']:
                 self.assertIn('type', ds)
+                self.assertIn('belongs_to_uuid', ds)
         print(f"Found {len(results)} artifacts with datasets for PHerc 1044")
 
     def test_find_all_datasets_for_pherc_with_type_filter(self):
@@ -135,19 +171,20 @@ class TestPhercDbQueries(unittest.TestCase):
         self.assertEqual(len(results), 0)
 
     def test_get_pipeline_status(self):
-        result = self.query_runner.get_pipeline_status("20251222-389")
+        result = self.query_runner.get_pipeline_status(STATUS_PIPELINE_ID)
         self.assertIsNotNone(result)
         self.assertIsInstance(result, list)
+        self.assertEqual(len(result), len(_STATUS_PROCS))
         for p in result:
             self.assertIn('start_time', p)
             self.assertIn('end_time', p)
             self.assertIn('stage', p)
             self.assertIn('status', p)
             self.assertIn('slurm_id', p)
-        print(f"[get_pipeline_status '20251222-389'] Found {len(result)} stage(s): {result}")
+        print(f"[get_pipeline_status '{STATUS_PIPELINE_ID}'] Found {len(result)} stage(s): {result}")
 
     def test_get_pipeline_status_three_stages_completed(self):
-        result = self.query_runner.get_pipeline_status("20260203-TEST6")
+        result = self.query_runner.get_pipeline_status(THREE_STAGE_PIPELINE_ID)
         self.assertIsNotNone(result)
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 3)
@@ -160,7 +197,7 @@ class TestPhercDbQueries(unittest.TestCase):
             self.assertEqual(p['status'], 'completed')
             self.assertIn('start_time', p)
             self.assertIsNotNone(p['end_time'], f"end_time should be set for completed stage {p['stage']}")
-        print(f"[get_pipeline_status '20260203-TEST6'] Found {len(result)} stage(s): {result}")
+        print(f"[get_pipeline_status '{THREE_STAGE_PIPELINE_ID}'] Found {len(result)} stage(s): {result}")
 
     def test_get_all_pipeline_summaries(self):
         result = self.query_runner.get_all_pipeline_summaries()
