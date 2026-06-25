@@ -930,9 +930,9 @@ class GraphDBConnection:
         """For one PHerc, return one record per (artifact, UUID) pair, plus a
         sentinel record for any artifact in the hierarchy that has no UUID.
 
-        Differs from find_educelabids_for_pherc by using OPTIONAL MATCH on
-        the EduceLabID, so Cornici/Pezzi (and the PHerc itself) without an
-        assigned UUID still surface. Suppresses the PHerc-itself row when
+        Uses OPTIONAL MATCH on the EduceLabID, so Cornici/Pezzi (and the
+        PHerc itself) without an assigned UUID still surface. Suppresses the
+        PHerc-itself row when
         the PHerc has Cornici/Pezzi children but no UUID directly assigned —
         in that case the children rows carry the scan information and a
         PHerc-level "unscanned" row would be misleading.
