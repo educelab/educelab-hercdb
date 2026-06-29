@@ -1202,6 +1202,14 @@ class GraphDBConnection:
                            output_dataset_path: str, slurm_id: str, start_datetime: str) -> dict | None:
         """Create a Process node linked to input/output datasets and a Pipeline.
 
+        For PGS/SPEC the raw input dataset is matched across the pipeline
+        EduceLabID's REPLACES chain (``[:REPLACES*0..]``), mirroring the read
+        path (``find_datasets_for_educelabid_with_predecessors``): a pre-
+        replacement scan still BELONGS_TO a predecessor UUID, so the raw node
+        need not hang off the active UUID directly. REG/WEB match the upstream
+        output nodes (PGSProcessed/SpectralProcessed/Registered) this pipeline
+        produced, so they are unaffected.
+
         Args:
             pipeline_id: Pipeline to attach the process to.
             proc_type: One of PGS, SPEC, REG, WEB.
@@ -1223,7 +1231,7 @@ class GraphDBConnection:
         if proc_type == "PGS":
             query = """
             MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})-[:FOR]->(e:EduceLabID)
-            MATCH (e)<-[:BELONGS_TO]-(input:PGSRaw {path: $input_path})
+            MATCH (e)-[:REPLACES*0..]->(:EduceLabID)<-[:BELONGS_TO]-(input:PGSRaw {path: $input_path})
             MERGE (proc:Process {stage: "PGS", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
             MERGE (output:PGSProcessed {path: $output_path})
             MERGE (input)-[:INPUT]->(proc)-[:OUTPUT]->(output)
@@ -1235,7 +1243,7 @@ class GraphDBConnection:
         elif proc_type == "SPEC":
             query = """
             MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})-[:FOR]->(e:EduceLabID)
-            MATCH (e)<-[:BELONGS_TO]-(input:SpectralRaw {path: $input_path})
+            MATCH (e)-[:REPLACES*0..]->(:EduceLabID)<-[:BELONGS_TO]-(input:SpectralRaw {path: $input_path})
             MERGE (proc:Process {stage: "SPEC", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
             MERGE (output:SpectralProcessed {path: $output_path})
             MERGE (input)-[:INPUT]->(proc)-[:OUTPUT]->(output)
