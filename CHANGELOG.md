@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.2] - 2026-06-29
+
+### Added
+- `el-hercdb-pipeline-cleanup` CLI (`cli/cleanup_pipelines.py`): DB-admin tool to delete pipeline records by id (talks straight to Neo4j, no REST server). `--list` shows every pipeline + its artifact; passing one or more pipeline ids deletes each (Pipeline + Process + output dataset nodes; raw/input datasets untouched). Companion to the acquisition-workflow pipeline-recording write path.
+
+### Fixed
+- `initialize_process()` PGS/SPEC stages now match the raw input dataset across the pipeline EduceLabID's `[:REPLACES*0..]` chain, mirroring `find_datasets_for_educelabid_with_predecessors()`. A pre-replacement scan that still `BELONGS_TO` a predecessor UUID is now recorded correctly instead of being skipped. REG/WEB match this pipeline's own output nodes and were unaffected.
+
+---
+
 ## [0.2.1] - 2026-06-22
 
 ### Added
