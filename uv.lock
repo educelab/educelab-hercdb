@@ -472,7 +472,7 @@ wheels = [
 
 [[package]]
 name = "educelab-hercdb"
-version = "0.2.1"
+version = "0.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "requests" },
@@ -486,6 +486,7 @@ server = [
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pandas" },
     { name = "prompt-toolkit" },
+    { name = "pydantic" },
     { name = "rapidfuzz" },
     { name = "uvicorn" },
 ]
@@ -506,6 +507,7 @@ requires-dist = [
     { name = "numpy", marker = "extra == 'server'", specifier = ">=2.0" },
     { name = "pandas", marker = "extra == 'server'", specifier = ">=2.2" },
     { name = "prompt-toolkit", marker = "extra == 'server'" },
+    { name = "pydantic", marker = "extra == 'server'", specifier = ">=2.0" },
     { name = "rapidfuzz", marker = "extra == 'server'", specifier = ">=3.0" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.40.0" },

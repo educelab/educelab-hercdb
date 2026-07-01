@@ -5,6 +5,17 @@
 - **Neo4j connection**: Integration and API tests require a running Neo4j instance. Configure credentials via environment variables (`EDUCEDB_URI`, `EDUCEDB_USER`, `EDUCEDB_PASSWORD`) or `~/.educedb` config file. See the project CLAUDE.md for details.
 - **REST API server**: API and client tests require a running FastAPI server (`uv run uvicorn educelab.hercdb.rest.server:app --reload`). Update `host_ip` and `token` in the test files as needed.
 
+## Continuous Integration
+
+These suites are **not run in CI**. Every test here requires live infrastructure —
+a Neo4j instance populated with real HercDB data (and, for `api/`/`client/`, a running
+REST server plus a valid token) — which a stock GitHub Actions runner does not have.
+They are run locally against a real database as described below.
+
+The GitHub Actions `CI` workflow (`.github/workflows/ci.yml`) instead runs a build +
+import smoke test across Python 3.10–3.12, which guards packaging and the PyPI publish
+path without needing a database.
+
 ## Test Suites
 
 | Directory | Description | Requires |

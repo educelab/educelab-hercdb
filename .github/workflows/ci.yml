@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and import smoke test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Sync dependencies (with server extras)
+        run: uv sync --extra server
+
+      - name: Import smoke test
+        # rest.server builds a Neo4j driver at import time, so give it a
+        # valid-scheme dummy URI; the driver is lazy and verify_connection()
+        # fails gracefully without a reachable database.
+        env:
+          EDUCEDB_URI: "neo4j://localhost:7687"
+          EDUCEDB_USER: "neo4j"
+          EDUCEDB_PASSWORD: "none"
+        run: |
+          uv run python -c "import educelab.hercdb"
+          uv run python -c "from educelab.hercdb.db import connect, GraphDBConnection, DatasetType"
+          uv run python -c "from educelab.hercdb.client import HercClient"
+          uv run python -c "from educelab.hercdb.loader import PhercGraphDatabaseLoader"
+          uv run python -c "import educelab.hercdb.rest.server"
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Check built distributions
+        run: |
+          uv run --with twine python -m twine check dist/*
