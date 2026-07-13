@@ -28,7 +28,8 @@ pherc = client.get_artifact_by_name("211")
 ## Constructor
 
 ```python
-HercClient(host, token, port=8000, scheme="http")
+HercClient(host, token, port=8000, scheme="http",
+           timeout=10, retries=8, backoff_factor=2, backoff_max=20)
 ```
 
 | Parameter | Type | Default | Description |
@@ -37,6 +38,10 @@ HercClient(host, token, port=8000, scheme="http")
 | `token` | str | *(required)* | Bearer token for authentication |
 | `port` | int | `8000` | Port number |
 | `scheme` | str | `"http"` | URL scheme (`"http"` or `"https"`) |
+| `timeout` | float | `10` | Per-request timeout in seconds |
+| `retries` | int | `8` | Max retry attempts for transient failures (see [Timeouts and retries](#timeouts-and-retries)) |
+| `backoff_factor` | float | `2` | Exponential backoff base in seconds |
+| `backoff_max` | float | `20` | Cap on any single backoff sleep in seconds |
 
 ## Methods
 
@@ -216,4 +221,33 @@ except requests.HTTPError as e:
         print("Artifact not found")
     else:
         raise
+```
+
+## Timeouts and retries
+
+The client **automatically retries transient failures** — connection errors, read
+timeouts, and `502`/`503`/`504` responses — with an exponential backoff, and applies a
+per-request `timeout`. No caller-side retry wrapper is needed.
+
+The server returns **`503`** when it cannot reach Neo4j — e.g. during the brief nightly
+offline backup or a DB restart. This is distinct from `404` ("doesn't exist"): a `503`
+is transient, and the client rides over it. Retries cover **all** verbs, including
+`initialize_pipeline` / `initialize_process` / `update_process_status`, because every
+hercdb write is idempotent (`MERGE`-based) — a retried write never duplicates data.
+Genuine client errors (`404`, `422`, and other non-retryable statuses) are **not**
+retried and surface immediately.
+
+With the defaults the client keeps trying for **~108s** total — sleeps of
+`0, 4, 8, 16, 20, 20, 20, 20` seconds between the 8 attempts (the tail capped at
+`backoff_max`) — comfortably longer than the ~1-min backup window, while still recovering
+within ~20s of the database coming back. This matters most for unattended callers such as
+HPC pipeline-stage status callbacks, which can fire at any hour and land in the window.
+
+```python
+# Rides over the nightly backup window with no extra code:
+client.update_process_status("20260312-001", "PGS", "completed", "2026-03-12T11:00:00")
+
+# Tune the budget if needed (e.g. fail faster for an interactive tool):
+client = HercClient(host="api.example.com", token="my-token",
+                    timeout=5, retries=3, backoff_factor=1)
 ```

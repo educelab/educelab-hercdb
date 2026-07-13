@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- `HercClient` automatically retries transient failures (connection errors, read timeouts, and `502`/`503`/`504`) with exponential backoff, and applies a per-request timeout. New constructor params `timeout`, `retries`, `backoff_factor`, `backoff_max` (defaults span ~108s, riding over the nightly Neo4j backup window). Retries cover all HTTP verbs because hercdb writes are idempotent (`MERGE`); `404`/`422` are never retried. Implemented with a single `requests.Session` + `HTTPAdapter(urllib3.Retry)` — no new dependency.
+
+### Changed
+- REST API now returns **HTTP 503** with a `Retry-After: 60` header (instead of a misleading `404`) when Neo4j is unreachable — e.g. during the nightly offline backup or a restart. `GraphDBConnection._run_query` re-raises `ServiceUnavailable`/`SessionExpired` as the new `DatabaseUnavailableError` (exported from `educelab.hercdb.db`); an app-wide handler maps it to 503. The `None`→`404` path is preserved for genuinely empty query results.
+
+---
+
 ## [0.2.2] - 2026-06-29
 
 ### Added

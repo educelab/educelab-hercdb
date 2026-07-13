@@ -116,6 +116,7 @@ educelab-hercdb/
 - `fuzzy_find_node(name, label, parent_pherc, parent_cornice, threshold, limit)`: standalone reusable primitive for fuzzy-resolving noisy PHerc/Cornice/Pezzo displayNames to ranked candidates; see "Fuzzy name lookup" under API Query Patterns
 - `get_artifact_info(pherc, cornice, pezzo)`: full artifact detail by exact name (own props + metadata + assigned `educelabids` + child counts), backs `GET /artifacts?...`. `find_artifact_location_by_uuid(uuid)`: the UUID → artifact bridge, backs `GET /artifacts/{uuid}`. Both added in the API consolidation that removed `get_directly_attached_nodes`/`records_to_label_json`/`find_datasets`/`find_educelabids_for_pherc`.
 - Key enums: `DatasetType` (FlatbedScan, PGSRaw, SpectralRaw)
+- `_run_query` swallows most query errors to `(None, None, None)` (callers treat that as "no rows"), but re-raises Neo4j connectivity failures (`ServiceUnavailable`/`SessionExpired`) as `DatabaseUnavailableError` so a down DB (e.g. during the nightly backup) surfaces as HTTP 503, not a misleading 404. Exported from `educelab.hercdb.db`.
 
 **src/educelab/hercdb/config.py**: Configuration management
 - Loads settings from environment variables, `~/.educedb` file, or prompts
@@ -123,6 +124,7 @@ educelab-hercdb/
 
 **src/educelab/hercdb/rest/server.py**: FastAPI REST API
 - Token-based authentication using `~/.tokens` file
+- App-wide exception handler maps `DatabaseUnavailableError` (Neo4j unreachable) to **HTTP 503** with a `Retry-After: 60` header, so clients can retry over a brief DB outage (e.g. the nightly offline backup) rather than misreading it as a 404. Writes are idempotent (`MERGE`), so retries are safe.
 - One `/artifacts` resource for PHerc/Cornice/Pezzo artifacts — by name (`?pherc=&cornice=&pezzo=`, full detail) or by UUID (`/{uuid}`, location bridge); plus `/subdivisions`, `/all-datasets`, `/educelabid/{uuid}/datasets`, `/resolve`
 - `/resolve` endpoint fuzzy-resolves a noisy displayName to ranked candidates (the only fuzzy entry point; fetch endpoints match `displayName` exactly)
 
@@ -146,7 +148,8 @@ educelab-hercdb/
 
 **src/educelab/hercdb/client/herc_client.py**: REST API client
 - `HercClient`: Lightweight Python client wrapping all REST endpoints
-- Constructor takes `host`, `token`, and optional `port` and `scheme`
+- Constructor takes `host`, `token`, and optional `port`, `scheme`, plus resilience knobs `timeout`, `retries`, `backoff_factor`, `backoff_max`
+- Uses one `requests.Session` with an `HTTPAdapter(Retry(...))`: **automatically retries** connection errors / read timeouts / 502-503-504 on **all** verbs (safe — writes are idempotent `MERGE`s) and applies a per-request `timeout`. Defaults span ~108s (`0,4,8,16,20,20,20,20`), riding over the nightly backup 503 window. All calls funnel through `_request` (which takes `tolerate_404` for the two dataset methods that return empty on 404 instead of raising).
 - Methods mirror REST endpoints (`get_pherc`, `get_subdivisions`, `search`, `get_pipelines`, etc.)
 
 ### Import Patterns

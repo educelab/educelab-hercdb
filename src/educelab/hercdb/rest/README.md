@@ -28,6 +28,37 @@ Authorization: Bearer <token>
 
 Tokens are loaded from `~/.tokens`. Each line has the format `username = token`.
 
+## Error Responses
+
+Status codes used across all endpoints:
+
+| Code | Meaning |
+|------|---------|
+| `200` / `201` | Success (`201` on resource creation) |
+| `400` | Bad request (e.g. invalid `label` or `proc_type`) |
+| `401` | Missing or invalid Bearer token |
+| `404` | The requested resource does not exist (artifact/UUID/pipeline not found) |
+| `422` | Missing/invalid query params or request body (e.g. `pherc` omitted) |
+| `503` | **Neo4j is unreachable** — a transient infrastructure failure |
+
+### 503 Service Unavailable
+
+Returned when the server cannot reach Neo4j — for example during the brief nightly
+offline backup, or a DB restart. It is deliberately **distinct from `404`**: a `404`
+means "this thing doesn't exist," while `503` means "the database is temporarily down,
+try again."
+
+The response carries a `Retry-After: 60` header:
+
+```json
+{ "detail": "Database temporarily unavailable; please retry." }
+```
+
+Clients should **retry on `503`** (and other `5xx`) but **not** on `404`/`422`. All
+write endpoints are idempotent (`MERGE`-based), so a retried create/update will not
+duplicate data. The bundled `HercClient` does this automatically (retry + timeout,
+built in) — see its README's "Timeouts and retries" section.
+
 ## Endpoints
 
 ### Authentication

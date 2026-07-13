@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from educelab import hercdb
-from educelab.hercdb.db import DatasetType
+from educelab.hercdb.db import DatasetType, DatabaseUnavailableError
 
 # Load tokens from tokens file
 TOKENS = {}
@@ -37,6 +37,22 @@ app = FastAPI(
     version="0.1.0",
 )
 security = HTTPBearer()
+
+
+@app.exception_handler(DatabaseUnavailableError)
+async def database_unavailable_handler(request: Request, exc: DatabaseUnavailableError):
+    """Return 503 (not a misleading 404) when Neo4j is unreachable.
+
+    Signals a transient infrastructure failure — e.g. the DB is briefly down for
+    its nightly backup — so clients can safely retry. Writes are idempotent
+    (MERGE-based), so a retried request will not duplicate data.
+    """
+    logger.error(f"Neo4j unavailable handling {request.method} {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "Database temporarily unavailable; please retry."},
+        headers={"Retry-After": "60"},
+    )
 
 
 # Initialize DB connection

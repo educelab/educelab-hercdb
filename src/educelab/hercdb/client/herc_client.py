@@ -1,4 +1,6 @@
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 class HercClient:
@@ -7,25 +9,74 @@ class HercClient:
     Only requires the ``requests`` library. No Neo4j or server-side
     dependencies are needed.
 
+    Requests carry a default ``timeout`` and are retried automatically on
+    transient failures (connection errors, read timeouts, and 502/503/504) with
+    an exponential backoff. This rides over the brief nightly Neo4j backup
+    window, during which the server returns ``503`` (see the REST API's error
+    docs). Because every hercdb write is idempotent (``MERGE``-based), retrying
+    is safe for **all** HTTP verbs, not just reads.
+
+    With the defaults the client keeps retrying for ~108s total (sleeps of
+    ``0, 4, 8, 16, 20, 20, 20, 20`` seconds between the 8 attempts, the tail
+    capped at ``backoff_max``), comfortably longer than the ~1-min backup window
+    while still recovering within ~20s of the database coming back.
+
     Args:
         host: Hostname or IP of the API server.
         token: Bearer token for authentication.
         port: Port number (default 8000).
         scheme: URL scheme (default "http").
+        timeout: Per-request timeout in seconds (default 10). A request with no
+            response within this window is retried like any other transient
+            failure.
+        retries: Max retry attempts for transient failures (default 8).
+        backoff_factor: Exponential backoff base in seconds (default 2).
+        backoff_max: Cap on any single backoff sleep in seconds (default 20), so
+            the tail polls at a steady interval instead of ballooning.
     """
 
-    def __init__(self, host: str, token: str, port: int = 8000, scheme: str = "http"):
+    def __init__(self, host: str, token: str, port: int = 8000, scheme: str = "http",
+                 timeout: float = 10, retries: int = 8, backoff_factor: float = 2,
+                 backoff_max: float = 20):
         self._base_url = f"{scheme}://{host}:{port}"
         self._token = token
+        self._timeout = timeout
+        self._session = requests.Session()
+        # Retry connection errors, read timeouts, and the retryable 5xx statuses.
+        # allowed_methods=None disables the method allowlist so POST/PUT/DELETE are
+        # retried too — safe here because hercdb writes are idempotent (MERGE).
+        # respect_retry_after_header=False so we use our own bounded backoff rather
+        # than sleeping the server's advisory `Retry-After: 60` flat on each attempt.
+        retry = Retry(
+            total=retries,
+            connect=retries,
+            read=retries,
+            status=retries,
+            status_forcelist=(502, 503, 504),
+            allowed_methods=None,
+            backoff_factor=backoff_factor,
+            backoff_max=backoff_max,
+            respect_retry_after_header=False,
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self._session.mount("http://", adapter)
+        self._session.mount("https://", adapter)
 
     # -- internal helpers --------------------------------------------------
 
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self._token}"}
 
-    def _request(self, method: str, path: str, **kwargs) -> requests.Response:
+    def _request(self, method: str, path: str, tolerate_404: bool = False,
+                 **kwargs) -> requests.Response:
         url = f"{self._base_url}{path}"
-        resp = requests.request(method, url, headers=self._headers(), **kwargs)
+        kwargs.setdefault("timeout", self._timeout)
+        resp = self._session.request(method, url, headers=self._headers(), **kwargs)
+        # Some callers treat 404 as an empty result rather than an error; let them
+        # inspect the response instead of raising.
+        if tolerate_404 and resp.status_code == 404:
+            return resp
         resp.raise_for_status()
         return resp
 
@@ -101,14 +152,11 @@ class HercClient:
             params["dataset_type"] = dataset_type
         if newest_completed:
             params["newest_completed"] = "true"
-        resp = requests.get(
-            f"{self._base_url}/pherc/{pherc_id}/all-datasets",
-            headers=self._headers(),
-            params=params,
+        resp = self._get(
+            f"/pherc/{pherc_id}/all-datasets", params=params, tolerate_404=True,
         )
         if resp.status_code == 404:
             return {"pherc": pherc_id, "artifacts": []}
-        resp.raise_for_status()
         return resp.json()
 
     def get_artifact(self, uuid: str) -> dict:
@@ -142,14 +190,11 @@ class HercClient:
             params["dataset_type"] = dataset_type
         if newest_completed:
             params["newest_completed"] = "true"
-        resp = requests.get(
-            f"{self._base_url}/educelabid/{uuid}/datasets",
-            headers=self._headers(),
-            params=params,
+        resp = self._get(
+            f"/educelabid/{uuid}/datasets", params=params, tolerate_404=True,
         )
         if resp.status_code == 404:
             return []
-        resp.raise_for_status()
         return resp.json()
 
     def resolve(

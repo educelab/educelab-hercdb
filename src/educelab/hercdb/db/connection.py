@@ -3,7 +3,25 @@ from collections import OrderedDict
 from enum import Enum
 
 from neo4j import GraphDatabase
+from neo4j.exceptions import ServiceUnavailable, SessionExpired
 from rapidfuzz import fuzz
+
+# Driver-level errors that mean "couldn't reach Neo4j" (e.g. the server is down
+# for its nightly backup), as opposed to a query that ran and matched nothing.
+# execute_query already retries these internally for up to
+# max_transaction_retry_time (~30s) before giving up and raising.
+_UNAVAILABLE_ERRORS = (ServiceUnavailable, SessionExpired)
+
+
+class DatabaseUnavailableError(Exception):
+    """The Neo4j server could not be reached.
+
+    Raised by :meth:`GraphDBConnection._run_query` when the driver reports the
+    database is unavailable (down, restarting, connection lost). Callers should
+    treat this as a transient/retryable infrastructure failure — distinct from a
+    query that executed successfully and returned no rows. The REST layer maps it
+    to HTTP 503 so clients can retry rather than misread it as a 404.
+    """
 
 
 class DatasetType(Enum):
@@ -56,6 +74,13 @@ class GraphDBConnection:
             )
             self.logger.info("Query executed successfully: %s", query.strip().replace('\n', ' '))
             return records, summary, keys
+        except _UNAVAILABLE_ERRORS as e:
+            # Neo4j is unreachable (e.g. down for backup). Propagate as a distinct
+            # error so the REST layer returns 503, not a misleading 404 that a
+            # swallowed None would produce.
+            self.logger.error("Neo4j unavailable for query: %s",
+                              query.strip().replace('\n', ' '), exc_info=e)
+            raise DatabaseUnavailableError(str(e)) from e
         except Exception as e:
             self.logger.error("Query failed: %s", query.strip().replace('\n', ' '), exc_info=e)
             return None, None, None
