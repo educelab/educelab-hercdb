@@ -4,10 +4,12 @@ from .connection import (
     GraphDBConnection,
     connect,
     DatasetType,
+    DatabaseUnavailableError,
 )
 
 __all__ = [
     "GraphDBConnection",
     "connect",
     "DatasetType",
+    "DatabaseUnavailableError",
 ]
