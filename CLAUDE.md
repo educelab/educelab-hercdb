@@ -211,7 +211,7 @@ The `GraphDBConnection` class provides two patterns for queries:
 
 5. **Pipeline queries**:
    - `find_pipelines()` - returns list of all pipelines with their `pipeline_id` and `artifact_uuid`
-   - `get_pipeline_status(pipeline_id)` - returns list of process stages with `datetime`, `stage`, `status`, `slurm_id`
+   - `get_pipeline_status(pipeline_id)` - returns list of process stages with `start_time`, `end_time`, `stage`, `status`, `slurm_id`, plus `input_dataset_paths` (list[str], gathered from `-[:INPUT]->` dataset nodes — REG carries both its PGS + SPEC inputs) and `output_dataset_path` (str | None, from the single `-[:OUTPUT]->` node)
    - `get_all_pipeline_summaries()` - returns all pipelines with aggregated status info
 
 6. **Pipeline CRUD**:
@@ -242,7 +242,7 @@ A **PHerc / Cornice / Pezzo is an "artifact"**, addressed on one `/artifacts` re
 - `GET /resolve` - Fuzzy-resolve a noisy PHerc/Cornice/Pezzo displayName to ranked candidates. Query params: `name` (required), `label` (`PHerc` | `Cornice` | `Pezzo`, default `PHerc`), `parent_pherc`, `parent_cornice`, `threshold` (default 75), `limit` (default 10). Returns a JSON list with `displayName`, `name`, `score`, `nodeID` (Neo4j element ID), `parent_pherc`, `parent_cornice`. Empty result returns `200 []` (discovery endpoint, not "fetch this thing"); invalid `label` returns 400.
 - (Removed in the API consolidation: `GET /pherc/{pherc_id}`, `.../cornice/{cornice_id}`, `.../pezzo/{pezzo_id}`, `.../cornice/{cornice_id}/pezzo/{pezzo_id}`, `.../datasets/{dataset_type}`, `.../educelabids` — superseded by `/artifacts`, `/all-datasets`, and the enriched `/subdivisions`.)
 - `GET /pipelines` - Get all pipelines with status summaries
-- `GET /pipelines/{pipeline_id}/stages` - Get all process stages for a pipeline
+- `GET /pipelines/{pipeline_id}/stages` - Get all process stages for a pipeline; each stage carries `input_dataset_paths` (list) and `output_dataset_path` (scalar, or null) alongside `proc_type`/`status`/`slurm_id`/`start_time`/`end_time`
 - `POST /pipelines` - Create a new pipeline linked to an EduceLabID
 - `POST /pipelines/{pipeline_id}/processes` - Create a new process (stage) within a pipeline
 - `PUT /pipelines/{pipeline_id}/processes/{proc_type}/status` - Update process status
