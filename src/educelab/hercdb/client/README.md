@@ -5,8 +5,8 @@ Lightweight Python client for the EduceLab HercDB REST API. Only depends on `req
 ## Installation
 
 ```shell
-git clone https://github.com/educelab/hercdb.git
-cd hercdb
+git clone https://github.com/educelab/educelab-hercdb.git
+cd educelab-hercdb
 uv sync --no-dev
 source .venv/bin/activate
 ```
