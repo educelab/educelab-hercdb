@@ -5,14 +5,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.3.0] - 2026-07-13
+## [0.3.0] - 2026-07-17
 
 ### Added
 - `HercClient` automatically retries transient failures (connection errors, read timeouts, and `502`/`503`/`504`) with exponential backoff, and applies a per-request timeout. New constructor params `timeout`, `retries`, `backoff_factor`, `backoff_max` (defaults span ~108s, riding over the nightly Neo4j backup window). Retries cover all HTTP verbs because hercdb writes are idempotent (`MERGE`); `404`/`422` are never retried. Implemented with a single `requests.Session` + `HTTPAdapter(urllib3.Retry)` — no new dependency.
 - Nightly Neo4j offline-backup tooling: `scripts/neo4j_backup.sh` (dumps both the `neo4j` and `system` databases while stopped, ships timestamped dumps to a cold-spare VM over SSH, prunes by retention, always restarts Neo4j via an EXIT trap, optional heartbeat) and the `docs/BACKUP.md` runbook (setup, cron schedule, monitoring, restore/DR, testing).
+- `GET /pipelines/{id}/stages` now returns `input_dataset_paths` (list[str]) and `output_dataset_path` (str | None) on each stage. `get_pipeline_status()` traverses the existing `(input)-[:INPUT]->(proc)-[:OUTPUT]->(output)` relationships; a REG stage carries both its PGS and SPEC inputs. The stages endpoint and client are passthroughs, so no server/client change was needed.
 
 ### Changed
 - REST API now returns **HTTP 503** with a `Retry-After: 60` header (instead of a misleading `404`) when Neo4j is unreachable — e.g. during the nightly offline backup or a restart. `GraphDBConnection._run_query` re-raises `ServiceUnavailable`/`SessionExpired` as the new `DatabaseUnavailableError` (exported from `educelab.hercdb.db`); an app-wide handler maps it to 503. The `None`→`404` path is preserved for genuinely empty query results.
+
+### Infrastructure
+- Migrated CI from GitLab to GitHub Actions: a build/import smoke test across Python 3.10–3.12 (`uv`) plus sdist/wheel build and `twine check`, and a PyPI publish workflow (trusted publishing via OIDC) triggered on `v*` tags and manual dispatch. Declared `pydantic` explicitly in the server extra (previously only transitive via FastAPI); pointed the Repository URL at GitHub.
 
 ---
 

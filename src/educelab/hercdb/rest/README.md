@@ -87,7 +87,7 @@ match `displayName` **exactly** — resolve noisy input with `/resolve` first.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/pipelines` | Get all pipelines with status summaries |
-| GET | `/pipelines/{pipeline_id}/stages` | Get all process stages for a pipeline |
+| GET | `/pipelines/{pipeline_id}/stages` | Get all process stages for a pipeline (each stage includes `input_dataset_paths` / `output_dataset_path`) |
 | POST | `/pipelines` | Create a new pipeline linked to an EduceLabID |
 | POST | `/pipelines/{pipeline_id}/processes` | Create a process (PGS, SPEC, REG, WEB) within a pipeline |
 | PUT | `/pipelines/{pipeline_id}/processes/{proc_type}/status` | Update process status (completed/failed) |
@@ -331,10 +331,15 @@ GET /pipelines/20251222-389/stages
     "datetime": "2025-01-15T10:00:00",
     "proc_type": "PGS",
     "status": "completed",
-    "slurm_id": "12345"
+    "slurm_id": "12345",
+    "input_dataset_paths": ["/data/raw/pgs/<uuid>"],
+    "output_dataset_path": "/data/processed/pgs/<uuid>"
   }
 ]
 ```
+
+`input_dataset_paths` is a list (a `REG` stage carries both its PGS and SPEC
+inputs); `output_dataset_path` is a single path or `null`.
 
 ### POST /pipelines
 

@@ -14,12 +14,13 @@ managed service. Assumes Neo4j is already installed and running.
 ```bash
 git clone <repo-url> ~/educelab-hercdb
 cd ~/educelab-hercdb
-git checkout v0.2.2            # or the version you intend to run
+git checkout v0.3.0            # or the version you intend to run
 uv sync --extra server --no-dev   # FastAPI + uvicorn + Neo4j driver
 ```
 
-> hercdb is **not on PyPI** — it is distributed via git tags. Check out the tag
-> you want before installing.
+> hercdb is published to **PyPI** on each release tag (`pip install educelab-hercdb`).
+> The server deployment still uses a git clone checked out at the release tag, so
+> that the systemd unit has a working directory and the exact source it runs.
 
 ## 2. Neo4j credentials — `~/.educedb`
 

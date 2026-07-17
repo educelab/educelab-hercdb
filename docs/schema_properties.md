@@ -37,12 +37,22 @@ Derived from `src/educelab/hercdb/loader/graph_loader.py`.
 | | `path` | string | `"/data/pgs/421/..."` |
 | | `date_start` | string (ISO datetime) | `"2024-01-15T09:00:00"` |
 | | `date_end` | string (ISO datetime) *(optional)* | `"2024-01-15T11:00:00"` |
-| | `complete` | boolean *(optional)* | `True` |
+| | `complete` | string (`"True"` / `"False"` / `"unknown"`) | `"True"` |
+| | `file_count` | integer | `1200` |
+| | `missing_files` | integer | `0` |
+| | `zero_byte_files` | integer | `0` |
+| | `short_files` | integer | `0` |
+| | `bad_format_files` | integer | `0` |
 | **SpectralRaw** | `uuid` | string | `"550e8400-..."` |
 | | `path` | string | `"/data/spectral/421/..."` |
 | | `date_start` | string (ISO datetime) | `"2024-01-15T09:00:00"` |
 | | `date_end` | string (ISO datetime) *(optional)* | `"2024-01-15T11:00:00"` |
-| | `complete` | boolean *(optional)* | `True` |
+| | `complete` | string (`"True"` / `"False"` / `"unknown"`) | `"True"` |
+| | `file_count` | integer | `0` |
+| | `missing_files` | integer | `0` |
+| | `zero_byte_files` | integer | `0` |
+| | `short_files` | integer | `0` |
+| | `bad_format_files` | integer | `0` |
 | **PGSProcessed** | `path` | string | `"/data/pgs_proc/421/..."` |
 | **SpectralProcessed** | `path` | string | `"/data/spec_proc/421/..."` |
 | **Registered** | `path` | string | `"/data/registered/421/..."` |
@@ -60,4 +70,6 @@ Derived from `src/educelab/hercdb/loader/graph_loader.py`.
 - `ObjectFormat` and `MaterialType` use `format` as their key property (not `name`), unlike all other metadata nodes.
 - `OsloMethod` has no properties — it is used as a singleton/tag node.
 - `Process.stage` stores the process type in Neo4j (`"PGS"`, `"SPEC"`, `"REG"`, `"WEB"`), but the Python API and REST layer refer to this field as `proc_type`.
+- `PGSRaw`/`SpectralRaw` `complete` is stored as the canonical **string** `"True"` / `"False"` / `"unknown"` (normalized case-insensitively by `scan_loader.normalize_complete`), not a boolean.
+- The 2026 integer counts (`file_count`, `missing_files`, `zero_byte_files`, `short_files`, `bad_format_files`) are parsed onto both raw scan node types. Note the Spectral CSV `file count` column is currently unpopulated, so `SpectralRaw.file_count` is always `0`.
 - All relationships in the current loader carry no properties.
