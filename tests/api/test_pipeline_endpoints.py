@@ -161,6 +161,24 @@ assert resp.status_code == 201
 assert resp.json()['proc_type'] == 'SPEC'
 print("  ✓ SPEC process created")
 
+# --- POST /pipelines/{id}/processes (REG) ---
+# REG consumes both the PGS and SPEC processed outputs, so its stage should
+# report two input dataset paths.
+
+print(f"\nPOST /pipelines/{TEST_PIPELINE_ID}/processes (REG):")
+resp = post(f"/pipelines/{TEST_PIPELINE_ID}/processes", {
+    "proc_type": "REG",
+    "input_dataset_paths": [PGS_PROCESSED_OUTPUT, SPEC_PROCESSED_OUTPUT],
+    "output_dataset_path": REGISTERED_OUTPUT,
+    "slurm_id": "99003",
+    "start_datetime": TEST_DATETIME,
+})
+print(f"  Status: {resp.status_code}")
+print(f"  Response: {resp.json()}")
+assert resp.status_code == 201
+assert resp.json()['proc_type'] == 'REG'
+print("  ✓ REG process created")
+
 # Invalid stage
 print(f"\nPOST /pipelines/{TEST_PIPELINE_ID}/processes (invalid stage):")
 resp = post(f"/pipelines/{TEST_PIPELINE_ID}/processes", {
@@ -228,6 +246,39 @@ print(f"  ✓ Pipeline confirmation: status={data['status']}, {len(data['stages'
 # Not found
 print("\nGET /pipelines/nonexistent/confirmation:")
 resp = get("/pipelines/nonexistent/confirmation")
+print(f"  Status: {resp.status_code}")
+assert resp.status_code == 404
+print("  ✓ Correctly returned 404")
+
+# --- GET /pipelines/{id}/stages ---
+# Each stage should carry the new dataset-path fields:
+#   input_dataset_paths (list[str]), output_dataset_path (str | None).
+
+print(f"\nGET /pipelines/{TEST_PIPELINE_ID}/stages:")
+resp = get(f"/pipelines/{TEST_PIPELINE_ID}/stages")
+print(f"  Status: {resp.status_code}")
+print(f"  Response: {resp.json()}")
+assert resp.status_code == 200
+stages = {s['proc_type']: s for s in resp.json()}
+
+for stage in stages.values():
+    assert 'input_dataset_paths' in stage, "stage missing input_dataset_paths"
+    assert isinstance(stage['input_dataset_paths'], list)
+    assert 'output_dataset_path' in stage, "stage missing output_dataset_path"
+
+assert stages['PGS']['input_dataset_paths'] == [PGS_RAW_INPUT]
+assert stages['PGS']['output_dataset_path'] == PGS_PROCESSED_OUTPUT
+assert stages['SPEC']['input_dataset_paths'] == [SPEC_RAW_INPUT]
+assert stages['SPEC']['output_dataset_path'] == SPEC_PROCESSED_OUTPUT
+
+# REG consumes both processed outputs -> two input paths (order not guaranteed).
+assert set(stages['REG']['input_dataset_paths']) == {PGS_PROCESSED_OUTPUT, SPEC_PROCESSED_OUTPUT}
+assert stages['REG']['output_dataset_path'] == REGISTERED_OUTPUT
+print("  ✓ Stages carry input_dataset_paths / output_dataset_path (REG has 2 inputs)")
+
+# Not found
+print("\nGET /pipelines/nonexistent/stages:")
+resp = get("/pipelines/nonexistent/stages")
 print(f"  Status: {resp.status_code}")
 assert resp.status_code == 404
 print("  ✓ Correctly returned 404")

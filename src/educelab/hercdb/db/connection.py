@@ -747,7 +747,11 @@ class GraphDBConnection:
         """Return the status of all processes in a pipeline, or None if not found."""
         records, _, _ = self._run_query("""
             MATCH (p:Pipeline {pipeline_id: $pipeline_id})<-[:STAGE_OF]-(proc:Process)
-            RETURN proc
+            OPTIONAL MATCH (input)-[:INPUT]->(proc)
+            OPTIONAL MATCH (proc)-[:OUTPUT]->(output)
+            RETURN proc,
+                   collect(DISTINCT input.path)  AS input_dataset_paths,
+                   collect(DISTINCT output.path) AS output_dataset_paths
             ORDER BY proc.start_time
             """, pipeline_id=pipeline_id)
 
@@ -758,12 +762,15 @@ class GraphDBConnection:
         for record in records:
             proc = record['proc']
             end_time = proc.get('end_time')
+            output_paths = record['output_dataset_paths']
             processes.append({
                 'start_time': str(proc.get('start_time', '')),
                 'stage': proc.get('stage', ''),
                 'status': proc.get('status', ''),
                 'slurm_id': str(proc.get('slurm_id', '')),
-                'end_time': str(end_time) if end_time else None
+                'end_time': str(end_time) if end_time else None,
+                'input_dataset_paths': record['input_dataset_paths'],           # list[str]
+                'output_dataset_path': output_paths[0] if output_paths else None,  # str | None
             })
 
         return processes
