@@ -58,15 +58,17 @@ python -m pip install -U pip setuptools wheel
 ```
 Return later with `module load ccs/Miniforge3 && conda activate hercdb-pipeline`.
 
-`educelab-hercdb` is **not on PyPI** (distributed via git tags), so install the
-EduceLab packages **first**, then the requirements file — pip sees the pin
-already satisfied and only fetches public deps. The login node needs only the
-**client**, so a plain `pip install` is enough (no `--extra server`).
+`educelab-hercdb` is published to **PyPI** on each release tag, so a plain
+`pip install educelab-hercdb` works. The login node needs only the **client**, so
+that is enough (no `--extra server`). To pin an exact release, or to install from
+a local clone checked out at the tag (e.g. offline), use one of:
 ```bash
-# educelab-hercdb at v0.2.2 — from a local clone checked out at the tag:
-( cd ../educelab-hercdb && git fetch --tags && git checkout v0.2.2 )
-pip install ../educelab-hercdb         # or: pip install "git+<hercdb-repo-url>@v0.2.2"
-python -c "import importlib.metadata as m; print(m.version('educelab-hercdb'))"  # -> 0.2.2
+pip install "educelab-hercdb==0.3.0"   # from PyPI, pinned
+
+# or from a local clone checked out at the tag:
+( cd ../educelab-hercdb && git fetch --tags && git checkout v0.3.0 )
+pip install ../educelab-hercdb         # or: pip install "git+<hercdb-repo-url>@v0.3.0"
+python -c "import importlib.metadata as m; print(m.version('educelab-hercdb'))"  # -> 0.3.0
 
 pip install educelab-hpc               # however you normally install it
 pip install -r requirements_pipeline.txt

@@ -48,7 +48,7 @@ artifact, then fetch by the resolved exact `displayName`.
 | Method & path | Client method | Purpose |
 |---|---|---|
 | `GET /pipelines` | `get_pipelines()` | All pipelines with status summaries. |
-| `GET /pipelines/{id}/stages` | `get_pipeline_stages(id)` | All process stages for a pipeline. |
+| `GET /pipelines/{id}/stages` | `get_pipeline_stages(id)` | All process stages for a pipeline. Each stage carries `input_dataset_paths` (list) and `output_dataset_path` (scalar, or null) alongside `proc_type`/`status`/`slurm_id`/`start_time`/`end_time`. A `REG` stage lists both its PGS and SPEC inputs. |
 | `GET /pipelines/{id}/confirmation` | `get_pipeline_confirmation(id)` | Full summary with all stages. |
 | `POST /pipelines` | `initialize_pipeline(pipeline_id, artifact_uuid, datetime)` | Create a Pipeline linked to an EduceLabID. |
 | `POST /pipelines/{id}/processes` | `initialize_process(pipeline_id, proc_type, input_dataset_paths, output_dataset_path, slurm_id, start_datetime)` | Create a Process (stage) within a pipeline. |
@@ -66,8 +66,9 @@ record stages in order.
 
 ## Versioning & distribution
 
-hercdb is distributed via **git tags**, not PyPI. Pin/checkout the tag you need
-(e.g. `git checkout v0.2.2`) before installing. Downstream consumers that depend
-on a specific API should enforce the version at runtime — see the
-acquisition-workflow `_hercdb_compat.py` guard pattern (`SUPPORTED_HERCDB =
-">=0.2.2,<0.3"`).
+hercdb is published to **PyPI** on each release tag (`pip install educelab-hercdb`,
+or pin a version, e.g. `educelab-hercdb==0.3.0`); a git-tag checkout still works
+for local installs. Downstream consumers that depend on a specific API should
+enforce the version at runtime — see the acquisition-workflow `_hercdb_compat.py`
+guard pattern. Note its `SUPPORTED_HERCDB` range lives in that repo and must be
+widened to admit `0.3.0` (the previous `">=0.2.2,<0.3"` excludes it).
