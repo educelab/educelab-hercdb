@@ -237,6 +237,7 @@ Protected by Bearer token authentication (tokens in `~/.tokens`):
 A **PHerc / Cornice / Pezzo is an "artifact"**, addressed on one `/artifacts` resource two ways: **by name** (query params, full detail) or **by UUID** (path, lightweight location bridge). The two personas the API bridges via UUID: papyrologists arrive by name, computer scientists by UUID. By-name fetch endpoints match `displayName` **exactly** — resolve noisy input with `/resolve` first (fuzzy matching lives only there).
 
 - `GET /check-token` - Verify token validity
+- `GET /home` - Welcome message
 - `GET /artifacts?pherc=&cornice=&pezzo=` - Full detail for one artifact by exact name (own props, metadata, assigned `educelabids`, child counts; no datasets). `pherc` required; missing → 422, not found → 404. Backed by `get_artifact_info`.
 - `GET /artifacts/{uuid}` - Resolve a UUID to its artifact: `{uuid, type, displayName, pherc, cornice, pezzo, parent, location}`. Backed by `find_artifact_location_by_uuid`.
 - `GET /pherc/{pherc_id}/subdivisions` - List all Cornici and Pezzi (full hierarchy); each node is `{displayName, aliases, educelabids, parent}` (`parent` = `{type, displayName}`, or `None` for the PHerc — a nested Pezzo carries its parent Cornice).

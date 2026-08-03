@@ -163,16 +163,16 @@ pip install "globus-sdk>=3.42,<3.50"
 ```
 
 ### `Permission denied (publickey)` on git over SSH (HPC node)
-The node needs its own SSH key registered with GitLab. For a non-default key
+The node needs its own SSH key registered with GitHub. For a non-default key
 name, point SSH at it via `~/.ssh/config`:
 ```
-Host gitlab.com
-    HostName gitlab.com
+Host github.com
+    HostName github.com
     User git
     IdentityFile ~/.ssh/id_ed25519_educelab
     IdentitiesOnly yes
 ```
-Test with `ssh -T git@gitlab.com`.
+Test with `ssh -T git@github.com`.
 
 ## Quick reference
 

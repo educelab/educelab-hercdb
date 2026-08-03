@@ -66,6 +66,7 @@ built in) — see its README's "Timeouts and retries" section.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/check-token` | Verify if the provided token is valid |
+| GET | `/home` | Welcome message |
 
 ### Artifact & Dataset Queries
 
