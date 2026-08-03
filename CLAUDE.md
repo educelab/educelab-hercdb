@@ -150,7 +150,7 @@ educelab-hercdb/
 - `HercClient`: Lightweight Python client wrapping all REST endpoints
 - Constructor takes `host`, `token`, and optional `port`, `scheme`, plus resilience knobs `timeout`, `retries`, `backoff_factor`, `backoff_max`
 - Uses one `requests.Session` with an `HTTPAdapter(Retry(...))`: **automatically retries** connection errors / read timeouts / 502-503-504 on **all** verbs (safe — writes are idempotent `MERGE`s) and applies a per-request `timeout`. Defaults span ~108s (`0,4,8,16,20,20,20,20`), riding over the nightly backup 503 window. All calls funnel through `_request` (which takes `tolerate_404` for the two dataset methods that return empty on 404 instead of raising).
-- Methods mirror REST endpoints (`get_pherc`, `get_subdivisions`, `search`, `get_pipelines`, etc.)
+- Methods mirror REST endpoints (`get_artifact_by_name`, `get_artifact`, `get_subdivisions`, `resolve`, `get_pipelines`, etc.)
 
 ### Import Patterns
 
@@ -206,7 +206,7 @@ The `GraphDBConnection` class provides two patterns for queries:
 3. **Artifact detail & traversal**:
    - `get_artifact_info(pherc, cornice=None, pezzo=None)` - full detail for one artifact by exact displayName: own props, attached metadata grouped by label, assigned `educelabids`, and child counts (`cornici_count`/`pezzi_count`). No datasets. Backs `GET /artifacts?pherc=...`. Returns `None` if not found.
    - `list_cornici_and_pezzi_for_pherc(pherc_display_name)` - full hierarchy of Cornici and Pezzi; returns `{pherc, cornici, pezzi}` where each node is `{displayName, aliases, educelabids, parent}`. `parent` is `{type, displayName}` — a nested Pezzo's parent Cornice, or the PHerc for a directly-attached node (and `None` for the PHerc itself) — so consumers can render a Pezzo under its Cornice. Backs `GET /subdivisions`. Returns `None` if the PHerc doesn't exist.
-   - (Removed: `get_directly_attached_nodes` / `records_to_label_json`, which backed the old per-node endpoints. The deprecated `list_cornici_pezzi` is still present pending search-CLI cleanup.)
+   - (Removed: `get_directly_attached_nodes` / `records_to_label_json` / `list_cornici_pezzi`, which backed the old per-node endpoints.)
 
 4. **UUID lookups**:
    - `find_artifact_name_by_uuid(uuid)` - returns dict with `pherc`, `cornice`, `pezzo` display names for a UUID (used internally by pipeline summaries).

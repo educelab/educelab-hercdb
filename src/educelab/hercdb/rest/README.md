@@ -16,7 +16,7 @@ Interactive docs are available at `/docs` (Swagger UI) and `/redoc` (ReDoc).
 
 ### Production
 
-For full server setup (credentials, tokens, systemd), see [docs/SERVER_SETUP.md](../../../docs/SERVER_SETUP.md).
+For full server setup (credentials, tokens, systemd), see [docs/SERVER_SETUP.md](../../../../docs/SERVER_SETUP.md).
 
 ## Authentication
 

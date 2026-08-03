@@ -36,7 +36,7 @@ For running the REST API server, loading data, or querying Neo4j directly:
 pip install educelab-hercdb[server]
 ```
 
-This adds `fastapi`, `neo4j`, `numpy`, `pandas`, `prompt-toolkit`, and `uvicorn`.
+This adds `fastapi`, `neo4j`, `numpy`, `pandas`, `prompt-toolkit`, `pydantic`, `rapidfuzz`, and `uvicorn`.
 
 ## Development Setup
 

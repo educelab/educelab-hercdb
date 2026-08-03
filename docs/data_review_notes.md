@@ -93,7 +93,7 @@ These are the most ambiguous: the same UUID is associated with **different Corni
 
 ## Section 2 — Hard-coded edge cases in the loader
 
-These UUIDs are hard-coded in `src/educelab/hercdb/loader/metadata_loader.py` (around lines 294–316) and bypass the normal UUID-sheet processing. Each one attaches a single UUID across multiple PHercs because the UUID sheet alone could not express that.
+These UUIDs are hard-coded in `src/educelab/hercdb/loader/metadata_loader.py` (around lines 316–338) and bypass the normal UUID-sheet processing. Each one attaches a single UUID across multiple PHercs because the UUID sheet alone could not express that.
 
 | UUID | What the loader does | Notes |
 |---|---|---|
