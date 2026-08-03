@@ -82,6 +82,10 @@ def _is_fully_complete(d):
     has no missing / zero-byte / short / bad-format files. Counts are stored as
     ints on the node; legacy nodes loaded before the count columns existed
     default to 0 (preserving the prior flag-only behavior for un-reloaded data).
+
+    This is the Python twin of the ``_FULLY_COMPLETE_CYPHER`` predicate in
+    ``db/connection.py`` (the ``newest_completed`` path of the ``find_datasets*``
+    methods). The two encode the same rule in two languages — keep them in sync.
     """
     if str(d.get("complete")) != "True":
         return False

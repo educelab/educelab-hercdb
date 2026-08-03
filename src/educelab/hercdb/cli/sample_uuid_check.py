@@ -37,9 +37,10 @@ from educelab.hercdb import config
 from educelab.hercdb.loader.graph_loader import PhercGraphDatabaseLoader as _L
 
 # Ground-truth scan CSVs (PGS used directly; spectral reconciled against the
-# 2023 file so 78 extra sample uuids are recovered — see docs/data_review_notes.md).
+# 2023 file so 78 extra sample uuids are recovered, then hand-corrected — see
+# docs/data_review_notes.md §5).
 DEFAULT_PGS_CSV = "input_data/pgs_datasets_20260601(in).csv"
-DEFAULT_SPECTRAL_CSV = "input_data/spectral_datasets_20260601_reconciled.csv"
+DEFAULT_SPECTRAL_CSV = "input_data/spectral_datasets_20260609_final.csv"
 DEFAULT_OUT = Path("tmp/sample_uuid_check.txt")
 
 # CSV count column -> node-style key (mirrors the scan node properties set by

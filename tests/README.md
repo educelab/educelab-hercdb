@@ -26,19 +26,25 @@ path without needing a database.
 
 ### integration/
 
-- **test_db_queries.py** - Query methods: PHerc lookups, dataset queries, pipeline status, EduceLabID resolution
-- **test_connection.py** - Basic Neo4j connection verification
-- **test_pipeline_loader.py** - Pipeline/process node creation via `PhercGraphDatabaseLoader`
+- **test_db_queries.py** - Query methods: PHerc lookups, dataset queries, pipeline status, EduceLabID resolution (`unittest.TestCase` classes)
+- **test_connection.py** - Basic Neo4j connection verification (plain script)
+- **test_fuzzy_find_node.py** - `GraphDBConnection.fuzzy_find_node` tests (`unittest.TestCase`)
+- **test_pipeline_crud.py** - Pipeline CRUD methods on `GraphDBConnection`: create/update/delete pipelines and processes (`unittest.TestCase`, self-cleaning)
+- **test_pipeline_loader.py** - Pipeline/process node creation via `PhercGraphDatabaseLoader` (script with `--create`/`--cleanup` flags; run directly, not via `unittest`)
 
 ### api/
 
-- **test_server.py** - REST API endpoint tests (template — fill in `host_ip` and `token`)
-- **test_server_local.py** - Same tests configured for localhost
+- **test_server.py** - REST API endpoint tests (script; pass `token` and optional `host_ip` on the command line)
+- **test_fuzzy_endpoints.py** - Integration tests for the `/resolve` endpoint (script; `token` and optional `host_ip` args)
+- **test_pipeline_endpoints.py** - Pipeline CRUD REST endpoint tests; seeds temporary PGSRaw/SpectralRaw input nodes and a live Neo4j connection in addition to the REST server (script; `token` and optional `host_ip` args)
 
 ### client/
 
-- **test_herc_client.py** - `HercClient` tests (template — fill in `host_ip` and `token`)
-- **test_herc_client_local.py** - Same tests configured for localhost
+- **test_herc_client.py** - `HercClient` dataset-finding methods (script — edit `token`/`host_ip` at the top)
+- **test_client_retry.py** - Self-contained `unittest` module for `HercClient`'s automatic retry/timeout behavior; spins up a scripted local HTTP server, no live Neo4j/REST server needed
+- **test_lcc_workflow.py** - LCC workflow walkthrough via `HercClient` (script — edit `token`/`host_ip` at the top)
+- **test_pipeline_client.py** - `HercClient` pipeline CRUD methods (script — edit `token`/`host_ip` at the top)
+- **test_resolve_client.py** - `HercClient.resolve` tests (script — edit `token`/`host_ip` at the top)
 
 ## Running Tests
 
@@ -57,11 +63,14 @@ uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries
 
 # A specific test method
 uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries.test_find_artifact_name_by_uuid
+
+# test_client_retry.py is self-contained (no live server needed)
+uv run python -m unittest tests.client.test_client_retry
 ```
 
-Note: `api/` and `client/` test files are scripts rather than standard `unittest.TestCase` classes — run them directly:
+Note: most `api/` and `client/` test files are scripts rather than `unittest.TestCase` classes (`test_client_retry.py` is the exception) — run them directly, passing a token and host as needed:
 
 ```bash
-uv run python tests/api/test_server_local.py
-uv run python tests/client/test_herc_client_local.py
+uv run python tests/api/test_server.py <token> [host_ip]
+uv run python tests/client/test_herc_client.py   # edit token/host_ip at the top of the file first
 ```

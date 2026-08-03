@@ -33,6 +33,21 @@ class DatasetType(Enum):
         return f'{self.value}'
 
 
+# Cypher predicate for "a dataset is fully complete": the `complete` flag is
+# "True" AND it has no missing / zero-byte / short / bad-format files. This is
+# the Cypher twin of cli/scan_completeness.py `_is_fully_complete` — keep the two
+# in sync. `coalesce(..., 0)` preserves the flag-only behaviour for legacy nodes
+# loaded before the count columns existed (their missing counts read as 0, i.e.
+# clean), exactly as the Python rule defaults those counts to 0. Assumes the
+# dataset is bound to `d`.
+_FULLY_COMPLETE_CYPHER = (
+    'AND d.complete = "True" '
+    'AND coalesce(d.missing_files, 0) = 0 '
+    'AND coalesce(d.zero_byte_files, 0) = 0 '
+    'AND coalesce(d.short_files, 0) = 0 '
+    'AND coalesce(d.bad_format_files, 0) = 0'
+)
+
 
 class GraphDBConnection:
     logger = logging.getLogger('educelab.hercdb')
@@ -1021,7 +1036,7 @@ class GraphDBConnection:
         """Find all datasets for a specific EduceLabID."""
         dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
         type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
-        completed_filter = 'AND d.complete = "True"' if newest_completed else ""
+        completed_filter = _FULLY_COMPLETE_CYPHER if newest_completed else ""
 
         grouping = """
             ORDER BY datetime(d.date_end) DESC
@@ -1064,7 +1079,7 @@ class GraphDBConnection:
         """
         dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
         type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
-        completed_filter = 'AND d.complete = "True"' if newest_completed else ""
+        completed_filter = _FULLY_COMPLETE_CYPHER if newest_completed else ""
 
         grouping = """
             ORDER BY datetime(d.date_end) DESC
@@ -1122,7 +1137,7 @@ class GraphDBConnection:
         """
         dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
         type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
-        completed_filter = 'AND d.complete = "True"' if newest_completed else ""
+        completed_filter = _FULLY_COMPLETE_CYPHER if newest_completed else ""
 
         query = f"""
             MATCH (ph:PHerc {{displayName: $pherc_display_name}})
