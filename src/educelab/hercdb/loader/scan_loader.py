@@ -8,8 +8,8 @@ parser.add_argument('--negatives', default='input_data/negatives.csv',
                     help='Path to negatives CSV file (default: input_data/negatives.csv)')
 parser.add_argument('--photogrammetry', default='input_data/pgs_datasets_20260601(in).csv',
                     help='Path to photogrammetry scans CSV file (default: 2026 PGS ground-truth)')
-parser.add_argument('--spectral', default='input_data/spectral_datasets_20260601_reconciled.csv',
-                    help='Path to spectral scans CSV file (default: 2026 spectral reconciled ground-truth)')
+parser.add_argument('--spectral', default='input_data/spectral_datasets_20260609_final.csv',
+                    help='Path to spectral scans CSV file (default: 2026 spectral ground-truth)')
 parser.add_argument('--replace', action=argparse.BooleanOptionalAction, default=True,
                     help='Delete all existing PGSRaw/SpectralRaw nodes before loading '
                          '(default: --replace). Use --no-replace to merge into existing data.')
