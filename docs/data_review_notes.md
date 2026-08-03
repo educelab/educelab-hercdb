@@ -134,9 +134,12 @@ The 2026 scan datasets (`input_data/pgs_datasets_20260601(in).csv`,
 `input_data/spectral_datasets_20260601 1(in).csv`) were reconciled against the 2023 CSVs
 (`photogrammetry-scans-20231107.csv`, `spectral-scans-20231108.csv`) and reloaded. The 2026
 spectral file shipped with many blank `sample uuid` values and dropped the `sample uuid 2`
-column. The reconciliation (`preprocessing/reconcile_spectral_2026.py`) wrote the ground-truth file
-`input_data/spectral_datasets_20260601_reconciled.csv`. Items below were passed through faithfully
-and warrant confirmation.
+column. The reconciliation (`preprocessing/reconcile_spectral_2026.py`) wrote
+`input_data/spectral_datasets_20260601_reconciled.csv`, which was then hand-corrected into the
+current ground-truth file `input_data/spectral_datasets_20260609_final.csv` (8 sample-uuid
+corrections + 1 completeness fix; see the retirement note below). The loader and
+`sample_uuid_check` default to the `_final` file. Items below were passed through faithfully and
+warrant confirmation.
 
 - **78 spectral `sample uuid` values backfilled from 2023** — present in the 2023 CSV for the same
   scan `uuid` but blank in the 2026 file. Restored. Confirm the 2023 associations are still correct.
@@ -153,6 +156,15 @@ and warrant confirmation.
   `10517d86-92b4-52de-b9e3-caae671ebec0`. The 2026 schema removed `sample uuid 2`, so only the primary
   `BELONGS_TO` link was recreated. **Confirm whether the secondary association should be preserved**
   (and, if so, how, since the source column is gone).
+
+**2023 CSVs retired (2026-08-03).** The two 2023 scan CSVs (`photogrammetry-scans-20231107.csv`,
+`spectral-scans-20231108.csv`) were verified fully subsumed by the current 2026 files
+(`pgs_datasets_20260601(in).csv`, `spectral_datasets_20260609_final.csv`): every 2023 scan `uuid`
+is present in its 2026 counterpart, with no `sample uuid` linkage lost. The only 2023-only datum is
+the single dropped `sample uuid 2` recorded above. Both files were moved out of `input_data/` to
+`tmp/obsolete/` (gitignored, recoverable) and should be deleted in a future cleanup. The earlier
+`spectral_datasets_20260601 1(in).csv` intermediate — superseded by the `20260609_final` file via 8
+sample-uuid corrections and 1 completeness fix — was retired to the same place.
 
 ## Section 6 — Name model migration (canonical displayName + aliases) and sample-UUID cross-check
 
@@ -199,8 +211,8 @@ Genuine issues still needing a human decision:
 To answer "which physical objects still need a PGS/Spectral scan, and which museum holds them"
 ahead of a scanning trip — **without** loading the new scans into Neo4j — `el-hercdb-scan-report
 --scans-from-csv` reads coverage directly from the scan CSVs (PGS = `pgs_datasets_20260601(in).csv`,
-Spectral = the reconciled `spectral_datasets_20260601_reconciled.csv`, which recovers 78 sample
-uuids vs the raw `(in)` file) and joins against the already-loaded artifact hierarchy + institution.
+Spectral = `spectral_datasets_20260609_final.csv`, which recovers 78 sample uuids vs the raw `(in)`
+file plus later hand corrections) and joins against the already-loaded artifact hierarchy + institution.
 Read-only on the DB. Produces `scan_completeness_full.csv`, `_issues.csv`, and a curated
 `scan_completeness_review.csv`.
 
