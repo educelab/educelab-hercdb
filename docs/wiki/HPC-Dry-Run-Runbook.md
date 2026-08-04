@@ -50,19 +50,23 @@ git checkout pipeline-hercdb-0.2.1
 ### 2. Create a conda env (Miniforge3) and install deps
 This cluster's Python is conda-based, so use a conda env (**not** `python -m venv`).
 ```bash
-module load ccs/Miniforge3
-conda create -n $SCRATCH/hercdb-pipeline python=3.11 -y
+module load ccs/Miniforge3   # On ECC, use `module load ecc/Miniconda3/25.1.1`
+conda create -p $SCRATCH/hercdb-pipeline python=3.11 -y
 source activate
-conda activate hercdb-pipeline
+conda activate $SCRATCH/hercdb-pipeline
 python -m pip install -U pip setuptools wheel
 ```
-Return later with `module load ccs/Miniforge3 && conda activate hercdb-pipeline`.
+Return later with `module load ccs/Miniforge3 && conda activate $SCRATCH/hercdb-pipeline`.
+(on ECC, use `ecc/Miniconda3/25.1.1`)
 
 `educelab-hercdb` is published to **PyPI** on each release tag, so a plain
 `pip install educelab-hercdb` works. The login node needs only the **client**, so
 that is enough (no `--extra server`). To pin an exact release, or to install from
 a local clone checked out at the tag (e.g. offline), use one of:
 ```bash
+pip install educelab-hpc               # however you normally install it
+pip install -r requirements_pipeline.txt # this may install earlier version
+
 pip install "educelab-hercdb==0.3.0"   # from PyPI, pinned
 
 # or from a local clone checked out at the tag:
@@ -70,8 +74,7 @@ pip install "educelab-hercdb==0.3.0"   # from PyPI, pinned
 pip install ../educelab-hercdb         # or: pip install "git+<hercdb-repo-url>@v0.3.0"
 python -c "import importlib.metadata as m; print(m.version('educelab-hercdb'))"  # -> 0.3.0
 
-pip install educelab-hpc               # however you normally install it
-pip install -r requirements_pipeline.txt
+
 ```
 
 ### 3. Client credentials — `~/.hercdb_client.env` (no Neo4j password)
