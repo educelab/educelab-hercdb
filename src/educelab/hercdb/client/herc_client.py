@@ -297,6 +297,7 @@ class HercClient:
         proc_type: str,
         status: str,
         end_datetime: str,
+        notes: str | None = None,
     ) -> dict:
         """Update the status of a process in a pipeline.
 
@@ -305,11 +306,29 @@ class HercClient:
             proc_type: The process type (PGS, SPEC, REG, WEB).
             status: New status (completed or failed).
             end_datetime: ISO datetime string for end time.
+            notes: Free text saying where a multi-job stage failed. Sent only
+                when given, so this cannot blank a note another job just wrote.
+                Requires a 0.3.2 server — an older one ignores the field
+                silently rather than erroring.
         """
-        return self._put(f"/pipelines/{pipeline_id}/processes/{proc_type}/status", json={
-            "status": status,
-            "end_datetime": end_datetime,
-        }).json()
+        body = {"status": status, "end_datetime": end_datetime}
+        if notes is not None:
+            body["notes"] = notes
+        return self._put(
+            f"/pipelines/{pipeline_id}/processes/{proc_type}/status", json=body).json()
+
+    def get_unprocessed_spectral_datasets(self) -> list[dict]:
+        """Spectral scans awaiting processing: one row per artifact, newest scan.
+
+        The work-list for the unattended spectral dispatcher. Each row carries
+        the dataset to process plus the artifact fields an output directory is
+        named from. An empty list means nothing is left to process.
+        """
+        return self._get("/datasets/spectral/unprocessed").json()
+
+    def get_ambiguous_spectral_datasets(self) -> list[dict]:
+        """Complete spectral scans the dispatcher skips, and why."""
+        return self._get("/datasets/spectral/ambiguous").json()
 
     def delete_pipeline(self, pipeline_id: str) -> dict:
         """Delete a pipeline and all its processes and output datasets.

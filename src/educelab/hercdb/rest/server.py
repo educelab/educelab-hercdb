@@ -34,7 +34,7 @@ logger = logging.getLogger("api-auth")
 app = FastAPI(
     title="EduceLab HercDB API",
     description="REST API for the Herculaneum Papyrus Scroll Database",
-    version="0.3.0",
+    version="0.3.2",
 )
 security = HTTPBearer()
 
@@ -330,6 +330,31 @@ async def get_pipelines(user: str = Depends(get_current_user)):
     return JSONResponse(content=result, status_code=200)
 
 
+@app.get("/datasets/spectral/unprocessed")
+async def get_unprocessed_spectral_datasets(user: str = Depends(get_current_user)):
+    """Spectral scans awaiting processing: one row per artifact, newest scan.
+
+    The work-list for the unattended spectral dispatcher. An empty list is a
+    valid answer (nothing left to process), so this returns 200 with `[]` rather
+    than a 404.
+    """
+    logger.info(f"User {user} requested unprocessed spectral datasets")
+    return JSONResponse(content=db.find_unprocessed_spectral_datasets(),
+                        status_code=200)
+
+
+@app.get("/datasets/spectral/ambiguous")
+async def get_ambiguous_spectral_datasets(user: str = Depends(get_current_user)):
+    """Complete spectral scans the dispatcher skips, and why.
+
+    The companion to the work-list: these need a human to say where their output
+    belongs, and reporting them is what stops them being silently dropped.
+    """
+    logger.info(f"User {user} requested ambiguous spectral datasets")
+    return JSONResponse(content=db.find_ambiguous_spectral_datasets(),
+                        status_code=200)
+
+
 # --- Pipeline CRUD models ---
 
 class CreatePipelineRequest(BaseModel):
@@ -347,6 +372,10 @@ class CreateProcessRequest(BaseModel):
 class UpdateProcessStatusRequest(BaseModel):
     status: str
     end_datetime: str
+    # Optional so a pre-0.3.2 caller is unchanged. Says *where* a stage failed
+    # when that stage is split across several jobs (e.g. stage/spec/archive all
+    # reporting as SPEC) and only the job that died knows which one it was.
+    notes: str | None = None
 
 
 # --- Pipeline CRUD endpoints ---
@@ -416,6 +445,7 @@ async def update_process_status(
         stage=proc_type,
         status=body.status,
         end_datetime=body.end_datetime,
+        notes=body.notes,
     )
     if not result:
         raise HTTPException(

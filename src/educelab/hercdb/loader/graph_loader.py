@@ -8,6 +8,42 @@ from educelab.hercdb import config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('educelab.dataloader')
 
+# A raw dataset's `path` is its address relative to the **data root**, so one
+# string locates it on any mirror of the tree (the archive, a cluster's scratch)
+# and can be handed straight to a transfer. The scan CSVs record paths relative
+# to each type's own root instead -- PGS dailies sit directly under Dailies/,
+# spectral ones a level down -- so the missing prefix is put back on here, at
+# the point the property is written, rather than being every consumer's problem.
+#
+# Consumers pair with these: acquisition-workflow's common.py names the same two
+# roots (REL_RAW_DIR_PGS / REL_RAW_DIR_SPEC) for its own re-rooting shim, which
+# becomes a no-op once every path is stored this way.
+REL_RAW_DIR_PGS = 'Dailies'
+REL_RAW_DIR_SPEC = 'Dailies/Spectral'
+
+# The prefix that means "already data-root-relative". Guarding on the shared
+# root rather than each type's full prefix matches the one-off migration that
+# first normalized these paths, so the loader and that migration cannot disagree
+# about which paths they consider already done.
+_RAW_ROOT = 'Dailies'
+
+
+def _data_root_relative(path, rel_raw_dir: str):
+    """Re-root a raw dataset path under `rel_raw_dir`, idempotently.
+
+    A path already carrying the root passes through unchanged, so re-running a
+    load -- or loading a CSV that was fixed at source -- cannot double the
+    prefix. Leaves None/empty alone: an absent path is a data problem to report,
+    not one to invent a location for.
+    """
+    if not path:
+        return path
+    normalized = str(path).lstrip('/')
+    if normalized == _RAW_ROOT or normalized.startswith(f'{_RAW_ROOT}/'):
+        return normalized
+    return f'{rel_raw_dir}/{normalized}'
+
+
 class PhercGraphDatabaseLoader:
 
     def __init__(self, uri=None, user=None, password=None):
@@ -699,7 +735,7 @@ class PhercGraphDatabaseLoader:
                          missing_files=None, zero_byte_files=None, short_files=None,
                          bad_format_files=None):
         params = {
-            "pgs_path": pgs_path,
+            "pgs_path": _data_root_relative(pgs_path, REL_RAW_DIR_PGS),
             "scan_uuid": scan_uuid,
             "datetime_start": datetime_start,
             "datetime_end": datetime_end,
@@ -740,7 +776,7 @@ class PhercGraphDatabaseLoader:
                               missing_files=None, zero_byte_files=None, short_files=None,
                               bad_format_files=None):
         params = {
-            "spectral_path": spectral_path,
+            "spectral_path": _data_root_relative(spectral_path, REL_RAW_DIR_SPEC),
             "scan_uuid": scan_uuid,
             "datetime_start": datetime_start,
             "datetime_end": datetime_end,
