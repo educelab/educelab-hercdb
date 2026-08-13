@@ -5,6 +5,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.2] - 2026-08-12
+
+### Added
+- `GET /datasets/spectral/unprocessed` + `HercClient.get_unprocessed_spectral_datasets()` — the work-list for the unattended spectral dispatcher: one row per artifact, its newest complete scan, carrying the dataset path plus the `pherc`/`cornice`/`pezzo` fields an output directory is named from, and `attempts`/`last_status`/`last_notes` for a retry cap. Three selection rules whose **order matters**: skip multi-object trays, take newest-per-artifact, *then* drop anything already carrying a `completed` SPEC Process. Dropping processed scans first would make the next-newest become "newest of the unprocessed", and the list would never empty.
+- `GET /datasets/spectral/ambiguous` + `HercClient.get_ambiguous_spectral_datasets()` — complete scans the dispatcher skips, and why. Currently scans whose EduceLabID is assigned to more than one P.Herc.: their output has no single object directory to belong to, so a human decides where it lands. Reporting them is what stops them being silently dropped from a campaign.
+- `notes` on the process-status update (`PUT /pipelines/{id}/processes/{proc_type}/status`, `update_process_status()`, `HercClient.update_process_status()`) — free text recording *where* a stage failed, for a stage split across several jobs where only the job that died knows which one it was. Optional throughout, and written only when given, so a later update without notes cannot blank a note another job just wrote.
+- `GET /pipelines/{id}/stages` now returns `notes` on each stage.
+
+### Changed
+- Raw dataset paths are normalized to data-root-relative at ingest (`Dailies/` for PGS, `Dailies/Spectral/` for spectral) in `graph_loader`, rather than stored as the scan CSVs happen to record them. Idempotent, so re-running a load or loading a corrected CSV cannot double the prefix. Without this, `scan_loader --replace` (the default) would revert already-normalized paths on the next load.
+
+---
+
 ## [0.3.0] - 2026-07-17
 
 ### Added

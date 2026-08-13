@@ -1,5 +1,5 @@
 import logging
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from enum import Enum
 
 from neo4j import GraphDatabase
@@ -47,6 +47,19 @@ _FULLY_COMPLETE_CYPHER = (
     'AND coalesce(d.short_files, 0) = 0 '
     'AND coalesce(d.bad_format_files, 0) = 0'
 )
+
+
+def _newer(a, b) -> bool:
+    """Whether `a` is a later timestamp than `b`, tolerating missing values.
+
+    Neo4j hands back DateTime objects, which compare directly; a null sorts
+    oldest so a scan with no date_end never displaces one that has it.
+    """
+    if a is None:
+        return False
+    if b is None:
+        return True
+    return a > b
 
 
 class GraphDBConnection:
@@ -786,6 +799,9 @@ class GraphDBConnection:
                 'end_time': str(end_time) if end_time else None,
                 'input_dataset_paths': record['input_dataset_paths'],           # list[str]
                 'output_dataset_path': output_paths[0] if output_paths else None,  # str | None
+                # Where a multi-job stage failed. None on any process written
+                # before 0.3.2, and on every one that simply succeeded.
+                'notes': proc.get('notes'),
             })
 
         return processes
@@ -1225,6 +1241,195 @@ class GraphDBConnection:
 
         return results
 
+    def _spectral_candidate_rows(self) -> list[dict]:
+        """One row per (complete SpectralRaw, artifact it resolves to).
+
+        The raw material for the two work-list queries below. Deliberately does
+        no grouping: a scan can resolve to several artifacts (a tray holding
+        fragments of more than one P.Herc.), and which of those rows to keep is
+        policy, expressed in Python where it can be read.
+
+        `attempts` / `last_status` / `last_notes` describe SPEC Processes
+        recorded against the *dataset*, so they are the same on every row of a
+        given scan.
+        """
+        records, _, _ = self._run_query(f"""
+            MATCH (d:SpectralRaw)-[:BELONGS_TO]->(e:EduceLabID)
+            WHERE d.path IS NOT NULL AND d.path <> ''
+              {_FULLY_COMPLETE_CYPHER}
+            // The EduceLabID a Pipeline attaches to is the one bearing the
+            // artifact, which may be a successor of the one the scan belongs to
+            // -- the same REPLACES walk the dataset read path does.
+            MATCH (active:EduceLabID)-[:REPLACES*0..]->(e)
+            MATCH (active)-[:ASSIGNED_TO]->(artifact)
+            WHERE artifact:PHerc OR artifact:Cornice OR artifact:Pezzo
+            OPTIONAL MATCH (artifact)<-[:HAS]-(parent1)
+            OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
+            OPTIONAL MATCH (d)-[:INPUT]->(proc:Process {{stage: "SPEC"}})
+            WITH d, active, artifact, parent1, parent2, proc
+            ORDER BY proc.start_time DESC
+            WITH d, active, artifact,
+                 CASE
+                     WHEN 'PHerc' IN labels(artifact) THEN artifact
+                     WHEN 'PHerc' IN labels(parent1) THEN parent1
+                     WHEN 'PHerc' IN labels(parent2) THEN parent2
+                 END AS pherc_node,
+                 CASE
+                     WHEN 'Cornice' IN labels(artifact) THEN artifact
+                     WHEN 'Cornice' IN labels(parent1) THEN parent1
+                 END AS cornice_node,
+                 CASE
+                     WHEN 'Pezzo' IN labels(artifact) THEN artifact
+                 END AS pezzo_node,
+                 collect(proc) AS procs
+            RETURN d.path AS path,
+                   d.date_end AS date_end,
+                   active.uuid AS uuid,
+                   elementId(artifact) AS artifact_id,
+                   pherc_node.displayName AS pherc,
+                   cornice_node.displayName AS cornice,
+                   pezzo_node.displayName AS pezzo,
+                   size(procs) AS attempts,
+                   head(procs).status AS last_status,
+                   head(procs).notes AS last_notes,
+                   any(p IN procs WHERE p.status = "completed") AS processed
+            """)
+
+        return [
+            {
+                'uuid': r['uuid'],
+                'pherc': r['pherc'],
+                'cornice': r['cornice'],
+                'pezzo': r['pezzo'],
+                'path': r['path'],
+                'date_end': r['date_end'],
+                'artifact_id': r['artifact_id'],
+                'attempts': r['attempts'],
+                'last_status': r['last_status'],
+                'last_notes': r['last_notes'],
+                'processed': bool(r['processed']),
+            }
+            for r in (records or [])
+        ]
+
+    @staticmethod
+    def _artifact_specificity(row) -> int:
+        """Pezzo beats Cornice beats bare PHerc, for picking among an ID's artifacts."""
+        if row['pezzo']:
+            return 2
+        if row['cornice']:
+            return 1
+        return 0
+
+    @staticmethod
+    def _spectral_rows_by_scan(rows) -> dict:
+        """Group candidate rows by dataset path (one scan, one or more artifacts)."""
+        by_path = defaultdict(list)
+        for row in rows:
+            by_path[row['path']].append(row)
+        return by_path
+
+    def find_unprocessed_spectral_datasets(self) -> list[dict]:
+        """Spectral scans awaiting processing: one row per artifact, newest scan.
+
+        Backs the unattended spectral dispatcher, which needs a work-list it can
+        act on without a human: each row carries both the dataset to process and
+        the artifact fields the caller names its output directory from.
+
+        Three selection rules, and **the order they are applied in matters**:
+
+        1. *Skip multi-object trays.* A scan whose EduceLabID is assigned to more
+           than one P.Herc. covers fragments of several objects, and its output
+           could only be published under one of them. There is no non-arbitrary
+           way to choose, so it is left for a human;
+           `find_ambiguous_spectral_datasets` lists them.
+        2. *One row per artifact, newest scan.* An artifact scanned repeatedly is
+           processed once, from its newest scan by ``date_end`` -- the same
+           choice the interactive submitter makes. Where one EduceLabID is
+           assigned to both an artifact and its parent, the more specific
+           artifact wins.
+        3. *Then* drop anything already carrying a ``completed`` SPEC Process.
+
+        Doing 3 before 2 looks equivalent and is not: once an artifact's newest
+        scan is processed, the next-newest would become "newest of the
+        unprocessed" and be queued, then the one after that, and the work-list
+        would never empty.
+
+        Scans whose EduceLabID resolves to no artifact are absent by
+        construction -- the ``ASSIGNED_TO`` match is required, not optional --
+        because they carry no P.Herc. number to name an output directory with.
+
+        Returns:
+            List of dicts with keys 'uuid' (the *assigned* EduceLabID, which is
+            what a Pipeline links to), 'pherc', 'cornice', 'pezzo', 'path'
+            (exactly as recorded), 'date_end', 'attempts' (SPEC Processes so far,
+            for a retry cap), 'last_status' and 'last_notes'.
+        """
+        by_path = self._spectral_rows_by_scan(self._spectral_candidate_rows())
+
+        newest_per_artifact = {}
+        for group in by_path.values():
+            if len({r['pherc'] for r in group}) > 1:
+                continue                                    # rule 1
+            row = max(group, key=self._artifact_specificity)
+            current = newest_per_artifact.get(row['artifact_id'])
+            if current is None or _newer(row['date_end'], current['date_end']):
+                newest_per_artifact[row['artifact_id']] = row  # rule 2
+
+        return sorted(
+            (self._public_spectral_row(r)
+             for r in newest_per_artifact.values() if not r['processed']),  # rule 3
+            key=lambda r: (r['pherc'] or '', r['cornice'] or '', r['pezzo'] or ''),
+        )
+
+    def find_ambiguous_spectral_datasets(self) -> list[dict]:
+        """Complete spectral scans the dispatcher skips, and why.
+
+        Currently one reason: the scan's EduceLabID is assigned to more than one
+        P.Herc., so its output has no single object directory to belong to. These
+        need a human to say where the result should land, and this is what stops
+        them being silently dropped from the campaign.
+
+        Returns one row per skipped *scan* (not per artifact), each with the
+        artifacts it spans under 'artifacts'.
+        """
+        by_path = self._spectral_rows_by_scan(self._spectral_candidate_rows())
+
+        skipped = []
+        for path, group in by_path.items():
+            if len({r['pherc'] for r in group}) <= 1:
+                continue
+            first = group[0]
+            skipped.append({
+                'path': path,
+                'uuid': first['uuid'],
+                'date_end': str(first['date_end']) if first['date_end'] else None,
+                'reason': 'assigned to more than one P.Herc.',
+                'processed': first['processed'],
+                'artifacts': sorted(
+                    ({'pherc': r['pherc'], 'cornice': r['cornice'],
+                      'pezzo': r['pezzo']} for r in group),
+                    key=lambda a: (a['pherc'] or '', a['cornice'] or '',
+                                   a['pezzo'] or ''),
+                ),
+            })
+        return sorted(skipped, key=lambda r: r['path'])
+
+    @staticmethod
+    def _public_spectral_row(row) -> dict:
+        """Drop the internal grouping keys and make the row JSON-safe."""
+        return {
+            'uuid': row['uuid'],
+            'pherc': row['pherc'],
+            'cornice': row['cornice'],
+            'pezzo': row['pezzo'],
+            'path': row['path'],
+            'date_end': str(row['date_end']) if row['date_end'] else None,
+            'attempts': row['attempts'],
+            'last_status': row['last_status'],
+            'last_notes': row['last_notes'],
+        }
+
     def initialize_pipeline(self, pipeline_id: str, artifact_uuid: str, datetime: str) -> dict | None:
         """Create a Pipeline node and link it to an EduceLabID."""
         records, _, _ = self._run_query("""
@@ -1340,23 +1545,33 @@ class GraphDBConnection:
             'status': proc.get('status', ''),
         }
 
-    def update_process_status(self, pipeline_id: str, stage: str, status: str, end_datetime: str) -> dict | None:
-        """Update the status and end_time of a process in a pipeline.
+    def update_process_status(self, pipeline_id: str, stage: str, status: str,
+                              end_datetime: str, notes: str = None) -> dict | None:
+        """Update the status, end_time and optionally the notes of a process.
 
         Args:
             pipeline_id: The pipeline ID.
             stage: The process stage (PGS, SPEC, REG, WEB).
             status: New status (completed or failed).
             end_datetime: ISO datetime string for end time.
+            notes: Free text saying *where* a stage failed, for a pipeline whose
+                stage is split across several jobs and where only the job that
+                died knows which one it was. Written only when given, so a caller
+                that passes nothing cannot blank a note another job just wrote.
 
         Returns:
             Dict with updated process info, or None on failure.
         """
-        records, _, _ = self._run_query("""
-            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})<-[:STAGE_OF]-(proc:Process {stage: $stage})
-            SET proc.status = $status, proc.end_time = $end_datetime
+        set_clause = 'SET proc.status = $status, proc.end_time = $end_datetime'
+        if notes is not None:
+            set_clause += ', proc.notes = $notes'
+
+        records, _, _ = self._run_query(f"""
+            MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})<-[:STAGE_OF]-(proc:Process {{stage: $stage}})
+            {set_clause}
             RETURN proc
-            """, pipeline_id=pipeline_id, stage=stage, status=status, end_datetime=end_datetime)
+            """, pipeline_id=pipeline_id, stage=stage, status=status,
+            end_datetime=end_datetime, notes=notes)
 
         if not records:
             return None
@@ -1367,6 +1582,7 @@ class GraphDBConnection:
             'start_time': str(proc.get('start_time', '')),
             'end_time': str(proc.get('end_time', '')) if proc.get('end_time') else None,
             'status': proc.get('status', ''),
+            'notes': proc.get('notes'),
         }
 
     def delete_pipeline(self, pipeline_id: str) -> dict | None:
