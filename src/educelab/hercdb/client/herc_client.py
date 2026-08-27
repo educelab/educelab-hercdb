@@ -317,13 +317,28 @@ class HercClient:
         return self._put(
             f"/pipelines/{pipeline_id}/processes/{proc_type}/status", json=body).json()
 
-    def get_unprocessed_spectral_datasets(self) -> list[dict]:
-        """Spectral scans awaiting processing: one row per artifact, newest scan.
+    def get_unprocessed_datasets(self, proc_type: str) -> list[dict]:
+        """Raw scans awaiting `proc_type`: one row per artifact, newest scan.
 
-        The work-list for the unattended spectral dispatcher. Each row carries
-        the dataset to process plus the artifact fields an output directory is
-        named from. An empty list means nothing is left to process.
+        The work-list for an unattended dispatcher. Each row carries the dataset
+        to process plus the artifact fields an output directory is named from.
+        An empty list means nothing is left to process.
+
+        Args:
+            proc_type: 'SPEC' or 'PGS'. Anything else returns 400.
         """
+        return self._get(f"/datasets/{proc_type}/unprocessed").json()
+
+    def get_ambiguous_datasets(self, proc_type: str) -> list[dict]:
+        """Complete raw scans the `proc_type` dispatcher skips, and why."""
+        return self._get(f"/datasets/{proc_type}/ambiguous").json()
+
+    # Kept for 0.3.2 callers, and deliberately still on the literal
+    # /datasets/spectral/... routes: a 0.3.3 client then also works against a
+    # server that has not been upgraded yet.
+
+    def get_unprocessed_spectral_datasets(self) -> list[dict]:
+        """The SPEC work-list. See `get_unprocessed_datasets`."""
         return self._get("/datasets/spectral/unprocessed").json()
 
     def get_ambiguous_spectral_datasets(self) -> list[dict]:

@@ -472,7 +472,7 @@ wheels = [
 
 [[package]]
 name = "educelab-hercdb"
-version = "0.3.0"
+version = "0.3.3"
 source = { editable = "." }
 dependencies = [
     { name = "requests" },

@@ -5,6 +5,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.3] - 2026-08-27
+
+### Added
+- `GET /datasets/{proc_type}/unprocessed` and `GET /datasets/{proc_type}/ambiguous`, plus `HercClient.get_unprocessed_datasets(proc_type)` / `get_ambiguous_datasets(proc_type)` and `GraphDBConnection.find_unprocessed_datasets(proc_type)` / `find_ambiguous_datasets(proc_type)` — the 0.3.2 spectral work-list, parameterized by proc_type so PGS (and later REG/WEB) share one query family rather than gaining a hard-coded sibling apiece. `proc_type` is `SPEC` or `PGS`; the path segment is case-insensitive, and anything without a work-list returns 400.
+
+### Changed
+- Nothing in the returned rows. The work-list row is byte-identical to 0.3.2's, so nothing to migrate.
+- Internally, `_spectral_candidate_rows` → `_raw_candidate_rows(proc_type)`, `_spectral_rows_by_scan` → `_candidate_rows_by_scan`, `_public_spectral_row` → `_public_candidate_row`. Neo4j cannot parameterize a node label, so the query interpolates one looked up from `_CANDIDATE_LABELS` rather than taken from the caller — injection is structurally impossible, not merely unlikely.
+
+### Backward compatibility
+- `GET /datasets/spectral/unprocessed` and `/datasets/spectral/ambiguous` are unchanged and still declared *before* the parameterized routes, so FastAPI keeps matching them first and 0.3.2 clients are unaffected.
+- `find_unprocessed_spectral_datasets()` / `find_ambiguous_spectral_datasets()` and the two matching `HercClient` methods remain. The client aliases deliberately still call the *literal* spectral routes, so a 0.3.3 client also works against a server that has not been upgraded yet.
+
+---
+
 ## [0.3.2] - 2026-08-12
 
 ### Added

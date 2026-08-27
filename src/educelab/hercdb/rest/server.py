@@ -355,6 +355,43 @@ async def get_ambiguous_spectral_datasets(user: str = Depends(get_current_user))
                         status_code=200)
 
 
+# Declared *after* the two literal /datasets/spectral/... routes above: FastAPI
+# matches in registration order, so the literals keep winning and 0.3.2 clients
+# are unaffected. proc_type is upper-cased so a lower-case path segment works;
+# the db layer raises ValueError on anything it has no work-list for.
+
+@app.get("/datasets/{proc_type}/unprocessed")
+async def get_unprocessed_datasets(proc_type: str,
+                                   user: str = Depends(get_current_user)):
+    """Raw scans awaiting `proc_type`: one row per artifact, newest scan.
+
+    The work-list for an unattended dispatcher. An empty list is a valid answer
+    (nothing left to process), so this returns 200 with `[]` rather than a 404.
+    """
+    logger.info(f"User {user} requested unprocessed {proc_type} datasets")
+    try:
+        rows = db.find_unprocessed_datasets(proc_type.upper())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse(content=rows, status_code=200)
+
+
+@app.get("/datasets/{proc_type}/ambiguous")
+async def get_ambiguous_datasets(proc_type: str,
+                                 user: str = Depends(get_current_user)):
+    """Complete raw scans the `proc_type` dispatcher skips, and why.
+
+    The companion to the work-list: these need a human to say where their output
+    belongs, and reporting them is what stops them being silently dropped.
+    """
+    logger.info(f"User {user} requested ambiguous {proc_type} datasets")
+    try:
+        rows = db.find_ambiguous_datasets(proc_type.upper())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse(content=rows, status_code=200)
+
+
 # --- Pipeline CRUD models ---
 
 class CreatePipelineRequest(BaseModel):

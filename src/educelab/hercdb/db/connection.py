@@ -48,6 +48,11 @@ _FULLY_COMPLETE_CYPHER = (
     'AND coalesce(d.bad_format_files, 0) = 0'
 )
 
+# The raw dataset label each proc_type's work-list scans. Neo4j cannot
+# parameterize a label, so the query interpolates one -- looked up here rather
+# than accepted from the caller, which makes injection structurally impossible.
+_CANDIDATE_LABELS = {'SPEC': 'SpectralRaw', 'PGS': 'PGSRaw'}
+
 
 def _newer(a, b) -> bool:
     """Whether `a` is a later timestamp than `b`, tolerating missing values.
@@ -1241,20 +1246,27 @@ class GraphDBConnection:
 
         return results
 
-    def _spectral_candidate_rows(self) -> list[dict]:
-        """One row per (complete SpectralRaw, artifact it resolves to).
+    def _raw_candidate_rows(self, proc_type: str) -> list[dict]:
+        """One row per (complete raw dataset, artifact it resolves to).
 
         The raw material for the two work-list queries below. Deliberately does
         no grouping: a scan can resolve to several artifacts (a tray holding
         fragments of more than one P.Herc.), and which of those rows to keep is
         policy, expressed in Python where it can be read.
 
-        `attempts` / `last_status` / `last_notes` describe SPEC Processes
-        recorded against the *dataset*, so they are the same on every row of a
-        given scan.
+        `attempts` / `last_status` / `last_notes` describe Processes of
+        `proc_type` recorded against the *dataset*, so they are the same on every
+        row of a given scan.
         """
+        try:
+            label = _CANDIDATE_LABELS[proc_type]
+        except KeyError:
+            raise ValueError(
+                f"no work-list for proc_type {proc_type!r}; expected one of "
+                f"{', '.join(sorted(_CANDIDATE_LABELS))}") from None
+
         records, _, _ = self._run_query(f"""
-            MATCH (d:SpectralRaw)-[:BELONGS_TO]->(e:EduceLabID)
+            MATCH (d:{label})-[:BELONGS_TO]->(e:EduceLabID)
             WHERE d.path IS NOT NULL AND d.path <> ''
               {_FULLY_COMPLETE_CYPHER}
             // The EduceLabID a Pipeline attaches to is the one bearing the
@@ -1265,7 +1277,7 @@ class GraphDBConnection:
             WHERE artifact:PHerc OR artifact:Cornice OR artifact:Pezzo
             OPTIONAL MATCH (artifact)<-[:HAS]-(parent1)
             OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
-            OPTIONAL MATCH (d)-[:INPUT]->(proc:Process {{stage: "SPEC"}})
+            OPTIONAL MATCH (d)-[:INPUT]->(proc:Process {{stage: "{proc_type}"}})
             WITH d, active, artifact, parent1, parent2, proc
             ORDER BY proc.start_time DESC
             WITH d, active, artifact,
@@ -1322,19 +1334,19 @@ class GraphDBConnection:
         return 0
 
     @staticmethod
-    def _spectral_rows_by_scan(rows) -> dict:
+    def _candidate_rows_by_scan(rows) -> dict:
         """Group candidate rows by dataset path (one scan, one or more artifacts)."""
         by_path = defaultdict(list)
         for row in rows:
             by_path[row['path']].append(row)
         return by_path
 
-    def find_unprocessed_spectral_datasets(self) -> list[dict]:
-        """Spectral scans awaiting processing: one row per artifact, newest scan.
+    def find_unprocessed_datasets(self, proc_type: str) -> list[dict]:
+        """Raw scans awaiting `proc_type`: one row per artifact, newest scan.
 
-        Backs the unattended spectral dispatcher, which needs a work-list it can
-        act on without a human: each row carries both the dataset to process and
-        the artifact fields the caller names its output directory from.
+        Backs an unattended dispatcher, which needs a work-list it can act on
+        without a human: each row carries both the dataset to process and the
+        artifact fields the caller names its output directory from.
 
         Three selection rules, and **the order they are applied in matters**:
 
@@ -1342,13 +1354,14 @@ class GraphDBConnection:
            than one P.Herc. covers fragments of several objects, and its output
            could only be published under one of them. There is no non-arbitrary
            way to choose, so it is left for a human;
-           `find_ambiguous_spectral_datasets` lists them.
+           `find_ambiguous_datasets` lists them.
         2. *One row per artifact, newest scan.* An artifact scanned repeatedly is
            processed once, from its newest scan by ``date_end`` -- the same
            choice the interactive submitter makes. Where one EduceLabID is
            assigned to both an artifact and its parent, the more specific
            artifact wins.
-        3. *Then* drop anything already carrying a ``completed`` SPEC Process.
+        3. *Then* drop anything already carrying a ``completed`` Process of this
+           `proc_type`.
 
         Doing 3 before 2 looks equivalent and is not: once an artifact's newest
         scan is processed, the next-newest would become "newest of the
@@ -1359,13 +1372,17 @@ class GraphDBConnection:
         construction -- the ``ASSIGNED_TO`` match is required, not optional --
         because they carry no P.Herc. number to name an output directory with.
 
+        Args:
+            proc_type: 'SPEC' or 'PGS'. Raises ValueError on anything else.
+
         Returns:
             List of dicts with keys 'uuid' (the *assigned* EduceLabID, which is
             what a Pipeline links to), 'pherc', 'cornice', 'pezzo', 'path'
-            (exactly as recorded), 'date_end', 'attempts' (SPEC Processes so far,
-            for a retry cap), 'last_status' and 'last_notes'.
+            (exactly as recorded), 'date_end', 'attempts' (Processes of this
+            proc_type so far, for a retry cap), 'last_status' and 'last_notes'.
         """
-        by_path = self._spectral_rows_by_scan(self._spectral_candidate_rows())
+        by_path = self._candidate_rows_by_scan(
+            self._raw_candidate_rows(proc_type))
 
         newest_per_artifact = {}
         for group in by_path.values():
@@ -1377,13 +1394,13 @@ class GraphDBConnection:
                 newest_per_artifact[row['artifact_id']] = row  # rule 2
 
         return sorted(
-            (self._public_spectral_row(r)
+            (self._public_candidate_row(r)
              for r in newest_per_artifact.values() if not r['processed']),  # rule 3
             key=lambda r: (r['pherc'] or '', r['cornice'] or '', r['pezzo'] or ''),
         )
 
-    def find_ambiguous_spectral_datasets(self) -> list[dict]:
-        """Complete spectral scans the dispatcher skips, and why.
+    def find_ambiguous_datasets(self, proc_type: str) -> list[dict]:
+        """Complete raw scans the `proc_type` dispatcher skips, and why.
 
         Currently one reason: the scan's EduceLabID is assigned to more than one
         P.Herc., so its output has no single object directory to belong to. These
@@ -1393,7 +1410,8 @@ class GraphDBConnection:
         Returns one row per skipped *scan* (not per artifact), each with the
         artifacts it spans under 'artifacts'.
         """
-        by_path = self._spectral_rows_by_scan(self._spectral_candidate_rows())
+        by_path = self._candidate_rows_by_scan(
+            self._raw_candidate_rows(proc_type))
 
         skipped = []
         for path, group in by_path.items():
@@ -1415,8 +1433,16 @@ class GraphDBConnection:
             })
         return sorted(skipped, key=lambda r: r['path'])
 
+    def find_unprocessed_spectral_datasets(self) -> list[dict]:
+        """`find_unprocessed_datasets('SPEC')`. Kept for 0.3.2 callers."""
+        return self.find_unprocessed_datasets('SPEC')
+
+    def find_ambiguous_spectral_datasets(self) -> list[dict]:
+        """`find_ambiguous_datasets('SPEC')`. Kept for 0.3.2 callers."""
+        return self.find_ambiguous_datasets('SPEC')
+
     @staticmethod
-    def _public_spectral_row(row) -> dict:
+    def _public_candidate_row(row) -> dict:
         """Drop the internal grouping keys and make the row JSON-safe."""
         return {
             'uuid': row['uuid'],
