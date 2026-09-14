@@ -212,16 +212,28 @@ class GraphDBConnection:
     def _serialize_dataset(record) -> dict:
         """Convert a Neo4j dataset record to a JSON-safe dict.
 
-        A processed dataset node holds only its `path`, so the `date_end` and
-        `status` it is reported with, plus the `pipeline_id` that produced it,
-        come from the Process rather than the node itself.
+        A processed dataset node holds only its `path`, so the `date_end`,
+        `status` and `complete` it is reported with, plus the `pipeline_id` that
+        produced it, come from the Process rather than the node itself. It gets
+        `complete` as the same "True"/"False" string `normalize_complete` writes
+        on raw scans, so a consumer can gate on one field across both kinds
+        without knowing which branch a row came from.
+
+        What marks a row as processed is its label, not the presence of any
+        Process property: the two branches of `_dataset_sources_cypher` are
+        partitioned by label, so `ds_type` *is* the branch. Gating on a property
+        that merely happens to be populated (`pipeline_id`, `proc_status`) would
+        silently drop status, timing and completeness for any row where that
+        property were ever absent -- and a processed dataset with no `complete`
+        reads as incomplete downstream, i.e. it disappears.
         """
         ds = dict(record['d'])
         ds['type'] = record['ds_type']
-        if record.get('pipeline_id') is not None:
+        if record['ds_type'] in _PROCESSED_DATASET_LABELS:
             ds['pipeline_id'] = record['pipeline_id']
             ds['status'] = record['proc_status']
             ds['date_end'] = record['date_end']
+            ds['complete'] = str(record['proc_status'] == 'completed')
         for key, value in ds.items():
             if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
                 ds[key] = str(value)
@@ -1329,7 +1341,7 @@ class GraphDBConnection:
                 for ds in artifact['datasets']:
                     dt = ds.get('type', '')
                     existing = newest_by_type.get(dt)
-                    if existing is None or ds.get('date_end', '') > existing.get('date_end', ''):
+                    if existing is None or (ds.get('date_end') or '') > (existing.get('date_end') or ''):
                         newest_by_type[dt] = ds
                 artifact['datasets'] = list(newest_by_type.values())
 

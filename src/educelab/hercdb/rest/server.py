@@ -281,8 +281,9 @@ async def get_datasets_for_educelabid(
     carries ``belongs_to_uuid`` (the EduceLabID it actually belongs to) so scans
     sitting on a retired predecessor UUID are visible. Pipeline outputs
     (PGSProcessed/SpectralProcessed/Registered/WebProcessed) are included alongside
-    the raw scans and carry the ``pipeline_id`` and ``status`` of the Process
-    that produced them.
+    the raw scans and carry the ``pipeline_id`` and ``status`` of the Process that
+    produced them, plus a ``complete`` flag in the same "True"/"False" string
+    form raw scans use.
     """
     logger.info(f"User {user} called /educelabid/{uuid}/datasets")
 

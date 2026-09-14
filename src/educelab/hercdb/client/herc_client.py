@@ -142,7 +142,8 @@ class HercClient:
         datasets nested by physical artifact. Pipeline outputs (PGSProcessed,
         SpectralProcessed, Registered, WebProcessed) appear alongside the raw scans,
         carrying the ``pipeline_id`` and ``status`` of the Process that made
-        them in place of the file-count fields a raw scan has.
+        them, and a ``complete`` flag in the same "True"/"False" string form raw
+        scans use -- so one completeness check covers both kinds.
 
         Args:
             pherc_id: PHerc display name.
@@ -184,7 +185,8 @@ class HercClient:
         carries ``belongs_to_uuid`` (the EduceLabID it actually belongs to) so a
         scan on a retired predecessor UUID is visible. Pipeline outputs (PGSProcessed,
         SpectralProcessed, Registered, WebProcessed) are included too, carrying the
-        ``pipeline_id`` and ``status`` of the Process that produced them.
+        ``pipeline_id`` and ``status`` of the Process that produced them, and a
+        ``complete`` flag in the same "True"/"False" string form raw scans use.
 
         Args:
             uuid: The EduceLabID UUID.

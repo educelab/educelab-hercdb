@@ -320,5 +320,110 @@ class TestFormatDatasetName(unittest.TestCase):
         self.assertEqual(result, '')
 
 
+class TestProcessedDatasets(unittest.TestCase):
+    """Pipeline outputs surface through the dataset queries.
+
+    Self-seeds a REG pipeline (Registered output) and an unfinished WEB one
+    against a real EduceLabID, so the assertions don't wait on REG/WEB stages
+    actually running in production.
+    """
+
+    PIPELINE_ID = f"TEST-PROCESSED-{_TS}"
+    WIP_PIPELINE_ID = f"TEST-PROCESSED-WIP-{_TS}"
+    REG_PATH = f"/test/registered/{_TS}"
+    WEB_PATH = f"/test/webprocessed/{_TS}"
+
+    @classmethod
+    def setUpClass(cls):
+        hercdb.config._load_config()
+        cls.db = hercdb.connect()
+        cls.db.verify_connection()
+        artifacts = cls.db.find_all_datasets_for_pherc("1044")
+        assert artifacts, "Need at least one UUID under 1044 to test"
+        cls.uuid = artifacts[0]['uuid']
+
+        # A completed REG stage -> Registered output.
+        cls.db._run_query("""
+            MATCH (e:EduceLabID {uuid: $uuid})
+            MERGE (p:Pipeline {pipeline_id: $pid})
+            MERGE (p)-[:FOR]->(e)
+            CREATE (proc:Process {stage: 'REG', status: 'completed', slurm_id: '900201',
+                                  start_time: '2026-06-01T10:00:00',
+                                  end_time: '2026-06-01T10:30:00'})
+            CREATE (proc)-[:STAGE_OF]->(p)
+            CREATE (out:Registered {path: $path})
+            CREATE (proc)-[:OUTPUT]->(out)
+            """, uuid=cls.uuid, pid=cls.PIPELINE_ID, path=cls.REG_PATH)
+
+        # A still-running WEB stage, so `complete` has a False case to prove.
+        cls.db._run_query("""
+            MATCH (e:EduceLabID {uuid: $uuid})
+            MERGE (p:Pipeline {pipeline_id: $pid})
+            MERGE (p)-[:FOR]->(e)
+            CREATE (proc:Process {stage: 'WEB', status: 'submitted', slurm_id: '900202',
+                                  start_time: '2026-06-01T11:00:00'})
+            CREATE (proc)-[:STAGE_OF]->(p)
+            CREATE (out:WebProcessed {path: $path})
+            CREATE (proc)-[:OUTPUT]->(out)
+            """, uuid=cls.uuid, pid=cls.WIP_PIPELINE_ID, path=cls.WEB_PATH)
+
+    @classmethod
+    def tearDownClass(cls):
+        for pid in (cls.PIPELINE_ID, cls.WIP_PIPELINE_ID):
+            cls.db._run_query("""
+                MATCH (p:Pipeline {pipeline_id: $pid})
+                OPTIONAL MATCH (p)<-[:STAGE_OF]-(proc:Process)
+                OPTIONAL MATCH (proc)-[:OUTPUT]->(out)
+                DETACH DELETE out, proc, p
+                """, pid=pid)
+
+    def _one(self, datasets, path):
+        matches = [d for d in datasets if d.get('path') == path]
+        self.assertEqual(len(matches), 1, f"expected exactly one row for {path}")
+        return matches[0]
+
+    def test_registered_output_is_returned_with_process_fields(self):
+        datasets = self.db.find_datasets_for_educelabid_with_predecessors(self.uuid)
+        reg = self._one(datasets, self.REG_PATH)
+        self.assertEqual(reg['type'], 'Registered')
+        self.assertEqual(reg['status'], 'completed')
+        self.assertEqual(reg['pipeline_id'], self.PIPELINE_ID)
+        self.assertEqual(reg['date_end'], '2026-06-01T10:30:00')
+        # `complete` mirrors normalize_complete's string form, so a consumer can
+        # gate raw and processed datasets on the same field.
+        self.assertEqual(reg['complete'], 'True')
+        self.assertIsInstance(reg['complete'], str)
+
+    def test_unfinished_process_is_not_complete(self):
+        datasets = self.db.find_datasets_for_educelabid_with_predecessors(self.uuid)
+        web = self._one(datasets, self.WEB_PATH)
+        self.assertEqual(web['type'], 'WebProcessed')
+        self.assertEqual(web['status'], 'submitted')
+        self.assertEqual(web['complete'], 'False')
+
+    def test_dataset_type_filter_selects_processed_label(self):
+        datasets = self.db.find_datasets_for_educelabid_with_predecessors(
+            self.uuid, ds_type=hercdb.DatasetType.Registered)
+        self.assertTrue(datasets, "Registered filter should match the seeded output")
+        self.assertEqual({d['type'] for d in datasets}, {'Registered'})
+
+    def test_newest_completed_drops_the_unfinished_process(self):
+        datasets = self.db.find_datasets_for_educelabid_with_predecessors(
+            self.uuid, newest_completed=True)
+        paths = {d.get('path') for d in datasets}
+        self.assertIn(self.REG_PATH, paths)
+        self.assertNotIn(self.WEB_PATH, paths)
+
+    def test_raw_datasets_keep_their_own_complete_flag(self):
+        """Regression: processed enrichment must not touch raw rows."""
+        raw = self.db.find_datasets_for_educelabid_with_predecessors(
+            self.uuid, ds_type=hercdb.DatasetType.PGSRaw)
+        for d in raw:
+            self.assertNotIn('pipeline_id', d)
+            self.assertNotIn('status', d)
+            if 'complete' in d:
+                self.assertIn(d['complete'], ('True', 'False', 'unknown'))
+
+
 if __name__ == "__main__":
     unittest.main()
