@@ -5,6 +5,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.4] - 2026-09-14
+
+### Added
+- `DatasetType.PGSProcessed`, `DatasetType.SpectralProcessed`, `DatasetType.Registered` and `DatasetType.WebProcessed` — every pipeline output label — accepted everywhere a `dataset_type` filter is (the `/pherc/{id}/all-datasets` and `/educelabid/{uuid}/datasets` query param, `HercClient.get_all_datasets_for_pherc` / `get_datasets_for_educelabid`, and the three `GraphDBConnection.find_*datasets*` methods). The node labels already existed — `initialize_process` has always written them — but nothing could read them back out.
+- Processed datasets now appear in the dataset results by default, alongside raw scans. Each carries `pipeline_id` and `status` from the Process that produced it, and a `date_end` taken from that Process's `end_time`.
+
+### Changed
+- The three dataset queries now union two traversals instead of one. A raw scan hangs off an EduceLabID directly (`BELONGS_TO`); a processed dataset does not — it is a Process output, reached via `EduceLabID <-[:FOR]- Pipeline <-[:STAGE_OF]- Process -[:OUTPUT]-> d`. `_dataset_sources_cypher(anchor)` emits both branches with one projection (`d`, `date_end`, `is_complete`, `pipeline_id`, `proc_status`), so the filtering and grouping downstream are unchanged.
+- **Requires Neo4j 5.23 or newer** (production runs 5.26.30). `_dataset_sources_cypher` uses the scoped `CALL (anchor) { ... }` variable-scope clause; the older importing-`WITH` spelling still parses but logs a deprecation notification on every dataset query.
+- `newest_completed` means "the Process finished" for a processed dataset — it has no `complete` flag or file counts of its own. For raw scans the rule is untouched (`_FULLY_COMPLETE_PREDICATE`, still the twin of `scan_completeness._is_fully_complete`).
+
+### Backward compatibility
+- Raw-scan results are unchanged in shape and content. Callers that pass an explicit raw `dataset_type` (the scan-completeness report does, for both modalities) see nothing new.
+- Callers that pass **no** `dataset_type` and assume every row is a raw scan will now also see processed rows; filter on `type` or pass `dataset_type` explicitly.
+- `Registered` and `WebProcessed` are exposed but match nothing in the current database: a survey of 161 pipelines (all 41 non-completed plus 120 sampled completed) found every pipeline carries exactly one stage, only ever `PGS` or `SPEC`. They are wired for when REG/WEB stages start running.
+
+---
+
 ## [0.3.3] - 2026-08-27
 
 ### Added

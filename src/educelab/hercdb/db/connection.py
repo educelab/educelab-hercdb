@@ -28,9 +28,23 @@ class DatasetType(Enum):
     FlatbedScan = 'FlatbedScanDataset'
     PGSRaw = 'PGSRaw'
     SpectralRaw = 'SpectralRaw'
+    PGSProcessed = 'PGSProcessed'
+    SpectralProcessed = 'SpectralProcessed'
+    Registered = 'Registered'
+    WebProcessed = 'WebProcessed'
 
     def __str__(self):
         return f'{self.value}'
+
+
+# Raw datasets hang off an EduceLabID directly (BELONGS_TO). Processed datasets
+# do not -- they are Process outputs, reached through the Pipeline that runs FOR
+# the EduceLabID. Both are "datasets" to callers, so the dataset queries below
+# union the two paths.
+_RAW_DATASET_LABELS = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
+_PROCESSED_DATASET_LABELS = ['PGSProcessed', 'SpectralProcessed',
+                             'Registered', 'WebProcessed']
+_DATASET_LABELS = _RAW_DATASET_LABELS + _PROCESSED_DATASET_LABELS
 
 
 # Cypher predicate for "a dataset is fully complete": the `complete` flag is
@@ -40,13 +54,54 @@ class DatasetType(Enum):
 # loaded before the count columns existed (their missing counts read as 0, i.e.
 # clean), exactly as the Python rule defaults those counts to 0. Assumes the
 # dataset is bound to `d`.
-_FULLY_COMPLETE_CYPHER = (
-    'AND d.complete = "True" '
+_FULLY_COMPLETE_PREDICATE = (
+    'd.complete = "True" '
     'AND coalesce(d.missing_files, 0) = 0 '
     'AND coalesce(d.zero_byte_files, 0) = 0 '
     'AND coalesce(d.short_files, 0) = 0 '
     'AND coalesce(d.bad_format_files, 0) = 0'
 )
+_FULLY_COMPLETE_CYPHER = f'AND {_FULLY_COMPLETE_PREDICATE}'
+
+
+def _any_label(labels: list[str]) -> str:
+    """`d:A OR d:B OR ...` -- a label test built from one of the lists above."""
+    return ' OR '.join(f'd:{label}' for label in labels)
+
+
+def _dataset_sources_cypher(anchor: str) -> str:
+    """Cypher binding every dataset reachable from `anchor`, an EduceLabID.
+
+    Raw and processed datasets sit on different edges, so this unions the two
+    and projects a uniform shape: `d`, `date_end`, `is_complete`, `pipeline_id`
+    and `proc_status`. A processed node carries no completeness flag or timing
+    of its own, so both are read off the Process that produced it -- "complete"
+    there means the stage finished, the analogue of a raw scan's file checks.
+
+    Uses the scoped `CALL (anchor) {{ ... }}` variable-scope clause, which needs
+    Neo4j 5.23 or newer (production runs 5.26). The older importing-`WITH` form
+    still parses there but logs a deprecation notification on every call.
+    """
+    return f"""
+        CALL ({anchor}) {{
+            MATCH ({anchor})<-[:BELONGS_TO]-(d)
+            WHERE {_any_label(_RAW_DATASET_LABELS)}
+            RETURN d,
+                   d.date_end AS date_end,
+                   ({_FULLY_COMPLETE_PREDICATE}) AS is_complete,
+                   null AS pipeline_id,
+                   null AS proc_status
+        UNION
+            MATCH ({anchor})<-[:FOR]-(ppline:Pipeline)<-[:STAGE_OF]-(proc:Process)-[:OUTPUT]->(d)
+            WHERE {_any_label(_PROCESSED_DATASET_LABELS)}
+            RETURN d,
+                   proc.end_time AS date_end,
+                   (proc.status = "completed") AS is_complete,
+                   ppline.pipeline_id AS pipeline_id,
+                   proc.status AS proc_status
+        }}
+    """
+
 
 # The raw dataset label each proc_type's work-list scans. Neo4j cannot
 # parameterize a label, so the query interpolates one -- looked up here rather
@@ -155,9 +210,18 @@ class GraphDBConnection:
 
     @staticmethod
     def _serialize_dataset(record) -> dict:
-        """Convert a Neo4j dataset record to a JSON-safe dict."""
+        """Convert a Neo4j dataset record to a JSON-safe dict.
+
+        A processed dataset node holds only its `path`, so the `date_end` and
+        `status` it is reported with, plus the `pipeline_id` that produced it,
+        come from the Process rather than the node itself.
+        """
         ds = dict(record['d'])
         ds['type'] = record['ds_type']
+        if record.get('pipeline_id') is not None:
+            ds['pipeline_id'] = record['pipeline_id']
+            ds['status'] = record['proc_status']
+            ds['date_end'] = record['date_end']
         for key, value in ds.items():
             if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
                 ds[key] = str(value)
@@ -1053,29 +1117,39 @@ class GraphDBConnection:
             for r in records
         ]
 
+    @staticmethod
+    def _dataset_filter_cypher(ds_type: DatasetType | None, newest_completed: bool) -> str:
+        """WHERE clause over the projection from `_dataset_sources_cypher`."""
+        conditions = []
+        if newest_completed:
+            conditions.append("is_complete")
+        if ds_type:
+            conditions.append("$data_t IN labels(d)")
+        return f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
     def find_datasets_for_educelabid(self, uuid: str, ds_type: DatasetType = None, newest_completed: bool = False) -> list[dict]:
-        """Find all datasets for a specific EduceLabID."""
-        dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
-        type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
-        completed_filter = _FULLY_COMPLETE_CYPHER if newest_completed else ""
+        """Find all datasets for a specific EduceLabID, raw and processed."""
+        where_clause = self._dataset_filter_cypher(ds_type, newest_completed)
 
         grouping = """
-            ORDER BY datetime(d.date_end) DESC
-            WITH ds_type, collect(d)[0] AS d
-            RETURN d, ds_type
-        """ if newest_completed else "RETURN d, ds_type"
+            WITH d, ds_type, pipeline_id, proc_status, date_end
+            ORDER BY datetime(date_end) DESC
+            WITH ds_type, collect({d: d, pipeline_id: pipeline_id,
+                                   proc_status: proc_status, date_end: date_end})[0] AS top
+            RETURN top.d AS d, ds_type, top.pipeline_id AS pipeline_id,
+                   top.proc_status AS proc_status, top.date_end AS date_end
+        """ if newest_completed else "RETURN d, ds_type, pipeline_id, proc_status, date_end"
 
         query = f"""
-            MATCH (e:EduceLabID {{uuid: $uuid}})<-[:BELONGS_TO]-(d)
-            WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
-            {completed_filter}
-            {type_filter}
-            WITH d,
+            MATCH (e:EduceLabID {{uuid: $uuid}})
+            {_dataset_sources_cypher('e')}
+            WITH d, date_end, is_complete, pipeline_id, proc_status,
                  [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
+            {where_clause}
             {grouping}
         """
 
-        params = {"uuid": uuid, "dataset_labels": dataset_labels}
+        params = {"uuid": uuid, "dataset_labels": _DATASET_LABELS}
         if ds_type:
             params["data_t"] = str(ds_type)
 
@@ -1097,30 +1171,37 @@ class GraphDBConnection:
         carries ``belongs_to_uuid`` — the EduceLabID it actually belongs to — so
         scans sitting on a retired predecessor UUID are obvious. Backs both
         ``GET /educelabid/{uuid}/datasets`` and the scan-completeness report.
+
+        Processed datasets (PGSProcessed, SpectralProcessed, Registered,
+        WebProcessed) are included too, reached through the Pipeline that ran
+        FOR the UUID; each carries the
+        ``pipeline_id`` and ``status`` of the Process that produced it.
         """
-        dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
-        type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
-        completed_filter = _FULLY_COMPLETE_CYPHER if newest_completed else ""
+        where_clause = self._dataset_filter_cypher(ds_type, newest_completed)
 
         grouping = """
-            ORDER BY datetime(d.date_end) DESC
-            WITH ds_type, collect({d: d, belongs_to_uuid: belongs_to_uuid})[0] AS top
-            RETURN top.d AS d, ds_type, top.belongs_to_uuid AS belongs_to_uuid
-        """ if newest_completed else "RETURN d, ds_type, belongs_to_uuid"
+            WITH d, ds_type, belongs_to_uuid, pipeline_id, proc_status, date_end
+            ORDER BY datetime(date_end) DESC
+            WITH ds_type, collect({d: d, belongs_to_uuid: belongs_to_uuid, pipeline_id: pipeline_id,
+                                   proc_status: proc_status, date_end: date_end})[0] AS top
+            RETURN top.d AS d, ds_type, top.belongs_to_uuid AS belongs_to_uuid,
+                   top.pipeline_id AS pipeline_id, top.proc_status AS proc_status,
+                   top.date_end AS date_end
+        """ if newest_completed else """
+            RETURN d, ds_type, belongs_to_uuid, pipeline_id, proc_status, date_end
+        """
 
         query = f"""
             MATCH (e:EduceLabID {{uuid: $uuid}})-[:REPLACES*0..]->(predecessor:EduceLabID)
-            MATCH (predecessor)<-[:BELONGS_TO]-(d)
-            WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
-            {completed_filter}
-            {type_filter}
-            WITH DISTINCT d,
+            {_dataset_sources_cypher('predecessor')}
+            WITH DISTINCT d, date_end, is_complete, pipeline_id, proc_status,
                  predecessor.uuid AS belongs_to_uuid,
                  [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
+            {where_clause}
             {grouping}
         """
 
-        params = {"uuid": uuid, "dataset_labels": dataset_labels}
+        params = {"uuid": uuid, "dataset_labels": _DATASET_LABELS}
         if ds_type:
             params["data_t"] = str(ds_type)
 
@@ -1141,13 +1222,15 @@ class GraphDBConnection:
         Find all datasets under a PHerc umbrella, grouped by EduceLabID.
 
         Traverses the full PHerc hierarchy (PHerc, Cornici, Pezzi) and returns
-        all datasets, nested by the physical artifact they belong to.
+        all datasets -- raw scans and pipeline-processed outputs alike -- nested
+        by the physical artifact they belong to.
 
         Args:
             pherc_display_name: Display name of the PHerc.
             ds_type: Optional DatasetType filter.
             newest_completed: If True, return only the newest completed dataset
-                per type per artifact.
+                per type per artifact. For a processed dataset "completed"
+                means its Process finished, not a file-count check.
 
         Returns:
             list: List of artifact dicts, each with keys: uuid, artifact_name,
@@ -1156,9 +1239,7 @@ class GraphDBConnection:
                 ``belongs_to_uuid`` (the EduceLabID it actually belongs to);
                 grouping is by the active/assigned UUID.
         """
-        dataset_labels = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
-        type_filter = "AND $data_t IN LABELS(d)" if ds_type else ""
-        completed_filter = _FULLY_COMPLETE_CYPHER if newest_completed else ""
+        where_clause = self._dataset_filter_cypher(ds_type, newest_completed)
 
         query = f"""
             MATCH (ph:PHerc {{displayName: $pherc_display_name}})
@@ -1166,13 +1247,12 @@ class GraphDBConnection:
             WHERE artifact:PHerc OR artifact:Cornice OR artifact:Pezzo
             MATCH (eid:EduceLabID)-[:ASSIGNED_TO]->(artifact)
             MATCH (eid)-[:REPLACES*0..]->(pred:EduceLabID)
-            MATCH (pred)<-[:BELONGS_TO]-(d)
-            WHERE (d:FlatbedScanDataset OR d:PGSRaw OR d:SpectralRaw)
-            {type_filter}
-            {completed_filter}
+            {_dataset_sources_cypher('pred')}
+            WITH eid, pred, d, artifact, date_end, is_complete, pipeline_id, proc_status
+            {where_clause}
             OPTIONAL MATCH (artifact)<-[:HAS]-(parent1)
             OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
-            WITH eid, pred, d, artifact, parent1, parent2,
+            WITH eid, pred, d, artifact, parent1, parent2, date_end, pipeline_id, proc_status,
                  [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type,
                  CASE
                      WHEN 'PHerc' IN labels(artifact) THEN artifact
@@ -1192,13 +1272,16 @@ class GraphDBConnection:
                    pezzo_node.displayName AS pezzo_name,
                    d AS dataset,
                    ds_type AS dataset_type,
-                   pred.uuid AS belongs_to_uuid
+                   pred.uuid AS belongs_to_uuid,
+                   date_end AS date_end,
+                   pipeline_id AS pipeline_id,
+                   proc_status AS proc_status
             ORDER BY pherc_name, cornice_name, pezzo_name
         """
 
         params = {
             "pherc_display_name": pherc_display_name,
-            "dataset_labels": dataset_labels,
+            "dataset_labels": _DATASET_LABELS,
         }
         if ds_type:
             params["data_t"] = str(ds_type)
@@ -1227,7 +1310,13 @@ class GraphDBConnection:
                     'datasets': [],
                 }
 
-            ds = self._serialize_dataset({'d': record['dataset'], 'ds_type': record['dataset_type']})
+            ds = self._serialize_dataset({
+                'd': record['dataset'],
+                'ds_type': record['dataset_type'],
+                'pipeline_id': record['pipeline_id'],
+                'proc_status': record['proc_status'],
+                'date_end': record['date_end'],
+            })
             ds['belongs_to_uuid'] = record['belongs_to_uuid']
             grouped[uuid]['datasets'].append(ds)
 
