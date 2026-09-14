@@ -1585,9 +1585,12 @@ class GraphDBConnection:
         EduceLabID's REPLACES chain (``[:REPLACES*0..]``), mirroring the read
         path (``find_datasets_for_educelabid_with_predecessors``): a pre-
         replacement scan still BELONGS_TO a predecessor UUID, so the raw node
-        need not hang off the active UUID directly. REG/WEB match the upstream
-        output nodes (PGSProcessed/SpectralProcessed/Registered) this pipeline
-        produced, so they are unaffected.
+        need not hang off the active UUID directly. REG/WEB match their upstream
+        output nodes (PGSProcessed/SpectralProcessed/Registered) by ``path``
+        alone: a registration- or webify-only submission mints a fresh
+        pipeline_id whose inputs were produced by an earlier pipeline, so
+        scoping the input to this pipeline's own Processes would match nothing.
+        ``path`` is the MERGE key on those nodes, and so their unique address.
 
         Args:
             pipeline_id: Pipeline to attach the process to.
@@ -1633,8 +1636,9 @@ class GraphDBConnection:
 
         elif proc_type == "REG":
             query = """
-            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})<-[:STAGE_OF]-(:Process)--(pg_proc:PGSProcessed {path: $input_pgs_path})
-            MATCH (ppline)<-[:STAGE_OF]-(:Process)--(spec_proc:SpectralProcessed {path: $input_spec_path})
+            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})
+            MATCH (pg_proc:PGSProcessed {path: $input_pgs_path})
+            MATCH (spec_proc:SpectralProcessed {path: $input_spec_path})
             MERGE (proc:Process {stage: "REG", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
             MERGE (reg:Registered {path: $output_path})
             MERGE (pg_proc)-[:INPUT]->(proc)<-[:INPUT]-(spec_proc)
@@ -1647,7 +1651,8 @@ class GraphDBConnection:
 
         elif proc_type == "WEB":
             query = """
-            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})<-[:STAGE_OF]-(:Process)--(reg:Registered {path: $input_path})
+            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})
+            MATCH (reg:Registered {path: $input_path})
             MERGE (proc:Process {stage: "WEB", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
             MERGE (web:WebProcessed {path: $output_path})
             MERGE (reg)-[:INPUT]->(proc)-[:OUTPUT]->(web)

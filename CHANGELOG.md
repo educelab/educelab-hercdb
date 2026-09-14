@@ -5,6 +5,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.5] - 2026-09-14
+
+### Fixed
+- `initialize_process` records REG and WEB stages whose inputs were produced by a **different** pipeline. Both branches previously required the input to already hang off a Process in the *same* pipeline (`MATCH (ppline)<-[:STAGE_OF]-(:Process)--(pg_proc:PGSProcessed {path: ...})`). A registration- or webify-only submission mints a fresh `uber_job_id` whose only stage is REG (or WEB), while its `PGSProcessed`/`SpectralProcessed`/`Registered` inputs came from an earlier pipeline — so the MATCH found nothing, `initialize_process` returned `None`, and the caller was left with a Pipeline node holding zero Processes. The jobs ran fine; hercdb simply never learned what they were.
+- Inputs are now matched by `path` alone, which is the key those nodes are MERGEd on and their unique address everywhere else. This is the same shape as the 0.2.2 change that made PGS/SPEC match their raw scan across the EduceLabID's `REPLACES` chain: the input's identity does not depend on which pipeline is consuming it. The input `MATCH` is still required, so a genuinely missing input continues to return `None` rather than recording a Process with nothing feeding it. (0.2.2 recorded that REG/WEB "match this pipeline's own output nodes and were unaffected" — that held only because no registration-only submission had been made yet.)
+
+### Backward compatibility
+- No schema, API surface or result shape changes. A REG/WEB submission whose inputs *were* produced by the same pipeline — the only case that worked before — still records exactly the same nodes and relationships.
+- Downstream effect worth knowing: acquisition-workflow's headless path compares recorded stages against submitted ones, so every unattended registration batch previously exited `EXIT_PARTIAL` (1), telling the caller to reconcile a batch that had actually queued cleanly. Those batches now tally correctly.
+
+### Fixed (tests)
+- `test_find_datasets_for_educelabid` asserted the returned `type` was one of the three raw labels. 0.3.4 made processed outputs surface through that query, so a real `SpectralProcessed` in the database tripped an assertion that had simply not been updated. It now accepts the full `DatasetType` range.
+
+---
+
 ## [0.3.4] - 2026-09-14
 
 ### Added

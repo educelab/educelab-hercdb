@@ -225,7 +225,7 @@ The `GraphDBConnection` class provides two patterns for queries:
 
 7. **Pipeline CRUD**:
    - `initialize_pipeline(pipeline_id, artifact_uuid, datetime)` - create a Pipeline node linked to an EduceLabID
-   - `initialize_process(pipeline_id, proc_type, input_dataset_paths, output_dataset_path, slurm_id, start_datetime)` - create a Process node (PGS, SPEC, REG, WEB) with input/output dataset links
+   - `initialize_process(pipeline_id, proc_type, input_dataset_paths, output_dataset_path, slurm_id, start_datetime)` - create a Process node (PGS, SPEC, REG, WEB) with input/output dataset links. Inputs are matched **without scoping to this pipeline**: PGS/SPEC match the raw scan across the EduceLabID's `REPLACES` chain, REG/WEB match their upstream `PGSProcessed`/`SpectralProcessed`/`Registered` inputs by `path` alone. A registration- or webify-only submission mints a fresh `uber_job_id` whose inputs came from an earlier pipeline, so same-pipeline scoping recorded zero Processes and made every unattended REG batch exit `EXIT_PARTIAL`.
    - `update_process_status(pipeline_id, stage, status, end_datetime)` - update process status to completed or failed
    - `delete_pipeline(pipeline_id)` - delete a Pipeline, all its Process nodes, and output dataset nodes (leaves input datasets untouched)
    - `get_pipeline_confirmation(pipeline_id)` - full pipeline summary with all stages

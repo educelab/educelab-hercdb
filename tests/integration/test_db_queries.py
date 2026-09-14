@@ -120,7 +120,9 @@ class TestPhercDbQueries(unittest.TestCase):
         self.assertTrue(len(datasets) > 0)
         for ds in datasets:
             self.assertIn('type', ds)
-            self.assertIn(ds['type'], ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw'])
+            # Processed outputs surface here too as of 0.3.4, so the set is the
+            # full DatasetType range, not just the raw labels.
+            self.assertIn(ds['type'], {t.value for t in hercdb.DatasetType})
         print(f"Found {len(datasets)} datasets for UUID {uuid}")
 
     def test_find_datasets_for_educelabid_with_predecessors(self):
@@ -423,6 +425,101 @@ class TestProcessedDatasets(unittest.TestCase):
             self.assertNotIn('status', d)
             if 'complete' in d:
                 self.assertIn(d['complete'], ('True', 'False', 'unknown'))
+
+
+class TestCrossPipelineProcessInputs(unittest.TestCase):
+    """REG/WEB stages whose inputs came from a *different* pipeline.
+
+    A registration- or webify-only submission mints a fresh uber_job_id whose
+    only Process is REG (or WEB); the PGSProcessed/SpectralProcessed/Registered
+    inputs were produced by an earlier pipeline. `initialize_process` must still
+    find them, or the caller is left with a Pipeline node holding zero Processes.
+    """
+
+    UPSTREAM_ID = f"TEST-XPIPE-UP-{_TS}"
+    REG_ONLY_ID = f"TEST-XPIPE-REG-{_TS}"
+    WEB_ONLY_ID = f"TEST-XPIPE-WEB-{_TS}"
+    PGS_PATH = f"/test/xpipe/pgsprocessed/{_TS}"
+    SPEC_PATH = f"/test/xpipe/spectralprocessed/{_TS}"
+    REG_PATH = f"/test/xpipe/registered/{_TS}"
+    WEB_PATH = f"/test/xpipe/webprocessed/{_TS}"
+
+    @classmethod
+    def setUpClass(cls):
+        hercdb.config._load_config()
+        cls.db = hercdb.connect()
+        cls.db.verify_connection()
+        artifacts = cls.db.find_all_datasets_for_pherc("1044")
+        assert artifacts, "Need at least one UUID under 1044 to test"
+        cls.uuid = artifacts[0]['uuid']
+
+        # The upstream pipeline that actually produced the REG inputs.
+        cls.db._run_query("""
+            MATCH (e:EduceLabID {uuid: $uuid})
+            MERGE (p:Pipeline {pipeline_id: $pid})
+            MERGE (p)-[:FOR]->(e)
+            CREATE (pgs:Process {stage: 'PGS', status: 'completed', slurm_id: '900301',
+                                 start_time: '2026-07-01T10:00:00',
+                                 end_time: '2026-07-01T10:30:00'})
+            CREATE (pgs)-[:STAGE_OF]->(p)
+            CREATE (pgs)-[:OUTPUT]->(:PGSProcessed {path: $pgs_path})
+            CREATE (spec:Process {stage: 'SPEC', status: 'completed', slurm_id: '900302',
+                                  start_time: '2026-07-01T11:00:00',
+                                  end_time: '2026-07-01T11:30:00'})
+            CREATE (spec)-[:STAGE_OF]->(p)
+            CREATE (spec)-[:OUTPUT]->(:SpectralProcessed {path: $spec_path})
+            """, uuid=cls.uuid, pid=cls.UPSTREAM_ID,
+            pgs_path=cls.PGS_PATH, spec_path=cls.SPEC_PATH)
+
+        # The registration-only pipeline: a Pipeline with no Processes of its own.
+        cls.db.initialize_pipeline(cls.REG_ONLY_ID, cls.uuid, '2026-07-02T09:00:00')
+        cls.db.initialize_pipeline(cls.WEB_ONLY_ID, cls.uuid, '2026-07-03T09:00:00')
+
+    @classmethod
+    def tearDownClass(cls):
+        for pid in (cls.UPSTREAM_ID, cls.REG_ONLY_ID, cls.WEB_ONLY_ID):
+            cls.db._run_query("""
+                MATCH (p:Pipeline {pipeline_id: $pid})
+                OPTIONAL MATCH (p)<-[:STAGE_OF]-(proc:Process)
+                OPTIONAL MATCH (proc)-[:OUTPUT]->(out)
+                DETACH DELETE out, proc, p
+                """, pid=pid)
+
+    def test_reg_matches_inputs_from_another_pipeline(self):
+        proc = self.db.initialize_process(
+            self.REG_ONLY_ID, 'REG', [self.PGS_PATH, self.SPEC_PATH],
+            self.REG_PATH, '900303', '2026-07-02T09:01:00')
+        self.assertIsNotNone(proc, "REG-only submission must record a Process")
+        self.assertEqual(proc['stage'], 'REG')
+
+        stages = self.db.get_pipeline_status(self.REG_ONLY_ID)
+        self.assertEqual([s['stage'] for s in stages], ['REG'])
+        self.assertEqual(sorted(stages[0]['input_dataset_paths']),
+                         sorted([self.PGS_PATH, self.SPEC_PATH]))
+        self.assertEqual(stages[0]['output_dataset_path'], self.REG_PATH)
+
+    def test_web_matches_registered_from_another_pipeline(self):
+        # Depends on the Registered node the REG-only test created.
+        self.db.initialize_process(
+            self.REG_ONLY_ID, 'REG', [self.PGS_PATH, self.SPEC_PATH],
+            self.REG_PATH, '900303', '2026-07-02T09:01:00')
+
+        proc = self.db.initialize_process(
+            self.WEB_ONLY_ID, 'WEB', [self.REG_PATH],
+            self.WEB_PATH, '900304', '2026-07-03T09:01:00')
+        self.assertIsNotNone(proc, "WEB-only submission must record a Process")
+        self.assertEqual(proc['stage'], 'WEB')
+
+        stages = self.db.get_pipeline_status(self.WEB_ONLY_ID)
+        self.assertEqual([s['stage'] for s in stages], ['WEB'])
+        self.assertEqual(stages[0]['input_dataset_paths'], [self.REG_PATH])
+
+    def test_missing_input_still_returns_none(self):
+        """The relaxed MATCH must not start recording processes with no input."""
+        proc = self.db.initialize_process(
+            self.REG_ONLY_ID, 'REG', [self.PGS_PATH, '/test/xpipe/does-not-exist'],
+            self.REG_PATH, '900305', '2026-07-02T09:02:00')
+        self.assertIsNone(proc)
 
 
 if __name__ == "__main__":
