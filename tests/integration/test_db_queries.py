@@ -439,10 +439,15 @@ class TestCrossPipelineProcessInputs(unittest.TestCase):
     UPSTREAM_ID = f"TEST-XPIPE-UP-{_TS}"
     REG_ONLY_ID = f"TEST-XPIPE-REG-{_TS}"
     WEB_ONLY_ID = f"TEST-XPIPE-WEB-{_TS}"
+    MISSING_ID = f"TEST-XPIPE-MISS-{_TS}"
+    FOREIGN_ID = f"TEST-XPIPE-FOREIGN-{_TS}"
     PGS_PATH = f"/test/xpipe/pgsprocessed/{_TS}"
     SPEC_PATH = f"/test/xpipe/spectralprocessed/{_TS}"
     REG_PATH = f"/test/xpipe/registered/{_TS}"
     WEB_PATH = f"/test/xpipe/webprocessed/{_TS}"
+    MISSING_REG_PATH = f"/test/xpipe/registered-miss/{_TS}"
+    FOREIGN_PGS_PATH = f"/test/xpipe/foreign-pgsprocessed/{_TS}"
+    FOREIGN_SPEC_PATH = f"/test/xpipe/foreign-spectralprocessed/{_TS}"
 
     @classmethod
     def setUpClass(cls):
@@ -474,10 +479,39 @@ class TestCrossPipelineProcessInputs(unittest.TestCase):
         # The registration-only pipeline: a Pipeline with no Processes of its own.
         cls.db.initialize_pipeline(cls.REG_ONLY_ID, cls.uuid, '2026-07-02T09:00:00')
         cls.db.initialize_pipeline(cls.WEB_ONLY_ID, cls.uuid, '2026-07-03T09:00:00')
+        cls.db.initialize_pipeline(cls.MISSING_ID, cls.uuid, '2026-07-04T09:00:00')
+
+        # A second artifact, with its own completed PGS/SPEC outputs. Nothing
+        # links it to cls.uuid, so its paths must never resolve as our inputs.
+        others, _, _ = cls.db._run_query("""
+            MATCH (o:EduceLabID)-[:ASSIGNED_TO]->()
+            WHERE o.uuid <> $uuid
+              AND NOT (o)-[:REPLACES*0..]-(:EduceLabID {uuid: $uuid})
+            RETURN o.uuid AS uuid LIMIT 1
+            """, uuid=cls.uuid)
+        assert others, "Need a second, unrelated UUID to test artifact scoping"
+        cls.foreign_uuid = others[0]['uuid']
+        cls.db._run_query("""
+            MATCH (e:EduceLabID {uuid: $uuid})
+            MERGE (p:Pipeline {pipeline_id: $pid})
+            MERGE (p)-[:FOR]->(e)
+            CREATE (pgs:Process {stage: 'PGS', status: 'completed', slurm_id: '900401',
+                                 start_time: '2026-07-05T10:00:00',
+                                 end_time: '2026-07-05T10:30:00'})
+            CREATE (pgs)-[:STAGE_OF]->(p)
+            CREATE (pgs)-[:OUTPUT]->(:PGSProcessed {path: $pgs_path})
+            CREATE (spec:Process {stage: 'SPEC', status: 'completed', slurm_id: '900402',
+                                  start_time: '2026-07-05T11:00:00',
+                                  end_time: '2026-07-05T11:30:00'})
+            CREATE (spec)-[:STAGE_OF]->(p)
+            CREATE (spec)-[:OUTPUT]->(:SpectralProcessed {path: $spec_path})
+            """, uuid=cls.foreign_uuid, pid=cls.FOREIGN_ID,
+            pgs_path=cls.FOREIGN_PGS_PATH, spec_path=cls.FOREIGN_SPEC_PATH)
 
     @classmethod
     def tearDownClass(cls):
-        for pid in (cls.UPSTREAM_ID, cls.REG_ONLY_ID, cls.WEB_ONLY_ID):
+        for pid in (cls.UPSTREAM_ID, cls.REG_ONLY_ID, cls.WEB_ONLY_ID, cls.MISSING_ID,
+                    cls.FOREIGN_ID):
             cls.db._run_query("""
                 MATCH (p:Pipeline {pipeline_id: $pid})
                 OPTIONAL MATCH (p)<-[:STAGE_OF]-(proc:Process)
@@ -514,12 +548,42 @@ class TestCrossPipelineProcessInputs(unittest.TestCase):
         self.assertEqual([s['stage'] for s in stages], ['WEB'])
         self.assertEqual(stages[0]['input_dataset_paths'], [self.REG_PATH])
 
-    def test_missing_input_still_returns_none(self):
-        """The relaxed MATCH must not start recording processes with no input."""
+    def test_missing_input_records_nothing(self):
+        """The relaxed MATCH must not start recording processes with no input.
+
+        `initialize_process` also returns None when `_run_query` swallows a
+        broken query, so a bare assertIsNone would pass on a REG query that
+        never works at all. The good-input call afterwards is the control: it
+        proves the same query does record a Process when the inputs resolve.
+        """
         proc = self.db.initialize_process(
-            self.REG_ONLY_ID, 'REG', [self.PGS_PATH, '/test/xpipe/does-not-exist'],
-            self.REG_PATH, '900305', '2026-07-02T09:02:00')
+            self.MISSING_ID, 'REG', [self.PGS_PATH, '/test/xpipe/does-not-exist'],
+            self.MISSING_REG_PATH, '900305', '2026-07-04T09:02:00')
         self.assertIsNone(proc)
+        # get_pipeline_status returns None, not [], for a pipeline with no stages.
+        self.assertFalse(self.db.get_pipeline_status(self.MISSING_ID),
+                         "a missing input must leave no Process behind")
+
+        proc = self.db.initialize_process(
+            self.MISSING_ID, 'REG', [self.PGS_PATH, self.SPEC_PATH],
+            self.MISSING_REG_PATH, '900306', '2026-07-04T09:03:00')
+        self.assertIsNotNone(proc, "control: resolvable inputs must record a Process")
+        self.assertEqual([s['stage'] for s in self.db.get_pipeline_status(self.MISSING_ID)],
+                         ['REG'])
+
+    def test_input_from_another_artifact_is_rejected(self):
+        """Cross-pipeline must not mean cross-artifact.
+
+        `path` is the MERGE key on a processed node but carries no uniqueness
+        constraint, so a mistyped or copy-pasted path can resolve to another
+        artifact's output. Wiring that in would report someone else's data as
+        this artifact's provenance, with no error anywhere.
+        """
+        proc = self.db.initialize_process(
+            self.REG_ONLY_ID, 'REG',
+            [self.FOREIGN_PGS_PATH, self.FOREIGN_SPEC_PATH],
+            f"{self.REG_PATH}-foreign", '900403', '2026-07-05T12:00:00')
+        self.assertIsNone(proc, "inputs from another artifact must not resolve")
 
 
 if __name__ == "__main__":

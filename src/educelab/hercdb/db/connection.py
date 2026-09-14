@@ -69,6 +69,22 @@ def _any_label(labels: list[str]) -> str:
     return ' OR '.join(f'd:{label}' for label in labels)
 
 
+def _upstream_input_cypher(var: str, label: str, path_param: str) -> str:
+    """Bind a processed dataset used as a Process input, scoped to `e`'s artifact.
+
+    REG/WEB inputs come from an earlier pipeline, so they cannot be scoped to
+    the current one -- but a bare path lookup is global, and a mistyped path
+    would silently wire in another artifact's data. Every processed dataset
+    reaches its EduceLabID through its own Process and Pipeline, so scope on
+    that instead; the undirected REPLACES walk keeps a UUID replacement on
+    either side of the chain matching.
+    """
+    return f"""
+            MATCH ({var}:{label} {{path: ${path_param}}})
+                  <-[:OUTPUT]-(:Process)-[:STAGE_OF]->(:Pipeline)-[:FOR]->({var}_e:EduceLabID)
+            WHERE ({var}_e)-[:REPLACES*0..]-(e)"""
+
+
 def _dataset_sources_cypher(anchor: str) -> str:
     """Cypher binding every dataset reachable from `anchor`, an EduceLabID.
 
@@ -1586,11 +1602,13 @@ class GraphDBConnection:
         path (``find_datasets_for_educelabid_with_predecessors``): a pre-
         replacement scan still BELONGS_TO a predecessor UUID, so the raw node
         need not hang off the active UUID directly. REG/WEB match their upstream
-        output nodes (PGSProcessed/SpectralProcessed/Registered) by ``path``
-        alone: a registration- or webify-only submission mints a fresh
-        pipeline_id whose inputs were produced by an earlier pipeline, so
-        scoping the input to this pipeline's own Processes would match nothing.
-        ``path`` is the MERGE key on those nodes, and so their unique address.
+        output nodes (PGSProcessed/SpectralProcessed/Registered) across
+        pipelines but *not* across artifacts: a registration- or webify-only
+        submission mints a fresh pipeline_id whose inputs were produced by an
+        earlier pipeline, so scoping the input to this pipeline's own Processes
+        would match nothing -- scoping it to the pipeline's EduceLabID chain
+        instead still finds them, while keeping a mistyped path from wiring in
+        another artifact's data (see ``_upstream_input_cypher``).
 
         Args:
             pipeline_id: Pipeline to attach the process to.
@@ -1635,12 +1653,12 @@ class GraphDBConnection:
             base_params["input_path"] = input_dataset_paths[0]
 
         elif proc_type == "REG":
-            query = """
-            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})
-            MATCH (pg_proc:PGSProcessed {path: $input_pgs_path})
-            MATCH (spec_proc:SpectralProcessed {path: $input_spec_path})
-            MERGE (proc:Process {stage: "REG", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
-            MERGE (reg:Registered {path: $output_path})
+            query = f"""
+            MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:FOR]->(e:EduceLabID)
+            {_upstream_input_cypher("pg_proc", "PGSProcessed", "input_pgs_path")}
+            {_upstream_input_cypher("spec_proc", "SpectralProcessed", "input_spec_path")}
+            MERGE (proc:Process {{stage: "REG", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"}})
+            MERGE (reg:Registered {{path: $output_path}})
             MERGE (pg_proc)-[:INPUT]->(proc)<-[:INPUT]-(spec_proc)
             MERGE (proc)-[:OUTPUT]->(reg)
             MERGE (proc)-[:STAGE_OF]->(ppline)
@@ -1650,12 +1668,12 @@ class GraphDBConnection:
             base_params["input_spec_path"] = input_dataset_paths[1]
 
         elif proc_type == "WEB":
-            query = """
-            MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})
-            MATCH (reg:Registered {path: $input_path})
-            MERGE (proc:Process {stage: "WEB", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
-            MERGE (web:WebProcessed {path: $output_path})
-            MERGE (reg)-[:INPUT]->(proc)-[:OUTPUT]->(web)
+            query = f"""
+            MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:FOR]->(e:EduceLabID)
+            {_upstream_input_cypher("reg_in", "Registered", "input_path")}
+            MERGE (proc:Process {{stage: "WEB", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"}})
+            MERGE (web:WebProcessed {{path: $output_path}})
+            MERGE (reg_in)-[:INPUT]->(proc)-[:OUTPUT]->(web)
             MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
             """
