@@ -217,7 +217,8 @@ async def get_all_datasets_for_pherc(
     datasets nested by physical artifact.
 
     Optional query parameters:
-    - dataset_type: One of "FlatbedScan", "PGSRaw", "SpectralRaw"
+    - dataset_type: One of "FlatbedScan", "PGSRaw", "SpectralRaw",
+      "PGSProcessed", "SpectralProcessed", "Registered", "WebProcessed"
     - newest_completed: If true, return only the newest completed dataset per type per artifact
     """
     logger.info(f"User {user} called /pherc/{pherc_id}/all-datasets")
@@ -278,7 +279,11 @@ async def get_datasets_for_educelabid(
 
     Datasets are pooled across the UUID's replacement (REPLACES) chain, and each
     carries ``belongs_to_uuid`` (the EduceLabID it actually belongs to) so scans
-    sitting on a retired predecessor UUID are visible.
+    sitting on a retired predecessor UUID are visible. Pipeline outputs
+    (PGSProcessed/SpectralProcessed/Registered/WebProcessed) are included alongside
+    the raw scans and carry the ``pipeline_id`` and ``status`` of the Process that
+    produced them, plus a ``complete`` flag in the same "True"/"False" string
+    form raw scans use.
     """
     logger.info(f"User {user} called /educelabid/{uuid}/datasets")
 

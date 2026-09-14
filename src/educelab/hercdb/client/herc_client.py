@@ -138,12 +138,17 @@ class HercClient:
     ) -> dict:
         """Get all datasets under a PHerc, grouped by EduceLabID.
 
-        Traverses the full hierarchy (PHerc, Cornici, Pezzi) and returns
-        all datasets nested by physical artifact.
+        Traverses the full hierarchy (PHerc, Cornici, Pezzi) and returns all
+        datasets nested by physical artifact. Pipeline outputs (PGSProcessed,
+        SpectralProcessed, Registered, WebProcessed) appear alongside the raw scans,
+        carrying the ``pipeline_id`` and ``status`` of the Process that made
+        them, and a ``complete`` flag in the same "True"/"False" string form raw
+        scans use -- so one completeness check covers both kinds.
 
         Args:
             pherc_id: PHerc display name.
-            dataset_type: Optional filter. One of "FlatbedScan", "PGSRaw", "SpectralRaw".
+            dataset_type: Optional filter. One of "FlatbedScan", "PGSRaw",
+                "SpectralRaw", "PGSProcessed", "SpectralProcessed", "Registered", "WebProcessed".
             newest_completed: If True, return only the newest completed dataset
                 per type per artifact.
         """
@@ -178,11 +183,15 @@ class HercClient:
 
         Datasets are pooled across the UUID's replacement (REPLACES) chain; each
         carries ``belongs_to_uuid`` (the EduceLabID it actually belongs to) so a
-        scan on a retired predecessor UUID is visible.
+        scan on a retired predecessor UUID is visible. Pipeline outputs (PGSProcessed,
+        SpectralProcessed, Registered, WebProcessed) are included too, carrying the
+        ``pipeline_id`` and ``status`` of the Process that produced them, and a
+        ``complete`` flag in the same "True"/"False" string form raw scans use.
 
         Args:
             uuid: The EduceLabID UUID.
-            dataset_type: Optional filter. One of "FlatbedScan", "PGSRaw", "SpectralRaw".
+            dataset_type: Optional filter. One of "FlatbedScan", "PGSRaw",
+                "SpectralRaw", "PGSProcessed", "SpectralProcessed", "Registered", "WebProcessed".
             newest_completed: If True, return only the newest completed dataset per type.
         """
         params: dict = {}

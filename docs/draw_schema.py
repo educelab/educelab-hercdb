@@ -71,6 +71,7 @@ EDGES = [
     ("Registered",       "Process",           "INPUT"),
     ("Process",          "WebProcessed",      "OUTPUT"),
     ("Process",          "Pipeline",          "STAGE_OF"),
+    ("Pipeline",         "EduceLabID",        "FOR"),
 ]
 
 G = nx.DiGraph()

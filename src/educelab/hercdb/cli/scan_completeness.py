@@ -83,9 +83,10 @@ def _is_fully_complete(d):
     ints on the node; legacy nodes loaded before the count columns existed
     default to 0 (preserving the prior flag-only behavior for un-reloaded data).
 
-    This is the Python twin of the ``_FULLY_COMPLETE_CYPHER`` predicate in
+    This is the Python twin of the ``_FULLY_COMPLETE_PREDICATE`` in
     ``db/connection.py`` (the ``newest_completed`` path of the ``find_datasets*``
-    methods). The two encode the same rule in two languages — keep them in sync.
+    methods, and ``_FULLY_COMPLETE_CYPHER`` in the work-list queries). The two
+    encode the same rule in two languages — keep them in sync.
     """
     if str(d.get("complete")) != "True":
         return False

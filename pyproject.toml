@@ -8,7 +8,7 @@ include = ["educelab.hercdb*"]
 
 [project]
 name = "educelab-hercdb"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
     "requests>=2.32.5",
 ]
