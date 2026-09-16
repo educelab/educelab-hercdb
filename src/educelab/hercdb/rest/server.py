@@ -34,7 +34,7 @@ logger = logging.getLogger("api-auth")
 app = FastAPI(
     title="EduceLab HercDB API",
     description="REST API for the Herculaneum Papyrus Scroll Database",
-    version="0.3.2",
+    version=hercdb.__version__,
 )
 security = HTTPBearer()
 

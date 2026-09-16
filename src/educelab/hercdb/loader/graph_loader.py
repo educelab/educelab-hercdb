@@ -830,7 +830,9 @@ class PhercGraphDatabaseLoader:
         - output-dataset node
         - pipeline node
         
-        If pipline node does not exist, it creates one first.
+        If pipline node does not exist, it creates one first, linked FOR the
+        artifact's EduceLabID -- every read path reaches a processed dataset
+        through that edge, so a Pipeline without it hides its own outputs.
         
         input:
         op_type: "PGS" | "SPEC" | "WEB"
@@ -839,7 +841,7 @@ class PhercGraphDatabaseLoader:
         if op_type == "PGS":
         
             query = """
-            MATCH (:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(pgs:PGSRaw {path: $input_ds_path})
+            MATCH (e:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(pgs:PGSRaw {path: $input_ds_path})
             MERGE (proc:Process {stage: "PGS",
             start_time: $date_t,
             slurm_id: $slurm_id,
@@ -847,6 +849,7 @@ class PhercGraphDatabaseLoader:
             MERGE (pgs_proc:PGSProcessed {path: $output_ds_path})
             MERGE (pgs)-[:INPUT]->(proc)-[:OUTPUT]->(pgs_proc)
             MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
+            MERGE (ppline)-[:FOR]->(e)
             MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
             """
@@ -854,7 +857,7 @@ class PhercGraphDatabaseLoader:
         elif op_type == "SPEC":
 
             query = """
-            MATCH (:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(spectral:SpectralRaw {path: $input_ds_path})
+            MATCH (e:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(spectral:SpectralRaw {path: $input_ds_path})
             MERGE (proc:Process {stage: "SPEC",
             start_time: $date_t,
             slurm_id: $slurm_id,
@@ -862,6 +865,7 @@ class PhercGraphDatabaseLoader:
             MERGE (spec_proc:SpectralProcessed {path: $output_ds_path})
             MERGE (spectral)-[:INPUT]->(proc)-[:OUTPUT]->(spec_proc)
             MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
+            MERGE (ppline)-[:FOR]->(e)
             MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
             """

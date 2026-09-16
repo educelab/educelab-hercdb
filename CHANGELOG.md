@@ -5,6 +5,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.5] - 2026-09-14
+
+### Fixed
+- `initialize_process` records REG and WEB stages whose inputs were produced by a **different** pipeline. Both branches previously required the input to already hang off a Process in the *same* pipeline (`MATCH (ppline)<-[:STAGE_OF]-(:Process)--(pg_proc:PGSProcessed {path: ...})`). A registration- or webify-only submission mints a fresh `uber_job_id` whose only stage is REG (or WEB), while its `PGSProcessed`/`SpectralProcessed`/`Registered` inputs came from an earlier pipeline — so the MATCH found nothing, `initialize_process` returned `None`, and the caller was left with a Pipeline node holding zero Processes. The jobs ran fine; hercdb simply never learned what they were.
+- Inputs are now matched by `path` alone, which is the key those nodes are MERGEd on and their unique address everywhere else. This is the same shape as the 0.2.2 change that made PGS/SPEC match their raw scan across the EduceLabID's `REPLACES` chain: the input's identity does not depend on which pipeline is consuming it. The input `MATCH` is still required, so a genuinely missing input continues to return `None` rather than recording a Process with nothing feeding it. (0.2.2 recorded that REG/WEB "match this pipeline's own output nodes and were unaffected" — that held only because no registration-only submission had been made yet.)
+
+### Changed
+- The REST app's advertised `version` is read from installed package metadata (`educelab.hercdb.__version__`) instead of a hand-copied literal. It had been pinned at `"0.3.2"` since 0.3.2 — the bump was missed on both 0.3.3 and 0.3.4, so `/docs` and `/openapi.json` had been misreporting the server version for two releases. `__version__` is now exported from the package, so clients can read it too; it falls back to `"0.0.0+unknown"` when running from a source tree with no install.
+
+### Fixed (tests)
+- `test_find_datasets_for_educelabid` asserted the returned `type` was one of the three raw labels. 0.3.4 made processed outputs surface through that query, so a real `SpectralProcessed` in the database tripped an assertion that had simply not been updated. It now accepts the full `DatasetType` range.
+
+
+### Backward compatibility
+- No schema, API surface or result shape changes. A REG/WEB submission whose inputs *were* produced by the same pipeline — the only case that worked before — still records exactly the same nodes and relationships.
+- Downstream effect worth knowing: acquisition-workflow's headless path compares recorded stages against submitted ones, so every unattended registration batch previously exited `EXIT_PARTIAL` (1), telling the caller to reconcile a batch that had actually queued cleanly. Those batches now tally correctly.
+
+---
+
 ## [0.3.4] - 2026-09-14
 
 ### Added
