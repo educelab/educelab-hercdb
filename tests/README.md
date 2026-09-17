@@ -30,6 +30,7 @@ path without needing a database.
 - **test_connection.py** - Basic Neo4j connection verification (plain script)
 - **test_fuzzy_find_node.py** - `GraphDBConnection.fuzzy_find_node` tests (`unittest.TestCase`)
 - **test_pipeline_crud.py** - Pipeline CRUD methods on `GraphDBConnection`: create/update/delete pipelines and processes (`unittest.TestCase`, self-cleaning)
+- **test_pipeline_artifact_link.py** - Regression cover for the Pipeline -> artifact link behind the pipeline list's `dataset_name` / `artifact_uuid` columns. Builds a registration-only submission (REG over processed inputs, no raw input of its own) and asserts it still resolves (`unittest.TestCase`, self-cleaning). One end-to-end assertion runs `get_all_pipeline_summaries`, which queries every pipeline in the database; it is skipped unless `HERCDB_SLOW_TESTS=1` is set, because over a VPN that is minutes rather than seconds.
 - **test_pipeline_loader.py** - Pipeline/process node creation via `PhercGraphDatabaseLoader` (script with `--create`/`--cleanup` flags; run directly, not via `unittest`)
 
 ### api/
@@ -66,6 +67,9 @@ uv run python -m unittest tests.integration.test_db_queries.TestPhercDbQueries.t
 
 # test_client_retry.py is self-contained (no live server needed)
 uv run python -m unittest tests.client.test_client_retry
+
+# Include the slow whole-database assertions (worth it on a host near Neo4j)
+HERCDB_SLOW_TESTS=1 uv run python -m unittest discover tests/integration
 ```
 
 Note: most `api/` and `client/` test files are scripts rather than `unittest.TestCase` classes (`test_client_retry.py` is the exception) — run them directly, passing a token and host as needed:

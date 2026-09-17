@@ -855,11 +855,27 @@ class GraphDBConnection:
         return scored[:limit]
 
     def find_pipelines(self) -> list[dict]:
-        """Find all pipelines and return their pipeline_id and associated artifact_uuid."""
+        """Find all pipelines and return their pipeline_id and associated artifact_uuid.
+
+        Follows the Pipeline's own `[:FOR]` edge to the EduceLabID. That edge is
+        what `initialize_pipeline` writes and what `_dataset_sources_cypher`
+        traverses, so it *is* the artifact link -- and it is there whatever the
+        pipeline's stages happen to be.
+
+        This used to reconstruct the link by walking to a **raw** input instead
+        (`(PGSRaw|SpectralRaw)-[:BELONGS_TO]->(EduceLabID)`), which silently
+        dropped every pipeline that consumes processed data: REG takes
+        PGSProcessed + SpectralProcessed and WEB takes Registered, so neither
+        matched the label filter. `get_all_pipeline_summaries` then reported
+        those pipelines with an empty `artifact_uuid`, and an empty
+        `dataset_name` too, since the name lookup is gated on the uuid.
+
+        Following `FOR` also sidesteps a raw scan whose EduceLabID was never
+        ASSIGNED_TO an artifact: such a scan resolves to a nameless orphan uuid,
+        while the pipeline's own FOR edge points at the real artifact.
+        """
         records, _, _ = self._run_query("""
-            MATCH (p:Pipeline)<-[:STAGE_OF]-(proc:Process)<-[:INPUT]-(input)
-            WHERE 'PGSRaw' IN LABELS(input) OR 'SpectralRaw' IN LABELS(input)
-            MATCH (e:EduceLabID)<-[:BELONGS_TO]-(input)
+            MATCH (p:Pipeline)-[:FOR]->(e:EduceLabID)
             RETURN DISTINCT p.pipeline_id AS pipeline_id, e.uuid AS artifact_uuid
             ORDER BY p.pipeline_id
             """)
@@ -1000,7 +1016,7 @@ class GraphDBConnection:
                 - pipeline_id: Pipeline identifier
                 - status: Computed status (completed/partially_completed/running/failed/unknown(error))
         """
-        # Get pipelines with their artifact UUIDs (only those with Process nodes)
+        # Get pipelines with their artifact UUIDs, via each Pipeline's FOR edge
         pipelines_with_processes = self.find_pipelines()
 
         # Build a dict of pipeline_id -> artifact_uuid for quick lookup

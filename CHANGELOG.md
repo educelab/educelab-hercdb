@@ -5,6 +5,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.6] - 2026-09-17
+
+### Fixed
+- `find_pipelines` follows each Pipeline's own `[:FOR]` edge to its EduceLabID instead of reconstructing the link by walking to a **raw** input. The old query required `(p:Pipeline)<-[:STAGE_OF]-(:Process)<-[:INPUT]-(input)` where `input` carried a `PGSRaw` or `SpectralRaw` label, which no registration or webify pipeline can satisfy — REG consumes PGSProcessed + SpectralProcessed, WEB consumes Registered. Those pipelines matched nothing, so `get_all_pipeline_summaries` reported them with an empty `artifact_uuid`; and because the name lookup is gated on that uuid (`if artifact_uuid:`), `dataset_name` came back empty too. One missing row, both columns blank. The first three real REG submissions surfaced this — every one of them showed up in the pipeline list with no artifact name and no UUID.
+- The data was never wrong. `initialize_pipeline` has always written `MERGE (p)-[:FOR]->(e)`, and `_dataset_sources_cypher` already traverses that edge to reach processed datasets — so the same REG outputs were simultaneously visible through `/educelabid/{uuid}/datasets` and invisible in `/pipelines`. This was purely the pipeline-list read path reconstructing a link that was already recorded.
+- Measured against production before the change: of 3642 Pipeline nodes, 3640 carry a `FOR` edge and 3637 were resolvable by the old raw-input query. Three had `FOR` but no raw input — exactly the REG submissions. **Zero** were resolvable by the old query but lacked a `FOR` edge, so nothing that previously resolved stops resolving. The only two pipelines without a `FOR` edge are synthetic `TEST-*` rows that were already blank.
+- Side effect worth knowing: one pipeline's two links disagreed, and following `FOR` corrects it. `uber-59c60910`'s SpectralRaw input hangs off an EduceLabID that was never `ASSIGNED_TO` any artifact — an orphan created by a truncated name at ingest (the scan path ends mid-word: `Dailies/Spectral/MVDaily_20230314/PHerc1784Cr01 (Facke`). The old query resolved the pipeline to that nameless orphan, which is why it showed a UUID with no name; its `FOR` edge points at the real artifact, Cornice `1 (Fackelmann)`. The orphan EduceLabID is still in the graph and wants cleaning up separately.
+- `find_pipelines` no longer requires a Pipeline to have a Process. A Pipeline node created by `initialize_pipeline` but not yet given a stage now reports its artifact rather than nothing. `get_all_pipeline_summaries` already enumerated such pipelines separately, so they appeared in the list either way — they just had no artifact on them.
+
+### Added
+- `tests/integration/test_pipeline_artifact_link.py` — builds a real registration-only submission (one pipeline producing PGSProcessed/SpectralProcessed from raw scans, a second running REG over those outputs) and asserts it resolves to the right artifact, with regression guards that PGS/SPEC pipelines still resolve and that two raw inputs do not yield two rows. Self-cleaning; runs in ~5s, and fails on three of its five assertions against the old query. `find_pipelines` previously had no test coverage at all.
+- The end-to-end assertion through `get_all_pipeline_summaries` is skipped unless `HERCDB_SLOW_TESTS=1` is set. That function issues one `get_pipeline_status` query per pipeline, so checking a single row costs 3600+ round trips — seconds on a host beside Neo4j, minutes over a VPN. The default path asserts the same composition (`find_pipelines` for the uuid, `find_artifact_name_by_uuid` for the name it gates) in under a second.
+
+### Backward compatibility
+- No schema, API surface or result-shape changes. `/pipelines` returns the same fields; more of them are populated.
+- Consumers that treated a blank `artifact_uuid` as "this is a REG/WEB pipeline" will need to stop — that was never the intent, only the symptom.
+
+---
+
 ## [0.3.5] - 2026-09-14
 
 ### Fixed
