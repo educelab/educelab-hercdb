@@ -64,6 +64,38 @@ class TestPhercDbQueries(unittest.TestCase):
         self.assertIsNotNone(result['pherc'])
         print(f"[find_artifact_name_by_uuid] Result: {result}")
 
+    def test_find_artifact_name_keeps_the_most_specific(self):
+        """An EduceLabID assigned to several nodes must not lose its cornice.
+
+        28 EduceLabIDs are ASSIGNED_TO more than one node -- this one to both
+        Cornice 'Cass.7' and the PHerc '72' above it -- so the lookup sees two
+        rows and has to choose. Taking whichever row Cypher returned first was
+        only ever accidental: there is no ORDER BY, so the name depended on the
+        planner. The specific name is the right one.
+        """
+        result = self.query_runner.find_artifact_name_by_uuid(
+            "a7bee49b-cca5-53dc-b7cd-82c44c49ca2a")
+        self.assertIsNotNone(result)
+        self.assertEqual(result['pherc'], '72')
+        self.assertEqual(result['cornice'], 'Cass.7')
+        self.assertEqual(
+            self.query_runner._format_dataset_name(result), 'PHerc72 Cornice Cass.7')
+
+    def test_find_artifact_names_by_uuids_matches_the_single_form(self):
+        """The bulk lookup and its single-uuid sibling must not disagree."""
+        uuids = [
+            "d65a2db0-ffec-5c15-8d3e-b28cf9326a32",
+            "a7bee49b-cca5-53dc-b7cd-82c44c49ca2a",   # multi-row
+            "00000000-0000-0000-0000-000000000000",   # resolves to nothing
+        ]
+        bulk = self.query_runner.find_artifact_names_by_uuids(uuids)
+        for uuid in uuids:
+            self.assertEqual(
+                bulk.get(uuid), self.query_runner.find_artifact_name_by_uuid(uuid),
+                f"bulk and single-uuid lookups disagree for {uuid}")
+        self.assertNotIn("00000000-0000-0000-0000-000000000000", bulk)
+        self.assertEqual(self.query_runner.find_artifact_names_by_uuids([]), {})
+
     def _a_uuid_under_1044(self) -> str:
         """Pull one EduceLabID uuid under PHerc 1044 (datasets path)."""
         artifacts = self.query_runner.find_all_datasets_for_pherc("1044")

@@ -5,6 +5,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.7] - 2026-09-17
+
+### Changed
+- `get_all_pipeline_summaries` issues **three queries regardless of database size**, instead of `2N+2`. It called `get_pipeline_status` once per pipeline *and* `find_artifact_name_by_uuid` once per pipeline — about 7,290 round trips for 3,644 pipelines, and the entire cost of `GET /pipelines`. Measured end to end against production: **1208.31s → 1.92s, a 630x speedup** (from a laptop over a VPN, where per-query latency dominates; the win is smaller but real on a host beside Neo4j, where the endpoint took ~11s).
+- Verified by replaying the old per-pipeline algorithm against the new one over all 3,644 pipelines: same rows, same order, same values.
+- New `_all_pipeline_processes` collects every pipeline's stages in one query. It uses a pattern comprehension rather than `OPTIONAL MATCH`, so a Pipeline with no Process yields `[]` instead of a row of nulls — `_compute_pipeline_status` reads an empty list as `unknown(error)`, which is what the old path produced when `get_pipeline_status` returned `None`.
+
+### Added
+- `find_artifact_names_by_uuids(uuids)` — bulk form of `find_artifact_name_by_uuid`, one query for many uuids. A uuid that resolves to nothing is absent from the returned mapping, the dict analogue of the single-uuid method returning `None`.
+
+### Fixed
+- An EduceLabID `ASSIGNED_TO` more than one node no longer loses the more specific half of its name. 28 EduceLabIDs are in that state — `a7bee49b-cca5-53dc-b7cd-82c44c49ca2a` is assigned to both Cornice `Cass.7` and the PHerc `72` above it — so the name query returns several rows and something has to choose between them. `find_artifact_name_by_uuid` returned `records[0]`, which is well defined only while a uuid yields exactly one row: Cypher guarantees no order without an `ORDER BY`, so for those 28 the name depended on the query planner. Both lookups now keep the most specific name (pezzo over cornice over pherc, with the formatted name breaking ties), so the answer no longer varies with the plan. Three pipelines are affected in production, all of them `Cass.`-numbered cornici: `PHerc72 Cornice Cass.7`, `PHerc1363 Cornice Cass.75`, `PHerc1362 Cornice Cass.75`.
+- `find_artifact_name_by_uuid` delegates to the bulk method rather than keeping its own copy of the query, so the two cannot drift apart.
+
+### Backward compatibility
+- No schema, API surface or result-shape changes. `/pipelines` returns the same rows in the same order, faster.
+- The three pipeline rows above gain their cornice back. Anything that pinned those exact `dataset_name` strings should expect the longer form.
+
+---
+
 ## [0.3.6] - 2026-09-17
 
 ### Fixed
