@@ -435,12 +435,38 @@ class GraphDBConnection:
             dict: A dictionary with keys 'pherc', 'cornice', and 'pezzo'.
                   Values are the display names or None if not applicable.
                   Returns None if the UUID is not found.
+
+        Delegates to ``find_artifact_names_by_uuids`` so the two cannot drift.
+        It previously ran its own copy of the query and returned ``records[0]``,
+        which is only well defined while a uuid yields exactly one row -- 28
+        EduceLabIDs yield several, and Cypher guarantees no order without an
+        ORDER BY, so for those the answer depended on the planner. The shared
+        implementation picks the most specific name instead.
         """
-        records, summary, keys = self._run_query("""
-            MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)
+        return self.find_artifact_names_by_uuids([uuid]).get(uuid)
+
+    def find_artifact_names_by_uuids(self, uuids: list[str]) -> dict[str, dict]:
+        """Bulk form of ``find_artifact_name_by_uuid``: many uuids, one query.
+
+        Returns ``{uuid: {'pherc', 'cornice', 'pezzo'}}`` for the uuids that
+        resolve. A uuid that is not assigned to any artifact is simply absent
+        from the mapping, which is the dict analogue of the single-uuid method
+        returning ``None`` -- so a caller can keep using ``.get(uuid)`` and
+        treat a miss the same way.
+
+        Exists because ``get_all_pipeline_summaries`` needs a name for every
+        pipeline in the database; asking one uuid at a time made that endpoint
+        cost a round trip per pipeline.
+        """
+        if not uuids:
+            return {}
+
+        records, _, _ = self._run_query("""
+            MATCH (e:EduceLabID)-[:ASSIGNED_TO]->(n)
+            WHERE e.uuid IN $uuids
             OPTIONAL MATCH (n)<-[:HAS]-(parent1)
             OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
-            WITH n, parent1, parent2,
+            WITH e, n, parent1, parent2,
                  CASE
                      WHEN 'PHerc' IN labels(n) THEN n
                      WHEN 'PHerc' IN labels(parent1) THEN parent1
@@ -453,19 +479,44 @@ class GraphDBConnection:
                  CASE
                      WHEN 'Pezzo' IN labels(n) THEN n
                  END AS pezzo
-            RETURN pherc.displayName AS pherc_name,
+            RETURN e.uuid AS uuid,
+                   pherc.displayName AS pherc_name,
                    cornice.displayName AS cornice_name,
                    pezzo.displayName AS pezzo_name
-            """, uuid=uuid)
+            """, uuids=list(uuids))
 
-        if records and len(records) > 0:
-            record = records[0]
-            return {
-                'pherc': record['pherc_name'],
-                'cornice': record['cornice_name'],
-                'pezzo': record['pezzo_name']
+        # One uuid can yield several rows: 28 EduceLabIDs in production are
+        # ASSIGNED_TO more than one node (a Cornice *and* the PHerc above it,
+        # say), and the two OPTIONAL MATCHes can multiply rows further -- five,
+        # at worst. Keep the most specific name, so "PHerc72 Cornice Cass.7"
+        # wins over the bare "PHerc72" that the same uuid also produces.
+        # Neo4j gives no row order without an ORDER BY, so picking by position
+        # would make the answer depend on the planner.
+        best: dict[str, dict] = {}
+        for r in (records or []):
+            candidate = {
+                'pherc': r['pherc_name'],
+                'cornice': r['cornice_name'],
+                'pezzo': r['pezzo_name'],
             }
-        return None
+            uuid = r['uuid']
+            if uuid not in best or self._name_rank(candidate) > self._name_rank(best[uuid]):
+                best[uuid] = candidate
+
+        return best
+
+    def _name_rank(self, parts: dict) -> tuple:
+        """Sort key picking the most specific of several names for one uuid.
+
+        More parts beats fewer; the formatted name breaks ties so the result
+        never depends on the order Neo4j happened to return rows in.
+        """
+        return (
+            parts.get('pezzo') is not None,
+            parts.get('cornice') is not None,
+            parts.get('pherc') is not None,
+            self._format_dataset_name(parts),
+        )
 
     def find_artifact_location_by_uuid(self, uuid: str) -> dict | None:
         """Lightweight UUID -> artifact bridge. Backs ``GET /artifacts/{uuid}``.
@@ -1016,60 +1067,83 @@ class GraphDBConnection:
                 - pipeline_id: Pipeline identifier
                 - status: Computed status (completed/partially_completed/running/failed/unknown(error))
         """
-        # Get pipelines with their artifact UUIDs, via each Pipeline's FOR edge
-        pipelines_with_processes = self.find_pipelines()
+        # Three queries, whatever the size of the database. Every per-pipeline
+        # lookup here used to be its own round trip -- one get_pipeline_status
+        # and one find_artifact_name_by_uuid apiece, so 2N+2 in total. At 3.6k
+        # pipelines that was the whole cost of the endpoint.
+        pipeline_artifacts = {p['pipeline_id']: p['artifact_uuid'] for p in self.find_pipelines()}
 
-        # Build a dict of pipeline_id -> artifact_uuid for quick lookup
-        pipeline_artifacts = {p['pipeline_id']: p['artifact_uuid'] for p in pipelines_with_processes}
-
-        # Also find ALL pipeline nodes (including those without Process nodes)
-        records, _, _ = self._run_query("""
-            MATCH (p:Pipeline)
-            RETURN p.pipeline_id AS pipeline_id
-            ORDER BY p.pipeline_id
-            """)
-
-        all_pipeline_ids = [r['pipeline_id'] for r in records] if records else []
-
-        if not all_pipeline_ids:
+        # Keyed by pipeline_id and ordered, covering pipelines with no Process too.
+        pipeline_processes = self._all_pipeline_processes()
+        if not pipeline_processes:
             return []
 
-        # For each pipeline, get all processes and compute summary
+        names = self.find_artifact_names_by_uuids(
+            list({uuid for uuid in pipeline_artifacts.values() if uuid}))
+
         summaries = []
-        for pipeline_id in all_pipeline_ids:
+        for pipeline_id, processes in pipeline_processes.items():
             artifact_uuid = pipeline_artifacts.get(pipeline_id)
 
-            # Get all processes for this pipeline
-            processes = self.get_pipeline_status(pipeline_id)
-            if processes is None:
-                processes = []
-
-            # Get dataset name from artifact UUID
             dataset_name = ''
             if artifact_uuid:
-                artifact_info = self.find_artifact_name_by_uuid(artifact_uuid)
-                if artifact_info:
-                    dataset_name = self._format_dataset_name(artifact_info)
-
-            # Compute overall status
-            status = self._compute_pipeline_status(processes)
+                dataset_name = self._format_dataset_name(names.get(artifact_uuid))
 
             # Find most recent start_time
             most_recent_datetime = ''
             for proc in processes:
                 dt = proc.get('start_time', '')
-                if dt and (not most_recent_datetime or str(dt) > most_recent_datetime):
-                    most_recent_datetime = str(dt)
+                if dt and (not most_recent_datetime or dt > most_recent_datetime):
+                    most_recent_datetime = dt
 
             summaries.append({
                 'start_time': most_recent_datetime,
                 'dataset_name': dataset_name,
                 'artifact_uuid': artifact_uuid or '',
                 'pipeline_id': pipeline_id,
-                'status': status
+                'status': self._compute_pipeline_status(processes)
             })
 
         return summaries
+
+    def _all_pipeline_processes(self) -> dict[str, list[dict]]:
+        """Every pipeline's processes in one query, keyed by pipeline_id.
+
+        A pattern comprehension rather than an OPTIONAL MATCH, so a Pipeline
+        with no Process yields an empty list instead of a row of nulls -- such
+        pipelines must still appear, and `_compute_pipeline_status` reads an
+        empty list as 'unknown(error)', which is what the per-pipeline path
+        produced when `get_pipeline_status` returned None.
+
+        Only the three properties the summary needs are projected. Values are
+        stringified here, matching `get_pipeline_status`, so the caller's
+        `start_time` comparison stays a string comparison on ISO-8601.
+        Insertion order is the query's ORDER BY, so callers iterating the dict
+        get pipelines in pipeline_id order.
+        """
+        records, _, _ = self._run_query("""
+            MATCH (p:Pipeline)
+            RETURN p.pipeline_id AS pipeline_id,
+                   [(p)<-[:STAGE_OF]-(proc:Process) |
+                       {stage: proc.stage, status: proc.status,
+                        start_time: proc.start_time}] AS processes
+            ORDER BY p.pipeline_id
+            """)
+
+        def text(value) -> str:
+            return str(value) if value is not None else ''
+
+        return {
+            r['pipeline_id']: [
+                {
+                    'stage': text(proc['stage']),
+                    'status': text(proc['status']),
+                    'start_time': text(proc['start_time']),
+                }
+                for proc in r['processes']
+            ]
+            for r in (records or [])
+        }
 
     def find_predecessor_uuid_map(self) -> dict:
         """Map every EduceLabID uuid to its full REPLACES chain (itself plus
