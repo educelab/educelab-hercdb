@@ -1,10 +1,11 @@
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, Depends, Query, status
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from educelab import hercdb
 from educelab.hercdb.db import DatasetType, DatabaseUnavailableError
 
@@ -399,10 +400,39 @@ async def get_ambiguous_datasets(proc_type: str,
 
 # --- Pipeline CRUD models ---
 
+# The official SemVer 2.0.0 grammar (semver.org), anchored: MAJOR.MINOR.PATCH
+# with optional -prerelease and +build. Validation lives here at the boundary
+# only -- the DB layer stores whatever string it is handed.
+_SEMVER_RE = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)"
+    r"(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
+    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
+)
+
+
 class CreatePipelineRequest(BaseModel):
     pipeline_id: str
     artifact_uuid: str
     datetime: str
+    # Semantic version of the pipeline code making the submission. Optional so
+    # a pre-0.3.8 caller is unchanged; omitting it leaves the node's version
+    # untouched rather than clearing it.
+    version: str | None = None
+
+    @field_validator("version")
+    @classmethod
+    def _check_semver(cls, value: str | None) -> str | None:
+        """Reject a malformed version at submission rather than storing it.
+
+        A version logged wrong is worse than one not logged at all: it reads as
+        fact forever after, and nothing downstream re-checks it.
+        """
+        if value is not None and not _SEMVER_RE.match(value):
+            raise ValueError(
+                f"'{value}' is not a semantic version (expected MAJOR.MINOR.PATCH, e.g. '2.1.0')"
+            )
+        return value
 
 class CreateProcessRequest(BaseModel):
     proc_type: str
@@ -426,7 +456,8 @@ class UpdateProcessStatusRequest(BaseModel):
 async def initialize_pipeline(body: CreatePipelineRequest, user: str = Depends(get_current_user)):
     """Create a new pipeline linked to an EduceLabID."""
     logger.info(f"User {user} creating pipeline: {body.pipeline_id}")
-    result = db.initialize_pipeline(body.pipeline_id, body.artifact_uuid, body.datetime)
+    result = db.initialize_pipeline(body.pipeline_id, body.artifact_uuid, body.datetime,
+                                    version=body.version)
     if not result:
         raise HTTPException(
             status_code=404,

@@ -150,7 +150,7 @@ educelab-hercdb/
 - `HercClient`: Lightweight Python client wrapping all REST endpoints
 - Constructor takes `host`, `token`, and optional `port`, `scheme`, plus resilience knobs `timeout`, `retries`, `backoff_factor`, `backoff_max`
 - Uses one `requests.Session` with an `HTTPAdapter(Retry(...))`: **automatically retries** connection errors / read timeouts / 502-503-504 on **all** verbs (safe — writes are idempotent `MERGE`s) and applies a per-request `timeout`. Defaults span ~108s (`0,4,8,16,20,20,20,20`), riding over the nightly backup 503 window. All calls funnel through `_request` (which takes `tolerate_404` for the two dataset methods that return empty on 404 instead of raising).
-- Methods mirror REST endpoints (`get_artifact_by_name`, `get_artifact`, `get_subdivisions`, `resolve`, `get_pipelines`, etc.)
+- Methods mirror REST endpoints (`get_artifact_by_name`, `get_artifact`, `get_subdivisions`, `resolve`, `get_pipelines`, etc.). `initialize_pipeline(..., version=None)` omits the key from the payload when `None`, so an unversioned call is byte-for-byte the pre-0.3.8 request.
 
 ### Import Patterns
 
@@ -176,7 +176,7 @@ The Neo4j database models Herculaneum scroll data with these primary node types:
 - **Disegni**: Historical drawings depicting scrolls
 - **EduceLabID**: Links physical objects to UUIDs and datasets. May carry a `retired = true` flag with a `retired_reason` string when the UUID was retired without a successor (sentinel `Replacement UUID` value in the UUID file).
 - **Dataset nodes**: FlatbedScanDataset, PGSRaw, SpectralRaw (imaging data); PGSProcessed, SpectralProcessed, Registered, WebProcessed (pipeline outputs, attached to a Process rather than to an EduceLabID). PGSRaw/SpectralRaw carry `uuid` (the scan's own id, the MERGE key), `path`, `date_start`/`date_end`, `complete`, and the 2026 integer counts `file_count`, `missing_files`, `zero_byte_files`, `short_files`, `bad_format_files`.
-- **Pipeline**: Processing pipelines with `pipeline_id`
+- **Pipeline**: Processing pipelines with `pipeline_id` and an optional `version` (the semantic version of the pipeline code that submitted them, recorded at submission time; every stage of one submission shares it). Nodes written before 0.3.8 have no `version` and read back as `None` — they were all `2.0.0`, but nothing backfilled them.
 - **Process**: Pipeline stages with `stage`, `status`, `datetime`, `slurm_id`
 - **Metadata nodes**: Author, Language, Unroller, CustodialInstitution, etc.
 
@@ -214,9 +214,9 @@ The `GraphDBConnection` class provides two patterns for queries:
    - `find_artifact_location_by_uuid(uuid)` - the UUID → artifact bridge: `{type, displayName, pherc, cornice, pezzo, parent}`. Backs `GET /artifacts/{uuid}` (the handler adds `uuid` + a composed `location`).
 
 5. **Pipeline queries**:
-   - `find_pipelines()` - returns list of all pipelines with their `pipeline_id` and `artifact_uuid`
+   - `find_pipelines()` - returns list of all pipelines with their `pipeline_id`, `artifact_uuid` and `version`
    - `get_pipeline_status(pipeline_id)` - returns list of process stages with `start_time`, `end_time`, `stage`, `status`, `slurm_id`, plus `input_dataset_paths` (list[str], gathered from `-[:INPUT]->` dataset nodes — REG carries both its PGS + SPEC inputs) and `output_dataset_path` (str | None, from the single `-[:OUTPUT]->` node)
-   - `get_all_pipeline_summaries()` - returns all pipelines with aggregated status info
+   - `get_all_pipeline_summaries()` - returns all pipelines with aggregated status info, including `version`
 
 6. **Work-list queries** (one family for every proc_type — do not add per-stage siblings):
    - `find_unprocessed_datasets(proc_type)` / `find_ambiguous_datasets(proc_type)` — `proc_type` is `SPEC` or `PGS`; `ValueError` on anything else, which the REST layer maps to 400. Selection rules and *why their order matters* are in the `find_unprocessed_datasets` docstring.
@@ -224,11 +224,11 @@ The `GraphDBConnection` class provides two patterns for queries:
    - `find_unprocessed_spectral_datasets()` / `find_ambiguous_spectral_datasets()` are 0.3.2 aliases for `('SPEC')`.
 
 7. **Pipeline CRUD**:
-   - `initialize_pipeline(pipeline_id, artifact_uuid, datetime)` - create a Pipeline node linked to an EduceLabID
+   - `initialize_pipeline(pipeline_id, artifact_uuid, datetime, version=None)` - create a Pipeline node linked to an EduceLabID. `version` is the pipeline code's semantic version, stored verbatim (format is enforced at the REST boundary, not here) and **optional**: it is written with `coalesce($version, p.version)`, so re-submitting an existing `pipeline_id` without one leaves the recorded version alone instead of clearing it.
    - `initialize_process(pipeline_id, proc_type, input_dataset_paths, output_dataset_path, slurm_id, start_datetime)` - create a Process node (PGS, SPEC, REG, WEB) with input/output dataset links. Inputs are matched **without scoping to this pipeline, but always within the pipeline's artifact** — all four branches open with `MATCH (ppline:Pipeline {pipeline_id})-[:FOR]->(e:EduceLabID)`, so a Pipeline with no `FOR` edge records nothing. PGS/SPEC match the raw scan across `e`'s `REPLACES` chain. REG/WEB match their upstream `PGSProcessed`/`SpectralProcessed`/`Registered` input by `path`, scoped to the EduceLabID that input reaches through its *own* Process and Pipeline (`_upstream_input_cypher`), so cross-pipeline inputs resolve while cross-artifact ones do not — `path` has no uniqueness constraint, so an unscoped lookup would silently wire another artifact's data in as this one's provenance. A registration- or webify-only submission mints a fresh `uber_job_id` whose inputs came from an earlier pipeline, so same-pipeline scoping recorded zero Processes and made every unattended REG batch exit `EXIT_PARTIAL`. Note the asymmetry: PGS/SPEC walk `REPLACES` **directed**, `_upstream_input_cypher` walks it **undirected**.
    - `update_process_status(pipeline_id, stage, status, end_datetime)` - update process status to completed or failed
    - `delete_pipeline(pipeline_id)` - delete a Pipeline, all its Process nodes, and output dataset nodes (leaves input datasets untouched)
-   - `get_pipeline_confirmation(pipeline_id)` - full pipeline summary with all stages
+   - `get_pipeline_confirmation(pipeline_id)` - full pipeline summary with all stages, plus `version`
 
 8. **Fuzzy name lookup** (`src/educelab/hercdb/db/connection.py`):
    - `fuzzy_find_node(name, label="PHerc", parent_pherc=None, parent_cornice=None, threshold=75, limit=10)` — standalone reusable primitive that returns ranked candidates: `[{"node", "displayName", "score", "parent_pherc", "parent_cornice"}, ...]` ordered by score desc. Use this when callers have a noisy name (typos, extra spaces, alternate spellings) and need to identify the right PHerc/Cornice/Pezzo before reaching for UUIDs/EduceLabIDs and the other `find_*` methods. **Do not** add per-endpoint fuzzy variants — compose with this method.
@@ -254,13 +254,13 @@ A **PHerc / Cornice / Pezzo is an "artifact"**, addressed on one `/artifacts` re
 - `GET /datasets/spectral/unprocessed`, `GET /datasets/spectral/ambiguous` - The 0.3.2 spectral-only pair. Unchanged, and declared **before** the parameterized routes so FastAPI keeps matching them first. Do not reorder.
 - `GET /resolve` - Fuzzy-resolve a noisy PHerc/Cornice/Pezzo displayName to ranked candidates. Query params: `name` (required), `label` (`PHerc` | `Cornice` | `Pezzo`, default `PHerc`), `parent_pherc`, `parent_cornice`, `threshold` (default 75), `limit` (default 10). Returns a JSON list with `displayName`, `name`, `score`, `nodeID` (Neo4j element ID), `parent_pherc`, `parent_cornice`. Empty result returns `200 []` (discovery endpoint, not "fetch this thing"); invalid `label` returns 400.
 - (Removed in the API consolidation: `GET /pherc/{pherc_id}`, `.../cornice/{cornice_id}`, `.../pezzo/{pezzo_id}`, `.../cornice/{cornice_id}/pezzo/{pezzo_id}`, `.../datasets/{dataset_type}`, `.../educelabids` — superseded by `/artifacts`, `/all-datasets`, and the enriched `/subdivisions`.)
-- `GET /pipelines` - Get all pipelines with status summaries
+- `GET /pipelines` - Get all pipelines with status summaries; each row carries `version` (`null` when unrecorded)
 - `GET /pipelines/{pipeline_id}/stages` - Get all process stages for a pipeline; each stage carries `input_dataset_paths` (list) and `output_dataset_path` (scalar, or null) alongside `proc_type`/`status`/`slurm_id`/`start_time`/`end_time`
-- `POST /pipelines` - Create a new pipeline linked to an EduceLabID
+- `POST /pipelines` - Create a new pipeline linked to an EduceLabID. Body takes an optional `version` (pipeline code's semver); omitting it is a valid pre-0.3.8 request and writes no version. When present it is validated against the official SemVer 2.0.0 grammar by `_SEMVER_RE` on `CreatePipelineRequest` — `"2.0"`, `"v2.1.0"` and `"latest"` all 422; pre-release/build metadata (`1.0.0-rc.1+build.5`) is accepted. **This is the only place the format is checked**, so nothing below the REST layer may assume a well-formed version.
 - `POST /pipelines/{pipeline_id}/processes` - Create a new process (stage) within a pipeline
 - `PUT /pipelines/{pipeline_id}/processes/{proc_type}/status` - Update process status
 - `DELETE /pipelines/{pipeline_id}` - Delete a pipeline and all its processes and output datasets
-- `GET /pipelines/{pipeline_id}/confirmation` - Get full pipeline summary with all stages
+- `GET /pipelines/{pipeline_id}/confirmation` - Get full pipeline summary with all stages, plus the pipeline's `version`
 
 **Note:** The REST API renames the `stage` field to `proc_type` in pipeline stage responses to avoid ambiguity with pipeline stage ordering.
 
