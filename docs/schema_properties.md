@@ -63,6 +63,7 @@ Derived from `src/educelab/hercdb/loader/graph_loader.py`.
 | | `status` | string | `"submitted"`, `"completed"`, `"failed"` |
 | | `end_time` | string (ISO datetime) *(optional)* | `"2024-01-15T11:00:00"` |
 | **Pipeline** | `pipeline_id` | string | `"pipeline-2024-001"` |
+| | `version` | string (semver) *(optional)* | `"2.1.0"` |
 
 ## Notes
 
@@ -72,4 +73,5 @@ Derived from `src/educelab/hercdb/loader/graph_loader.py`.
 - `Process.stage` stores the process type in Neo4j (`"PGS"`, `"SPEC"`, `"REG"`, `"WEB"`), but the Python API and REST layer refer to this field as `proc_type`.
 - `PGSRaw`/`SpectralRaw` `complete` is stored as the canonical **string** `"True"` / `"False"` / `"unknown"` (normalized case-insensitively by `scan_loader.normalize_complete`), not a boolean.
 - The 2026 integer counts (`file_count`, `missing_files`, `zero_byte_files`, `short_files`, `bad_format_files`) are parsed onto both raw scan node types. Note the Spectral CSV `file count` column is currently unpopulated, so `SpectralRaw.file_count` is always `0`.
+- `Pipeline.version` is the semantic version of the pipeline code that made the submission, recorded at `POST /pipelines`. Pipelines created before 0.3.8 have no `version` property and read back as `null`; they were all `2.0.0`, but nothing backfills them. The format is enforced at the REST boundary (SemVer 2.0.0, 422 on a malformed value), not in the DB layer.
 - All relationships in the current loader carry no properties.

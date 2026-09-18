@@ -5,6 +5,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.8] - 2026-09-18
+
+### Added
+- Pipelines record the **semantic version of the pipeline code** that submitted them, as a `version` property on the Pipeline node. All stages of one submission come from the same code, so the version belongs to the Pipeline, not to each Process.
+  - `initialize_pipeline(pipeline_id, artifact_uuid, datetime, version=None)` writes it; `POST /pipelines` accepts an optional `version` field; `HercClient.initialize_pipeline(..., version=None)` sends it.
+  - Validated at the REST boundary against the official SemVer 2.0.0 grammar: a malformed `version` (`"2.0"`, `"v2.1.0"`, `"latest"`) is rejected with **422** rather than stored. Pre-release and build metadata are accepted (`1.0.0-rc.1+build.5`). The DB layer stores whatever string it is handed — the check lives only in the request model.
+  - Read back from `find_pipelines`, `get_all_pipeline_summaries` (so `GET /pipelines`) and `get_pipeline_confirmation` (so `GET /pipelines/{id}/confirmation`).
+
+### Backward compatibility
+- `version` is **optional** everywhere. A caller that omits it submits exactly the request it did before, and the property is simply not written — the client leaves the key out of the payload entirely, so a pre-0.3.8 server sees an unchanged body.
+- Re-submitting an existing `pipeline_id` without a version leaves any recorded version in place rather than clearing it (`SET p.version = coalesce($version, p.version)`).
+- Existing Pipeline nodes are **not migrated**. They were all produced by pipeline `2.0.0`, but they carry no `version` property and read back as `null` — absence means "unrecorded", not "unversioned".
+- The value is stored verbatim below the REST layer; only `POST /pipelines` enforces the format.
+
+---
+
 ## [0.3.7] - 2026-09-17
 
 ### Changed

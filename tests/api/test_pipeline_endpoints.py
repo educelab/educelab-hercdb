@@ -30,6 +30,7 @@ HEADERS = {"Authorization": f"Bearer {token}"}
 TEST_ARTIFACT_UUID = "d65a2db0-ffec-5c15-8d3e-b28cf9326a32"
 TEST_PIPELINE_ID = f"TEST-API-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 TEST_DATETIME = datetime.now().isoformat()
+TEST_VERSION = "2.1.0"
 
 # These paths must match PGSRaw/SpectralRaw nodes linked to the test UUID.
 # This script seeds them in the DB below and tears them down on exit.
@@ -83,12 +84,14 @@ db._run_query("""
 
 def _cleanup():
     """Remove all test nodes created during the run. Runs on exit (incl. failure)."""
-    db._run_query("""
-        MATCH (p:Pipeline {pipeline_id: $pipeline_id})
-        OPTIONAL MATCH (p)<-[:STAGE_OF]-(proc:Process)
-        OPTIONAL MATCH (proc)-[:OUTPUT]->(out)
-        DETACH DELETE proc, out, p
-        """, pipeline_id=TEST_PIPELINE_ID)
+    # Both the main pipeline and the extra one the pre-release version test creates.
+    for pipeline_id in [TEST_PIPELINE_ID, f"{TEST_PIPELINE_ID}-PRERELEASE"]:
+        db._run_query("""
+            MATCH (p:Pipeline {pipeline_id: $pipeline_id})
+            OPTIONAL MATCH (p)<-[:STAGE_OF]-(proc:Process)
+            OPTIONAL MATCH (proc)-[:OUTPUT]->(out)
+            DETACH DELETE proc, out, p
+            """, pipeline_id=pipeline_id)
     for path in [PGS_RAW_INPUT, SPEC_RAW_INPUT, PGS_PROCESSED_OUTPUT,
                  SPEC_PROCESSED_OUTPUT, REGISTERED_OUTPUT, WEB_OUTPUT]:
         db._run_query("MATCH (n {path: $path}) DETACH DELETE n", path=path)
@@ -106,6 +109,7 @@ resp = post("/pipelines", {
     "pipeline_id": TEST_PIPELINE_ID,
     "artifact_uuid": TEST_ARTIFACT_UUID,
     "datetime": TEST_DATETIME,
+    "version": TEST_VERSION,
 })
 print(f"  Status: {resp.status_code}")
 print(f"  Response: {resp.json()}")
@@ -114,6 +118,7 @@ data = resp.json()
 assert data['pipeline_id'] == TEST_PIPELINE_ID
 assert data['artifact_uuid'] == TEST_ARTIFACT_UUID
 assert data['datetime'] == TEST_DATETIME
+assert data['version'] == TEST_VERSION
 print("  ✓ Pipeline created")
 
 # Bad UUID
@@ -126,6 +131,32 @@ resp = post("/pipelines", {
 print(f"  Status: {resp.status_code}")
 assert resp.status_code == 404
 print("  ✓ Correctly returned 404")
+
+# Malformed version -- rejected at the request model, before any DB write.
+for bad_version in ["2.0", "v2.1.0", "latest", "2.1.0.1"]:
+    print(f"\nPOST /pipelines (version={bad_version!r}):")
+    resp = post("/pipelines", {
+        "pipeline_id": f"SHOULD-NOT-EXIST-{bad_version}",
+        "artifact_uuid": TEST_ARTIFACT_UUID,
+        "datetime": TEST_DATETIME,
+        "version": bad_version,
+    })
+    print(f"  Status: {resp.status_code}")
+    assert resp.status_code == 422, f"Expected 422 for version {bad_version!r}, got {resp.status_code}"
+print("  ✓ Malformed versions correctly returned 422")
+
+# Pre-release + build metadata are valid semver and must be accepted.
+print("\nPOST /pipelines (version with pre-release + build metadata):")
+resp = post("/pipelines", {
+    "pipeline_id": f"{TEST_PIPELINE_ID}-PRERELEASE",
+    "artifact_uuid": TEST_ARTIFACT_UUID,
+    "datetime": TEST_DATETIME,
+    "version": "2.1.0-rc.1+build.5",
+})
+print(f"  Status: {resp.status_code}")
+assert resp.status_code == 201
+assert resp.json()['version'] == "2.1.0-rc.1+build.5"
+print("  ✓ Pre-release version accepted")
 
 # --- POST /pipelines/{id}/processes (PGS) ---
 
@@ -236,6 +267,7 @@ assert resp.status_code == 200
 data = resp.json()
 assert data['pipeline_id'] == TEST_PIPELINE_ID
 assert data['artifact_uuid'] == TEST_ARTIFACT_UUID
+assert data['version'] == TEST_VERSION
 assert 'stages' in data
 assert 'status' in data
 proc_types = [s['proc_type'] for s in data['stages']]

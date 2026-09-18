@@ -15,6 +15,7 @@ client = HercClient(host=host_ip, token=token)
 TEST_ARTIFACT_UUID = "d65a2db0-ffec-5c15-8d3e-b28cf9326a32"
 TEST_PIPELINE_ID = f"TEST-CLIENT-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 TEST_DATETIME = datetime.now().isoformat()
+TEST_VERSION = "2.1.0"
 
 # These paths must match PGSRaw/SpectralRaw nodes linked to the test UUID
 PGS_RAW_INPUT = "/test/pgs_raw/input"
@@ -26,11 +27,13 @@ REGISTERED_OUTPUT = f"/test/registered/{TEST_PIPELINE_ID}"
 # --- initialize_pipeline ---
 
 print("client.initialize_pipeline():")
-result = client.initialize_pipeline(TEST_PIPELINE_ID, TEST_ARTIFACT_UUID, TEST_DATETIME)
+result = client.initialize_pipeline(TEST_PIPELINE_ID, TEST_ARTIFACT_UUID, TEST_DATETIME,
+                                    version=TEST_VERSION)
 print(f"  {result}")
 assert result['pipeline_id'] == TEST_PIPELINE_ID
 assert result['artifact_uuid'] == TEST_ARTIFACT_UUID
 assert result['datetime'] == TEST_DATETIME
+assert result['version'] == TEST_VERSION
 print("  ✓ Pipeline created")
 
 # --- initialize_process (PGS) ---

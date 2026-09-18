@@ -21,6 +21,7 @@ PGS_PROCESSED_OUTPUT = f"/test/pgs_processed/{TEST_PIPELINE_ID}"
 SPEC_PROCESSED_OUTPUT = f"/test/spectral_processed/{TEST_PIPELINE_ID}"
 REGISTERED_OUTPUT = f"/test/registered/{TEST_PIPELINE_ID}"
 WEB_OUTPUT = f"/test/web_processed/{TEST_PIPELINE_ID}"
+TEST_VERSION = "2.1.0"
 
 
 class TestPipelineCrud(unittest.TestCase):
@@ -79,12 +80,21 @@ class TestPipelineCrud(unittest.TestCase):
         cls.db.close()
 
     def test_1_initialize_pipeline(self):
-        result = self.db.initialize_pipeline(TEST_PIPELINE_ID, TEST_ARTIFACT_UUID, TEST_DATETIME)
+        result = self.db.initialize_pipeline(TEST_PIPELINE_ID, TEST_ARTIFACT_UUID, TEST_DATETIME,
+                                             version=TEST_VERSION)
         self.assertIsNotNone(result)
         self.assertEqual(result['pipeline_id'], TEST_PIPELINE_ID)
         self.assertEqual(result['artifact_uuid'], TEST_ARTIFACT_UUID)
         self.assertEqual(result['datetime'], TEST_DATETIME)
+        self.assertEqual(result['version'], TEST_VERSION)
         print(f"[initialize_pipeline] {result}")
+
+    def test_1b_initialize_pipeline_without_version_keeps_existing(self):
+        """Re-submitting without a version must not clear the recorded one."""
+        result = self.db.initialize_pipeline(TEST_PIPELINE_ID, TEST_ARTIFACT_UUID, TEST_DATETIME)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['version'], TEST_VERSION)
+        print(f"[initialize_pipeline no version] version preserved: {result['version']}")
 
     def test_2_initialize_pipeline_bad_uuid(self):
         result = self.db.initialize_pipeline("SHOULD-NOT-EXIST", "nonexistent-uuid", TEST_DATETIME)
@@ -163,6 +173,7 @@ class TestPipelineCrud(unittest.TestCase):
         self.assertEqual(result['pipeline_id'], TEST_PIPELINE_ID)
         self.assertEqual(result['artifact_uuid'], TEST_ARTIFACT_UUID)
         self.assertEqual(result['datetime'], TEST_DATETIME)
+        self.assertEqual(result['version'], TEST_VERSION)
         self.assertIn(result['status'], ['partially_completed', 'completed', 'failed', 'running', 'unknown(error)'])
         self.assertIsInstance(result['stages'], list)
         self.assertTrue(len(result['stages']) >= 3)

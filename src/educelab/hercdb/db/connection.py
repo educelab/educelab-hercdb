@@ -906,7 +906,10 @@ class GraphDBConnection:
         return scored[:limit]
 
     def find_pipelines(self) -> list[dict]:
-        """Find all pipelines and return their pipeline_id and associated artifact_uuid.
+        """Find all pipelines and return their pipeline_id, artifact_uuid and version.
+
+        `version` is the semantic version of the pipeline code recorded at
+        submission; it is None for pipelines written before 0.3.8.
 
         Follows the Pipeline's own `[:FOR]` edge to the EduceLabID. That edge is
         what `initialize_pipeline` writes and what `_dataset_sources_cypher`
@@ -927,13 +930,15 @@ class GraphDBConnection:
         """
         records, _, _ = self._run_query("""
             MATCH (p:Pipeline)-[:FOR]->(e:EduceLabID)
-            RETURN DISTINCT p.pipeline_id AS pipeline_id, e.uuid AS artifact_uuid
+            RETURN DISTINCT p.pipeline_id AS pipeline_id, e.uuid AS artifact_uuid,
+                   p.version AS version
             ORDER BY p.pipeline_id
             """)
 
         if not records:
             return []
-        return [{"pipeline_id": r["pipeline_id"], "artifact_uuid": r["artifact_uuid"]} for r in records]
+        return [{"pipeline_id": r["pipeline_id"], "artifact_uuid": r["artifact_uuid"],
+                 "version": r["version"]} for r in records]
     
     def get_pipeline_status(self, pipeline_id) -> list[dict] | None:
         """Return the status of all processes in a pipeline, or None if not found."""
@@ -1066,12 +1071,14 @@ class GraphDBConnection:
                 - artifact_uuid: UUID of the associated EduceLabID
                 - pipeline_id: Pipeline identifier
                 - status: Computed status (completed/partially_completed/running/failed/unknown(error))
+                - version: Semantic version of the pipeline code, or None if unrecorded
         """
         # Three queries, whatever the size of the database. Every per-pipeline
         # lookup here used to be its own round trip -- one get_pipeline_status
         # and one find_artifact_name_by_uuid apiece, so 2N+2 in total. At 3.6k
         # pipelines that was the whole cost of the endpoint.
-        pipeline_artifacts = {p['pipeline_id']: p['artifact_uuid'] for p in self.find_pipelines()}
+        pipelines = {p['pipeline_id']: p for p in self.find_pipelines()}
+        pipeline_artifacts = {pid: p['artifact_uuid'] for pid, p in pipelines.items()}
 
         # Keyed by pipeline_id and ordered, covering pipelines with no Process too.
         pipeline_processes = self._all_pipeline_processes()
@@ -1101,7 +1108,8 @@ class GraphDBConnection:
                 'dataset_name': dataset_name,
                 'artifact_uuid': artifact_uuid or '',
                 'pipeline_id': pipeline_id,
-                'status': self._compute_pipeline_status(processes)
+                'status': self._compute_pipeline_status(processes),
+                'version': (pipelines.get(pipeline_id) or {}).get('version'),
             })
 
         return summaries
@@ -1663,15 +1671,26 @@ class GraphDBConnection:
             'last_notes': row['last_notes'],
         }
 
-    def initialize_pipeline(self, pipeline_id: str, artifact_uuid: str, datetime: str) -> dict | None:
-        """Create a Pipeline node and link it to an EduceLabID."""
+    def initialize_pipeline(self, pipeline_id: str, artifact_uuid: str, datetime: str,
+                            version: str | None = None) -> dict | None:
+        """Create a Pipeline node and link it to an EduceLabID.
+
+        `version` is the semantic version of the pipeline code that made the
+        submission, stored verbatim on the node. It is optional so a caller
+        predating 0.3.8 still works; `coalesce` then leaves any version already
+        on the node alone rather than clearing it. Pipelines written before
+        0.3.8 carry no version property at all and read back as None -- they
+        were all 2.0.0, but nothing backfilled them.
+        """
         records, _, _ = self._run_query("""
             MATCH (e:EduceLabID {uuid: $artifact_uuid})
             MERGE (p:Pipeline {pipeline_id: $pipeline_id})
-            SET p.datetime = $datetime
+            SET p.datetime = $datetime,
+                p.version = coalesce($version, p.version)
             MERGE (p)-[:FOR]->(e)
             RETURN p, e.uuid AS artifact_uuid
-            """, pipeline_id=pipeline_id, artifact_uuid=artifact_uuid, datetime=datetime)
+            """, pipeline_id=pipeline_id, artifact_uuid=artifact_uuid, datetime=datetime,
+            version=version)
 
         if not records:
             return None
@@ -1681,6 +1700,7 @@ class GraphDBConnection:
             'pipeline_id': pipeline.get('pipeline_id'),
             'artifact_uuid': record['artifact_uuid'],
             'datetime': pipeline.get('datetime'),
+            'version': pipeline.get('version'),
         }
 
     def initialize_process(self, pipeline_id: str, proc_type: str, input_dataset_paths: list[str],
@@ -1866,7 +1886,8 @@ class GraphDBConnection:
             pipeline_id: The pipeline ID.
 
         Returns:
-            Dict with pipeline_id, artifact_uuid, date, status, and stages list.
+            Dict with pipeline_id, artifact_uuid, date, version, status, and
+            stages list. `version` is None for pipelines written before 0.3.8.
             Returns None if the pipeline is not found.
         """
         records, _, _ = self._run_query("""
@@ -1908,6 +1929,7 @@ class GraphDBConnection:
             'pipeline_id': pipeline.get('pipeline_id'),
             'artifact_uuid': record['artifact_uuid'] or '',
             'datetime': pipeline.get('datetime', ''),
+            'version': pipeline.get('version'),
             'status': overall_status,
             'stages': processes,
         }

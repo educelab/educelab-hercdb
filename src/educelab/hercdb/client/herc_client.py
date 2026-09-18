@@ -259,19 +259,26 @@ class HercClient:
         """Get all process stages for a given pipeline."""
         return self._get(f"/pipelines/{pipeline_id}/stages").json()
 
-    def initialize_pipeline(self, pipeline_id: str, artifact_uuid: str, datetime: str) -> dict:
+    def initialize_pipeline(self, pipeline_id: str, artifact_uuid: str, datetime: str,
+                            version: str | None = None) -> dict:
         """Create a new pipeline linked to an EduceLabID.
 
         Args:
             pipeline_id: Unique identifier for the pipeline.
             artifact_uuid: UUID of the EduceLabID to link to.
             datetime: ISO datetime string (e.g. 2026-02-18T12:18:21.726912).
+            version: Semantic version of the pipeline code (e.g. "2.1.0").
+                Omitted from the payload when None, so a pre-0.3.8 server
+                sees the request it always did.
         """
-        return self._post("/pipelines", json={
+        body = {
             "pipeline_id": pipeline_id,
             "artifact_uuid": artifact_uuid,
             "datetime": datetime,
-        }).json()
+        }
+        if version is not None:
+            body["version"] = version
+        return self._post("/pipelines", json=body).json()
 
     def initialize_process(
         self,
