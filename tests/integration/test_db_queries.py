@@ -254,6 +254,7 @@ class TestPhercDbQueries(unittest.TestCase):
             self.assertIn('artifact_uuid', summary)
             self.assertIn('pipeline_id', summary)
             self.assertIn('status', summary)
+            self.assertIsInstance(summary['proc_types'], list)
             # Status should be one of the expected values
             self.assertIn(summary['status'], [
                 'completed', 'partially_completed', 'running', 'failed', 'unknown(error)'
