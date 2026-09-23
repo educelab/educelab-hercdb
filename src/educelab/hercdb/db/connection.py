@@ -1,5 +1,6 @@
 import logging
 from collections import OrderedDict, defaultdict
+from datetime import datetime, timezone
 from enum import Enum
 
 from neo4j import GraphDatabase
@@ -136,6 +137,29 @@ def _newer(a, b) -> bool:
     if b is None:
         return True
     return a > b
+
+
+def _as_datetime(value) -> datetime | None:
+    """A dataset's `date_end` as a timezone-aware datetime, for comparing.
+
+    Raw scans carry a Neo4j DateTime; processed datasets carry the Process's
+    `end_time`, a client-written ISO string. A missing or unparseable value is
+    None, so it sorts oldest via `_newer` rather than raising. A naive value is
+    taken as UTC, as Cypher's `datetime()` does.
+    """
+    if hasattr(value, 'to_native'):
+        value = value.to_native()
+    elif isinstance(value, str):
+        text = value.strip()
+        if text.endswith(('Z', 'z')):
+            text = text[:-1] + '+00:00'
+        try:
+            value = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 class GraphDBConnection:
@@ -1428,6 +1452,9 @@ class GraphDBConnection:
 
         # Group by EduceLabID UUID
         grouped = OrderedDict()
+        # (end time, dataset) per UUID, for the newest_completed reduction. The
+        # end time is parsed here, before serialization turns it into a string.
+        dated = defaultdict(list)
         for record in records:
             uuid = record['uuid']
             if uuid not in grouped:
@@ -1454,19 +1481,21 @@ class GraphDBConnection:
             })
             ds['belongs_to_uuid'] = record['belongs_to_uuid']
             grouped[uuid]['datasets'].append(ds)
+            dated[uuid].append((_as_datetime(record['date_end']), ds))
 
         results = list(grouped.values())
 
-        # If newest_completed, keep only the newest dataset per type per artifact
+        # If newest_completed, keep only the newest dataset per type per artifact.
+        # Compared as datetimes, not strings: processed end times are written by
+        # clients, and two ISO spellings of one instant need not sort as text does.
         if newest_completed:
             for artifact in results:
                 newest_by_type = {}
-                for ds in artifact['datasets']:
-                    dt = ds.get('type', '')
-                    existing = newest_by_type.get(dt)
-                    if existing is None or (ds.get('date_end') or '') > (existing.get('date_end') or ''):
-                        newest_by_type[dt] = ds
-                artifact['datasets'] = list(newest_by_type.values())
+                for ended, ds in dated[artifact['uuid']]:
+                    current = newest_by_type.get(ds.get('type', ''))
+                    if current is None or _newer(ended, current[0]):
+                        newest_by_type[ds.get('type', '')] = (ended, ds)
+                artifact['datasets'] = [ds for _, ds in newest_by_type.values()]
 
         return results
 
