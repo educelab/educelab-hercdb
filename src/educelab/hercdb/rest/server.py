@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import datetime as _datetime
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, Depends, Query, status
@@ -448,6 +449,38 @@ class UpdateProcessStatusRequest(BaseModel):
     # when that stage is split across several jobs (e.g. stage/spec/archive all
     # reporting as SPEC) and only the job that died knows which one it was.
     notes: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _normalize_status(cls, value: str) -> str:
+        """Fold "Completed" / " FAILED " to the lowercase form the reads expect.
+
+        Every read compares against the exact literal "completed", so a status
+        stored in any other case would mark a finished stage's output
+        incomplete. Which statuses are allowed is still checked in the handler.
+        """
+        return value.strip().lower()
+
+    @field_validator("end_datetime")
+    @classmethod
+    def _normalize_end_datetime(cls, value: str) -> str:
+        """Reject an unparseable end time and store the rest as ISO-8601.
+
+        `end_time` is read back through Cypher's `datetime()` to pick the newest
+        dataset; one value it cannot parse makes that whole query fail, and the
+        UUID's datasets -- raw scans included -- then read as not found.
+        """
+        text = value.strip()
+        # Python 3.10's fromisoformat does not accept a trailing "Z".
+        if text.endswith(("Z", "z")):
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = _datetime.fromisoformat(text)
+        except ValueError:
+            raise ValueError(
+                f"'{value}' is not an ISO-8601 datetime (e.g. '2026-06-01T10:30:00+00:00')"
+            ) from None
+        return parsed.isoformat()
 
 
 # --- Pipeline CRUD endpoints ---
