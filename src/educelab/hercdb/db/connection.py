@@ -1072,6 +1072,8 @@ class GraphDBConnection:
                 - pipeline_id: Pipeline identifier
                 - status: Computed status (completed/partially_completed/running/failed/unknown(error))
                 - version: Semantic version of the pipeline code, or None if unrecorded
+                - proc_types: The pipeline's stage types (PGS, SPEC, REG, WEB) in
+                  start order, one per stage; empty for a pipeline with no Process
         """
         # Three queries, whatever the size of the database. Every per-pipeline
         # lookup here used to be its own round trip -- one get_pipeline_status
@@ -1110,9 +1112,16 @@ class GraphDBConnection:
                 'pipeline_id': pipeline_id,
                 'status': self._compute_pipeline_status(processes),
                 'version': (pipelines.get(pipeline_id) or {}).get('version'),
+                'proc_types': self._ordered_proc_types(processes),
             })
 
         return summaries
+
+    @staticmethod
+    def _ordered_proc_types(processes: list[dict]) -> list[str]:
+        """Each stage's type, in the order the stages started."""
+        ordered = sorted(processes, key=lambda proc: proc.get('start_time') or '')
+        return [proc['stage'] for proc in ordered if proc.get('stage')]
 
     def _all_pipeline_processes(self) -> dict[str, list[dict]]:
         """Every pipeline's processes in one query, keyed by pipeline_id.
