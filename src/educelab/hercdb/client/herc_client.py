@@ -216,23 +216,21 @@ class HercClient:
 
     def set_dataset_released(
         self,
-        uuid: str,
-        dataset_type: str,
-        path: str,
+        dataset_uuid: str,
         released: bool,
         released_by: str = None,
-    ) -> list[dict]:
-        """Release (publish) or withdraw one of an artifact's datasets.
+    ) -> dict:
+        """Release (publish) or withdraw one dataset, by its own UUID.
 
         The token's user must be listed in the server's ``release_writers``.
         ``released_by`` records who decided, when acting for someone else.
-        Returns the updated datasets with their ``released``, ``released_by``
-        and ``released_at``.
+        Returns the dataset's ``type``, ``uuid``, ``path``, ``released``,
+        ``released_by`` and ``released_at``.
         """
-        body = {"dataset_type": dataset_type, "path": path, "released": released}
+        body = {"released": released}
         if released_by is not None:
             body["released_by"] = released_by
-        return self._put(f"/educelabid/{uuid}/datasets/released", json=body).json()
+        return self._put(f"/datasets/{dataset_uuid}/released", json=body).json()
 
     def resolve(
         self,
@@ -317,6 +315,7 @@ class HercClient:
         slurm_id: str,
         start_datetime: str,
         released: bool = None,
+        output_dataset_uuid: str = None,
     ) -> dict:
         """Create a new process (stage) within a pipeline.
 
@@ -329,6 +328,8 @@ class HercClient:
             start_datetime: ISO datetime string for start time.
             released: Whether the output starts out released. Omitted when
                 None, and the server's default applies.
+            output_dataset_uuid: The output dataset's own UUID, as the pipeline
+                minted it. Omitted when None.
         """
         body = {
             "proc_type": proc_type,
@@ -339,6 +340,8 @@ class HercClient:
         }
         if released is not None:
             body["released"] = released
+        if output_dataset_uuid is not None:
+            body["output_dataset_uuid"] = output_dataset_uuid
         return self._post(f"/pipelines/{pipeline_id}/processes", json=body).json()
 
     def update_process_status(

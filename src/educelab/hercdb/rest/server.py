@@ -1,5 +1,6 @@
 import logging
 import re
+import uuid as _uuid
 from datetime import datetime as _datetime
 from pathlib import Path
 from typing import Optional
@@ -320,23 +321,20 @@ async def get_datasets_for_educelabid(
 
 
 class SetDatasetReleasedRequest(BaseModel):
-    dataset_type: str
-    path: str
     released: bool
     # Who made the decision, when the caller acts for someone else (the UI
     # passes its reviewer). Defaults to the token's user.
     released_by: str | None = None
 
 
-@app.put("/educelabid/{uuid}/datasets/released")
+@app.put("/datasets/{dataset_uuid}/released")
 async def set_dataset_released(
-    uuid: str, body: SetDatasetReleasedRequest, user: str = Depends(get_current_user),
+    dataset_uuid: str, body: SetDatasetReleasedRequest, user: str = Depends(get_current_user),
 ):
-    """Release (publish) or withdraw one of an artifact's datasets.
+    """Release (publish) or withdraw one dataset, by its own UUID.
 
-    The dataset is found by type and path among the ones
-    ``GET /educelabid/{uuid}/datasets`` returns. Only token users listed in
-    ``release_writers`` may call it.
+    Raw scans and pipeline outputs both qualify; flatbed negatives don't. Only
+    token users listed in ``release_writers`` may call it.
     """
     if user not in hercdb.config.release_writers():
         raise HTTPException(
@@ -344,29 +342,17 @@ async def set_dataset_released(
             detail=f"User '{user}' may not change dataset release flags",
         )
 
-    try:
-        ds_type = DatasetType[body.dataset_type]
-    except KeyError:
-        ds_type = None
-    if ds_type is None or ds_type == DatasetType.FlatbedScan:
-        valid_types = [t.name for t in DatasetType if t != DatasetType.FlatbedScan]
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid dataset type '{body.dataset_type}'. Must be one of: {valid_types}",
-        )
-
     released_by = body.released_by or user
-    logger.info(
-        f"User {user} setting released={body.released} on {body.dataset_type} "
-        f"{body.path} for {uuid} (by {released_by})"
-    )
-    updated = db.set_dataset_released(uuid, ds_type, body.path, body.released, released_by)
-    if not updated:
+    logger.info(f"User {user} setting released={body.released} on dataset {dataset_uuid} (by {released_by})")
+    result = db.set_dataset_released(dataset_uuid, body.released, released_by)
+    if result["matched"] == 0:
+        raise HTTPException(status_code=404, detail=f"No dataset with UUID '{dataset_uuid}'")
+    if result["matched"] > 1:
         raise HTTPException(
-            status_code=404,
-            detail=f"No {body.dataset_type} dataset at '{body.path}' for EduceLabID '{uuid}'",
+            status_code=409,
+            detail=f"{result['matched']} datasets share UUID '{dataset_uuid}'; nothing was changed",
         )
-    return JSONResponse(content=updated, status_code=200)
+    return JSONResponse(content=result["datasets"][0], status_code=200)
 
 
 @app.get("/pipelines/{pipeline_id}/stages")
@@ -500,6 +486,20 @@ class CreateProcessRequest(BaseModel):
     # Whether the output starts out released. Optional so pipelines need not
     # send it; omitted, the server's `release_default` decides.
     released: bool | None = None
+    # The output dataset's own UUID, minted by the pipeline. Optional so an older
+    # pipeline is unchanged; the dataset then waits for the UUID backfill.
+    output_dataset_uuid: str | None = None
+
+    @field_validator("output_dataset_uuid")
+    @classmethod
+    def _check_uuid(cls, value: str | None) -> str | None:
+        """Store a dataset UUID in one canonical form, or refuse it."""
+        if value is None:
+            return None
+        try:
+            return str(_uuid.UUID(value))
+        except ValueError:
+            raise ValueError(f"'{value}' is not a UUID") from None
 
 class UpdateProcessStatusRequest(BaseModel):
     status: str
@@ -578,6 +578,7 @@ async def initialize_process(pipeline_id: str, body: CreateProcessRequest, user:
         slurm_id=body.slurm_id,
         start_datetime=body.start_datetime,
         released=body.released,
+        output_dataset_uuid=body.output_dataset_uuid,
     )
     if not result:
         raise HTTPException(

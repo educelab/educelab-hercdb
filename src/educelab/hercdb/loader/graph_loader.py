@@ -856,7 +856,7 @@ class PhercGraphDatabaseLoader:
     
     
     def add_image_processing_node(self, artifact_uuid, op_type, input_ds_path, output_ds_path,
-                                  date_time, slurm_id, pipeline_id):
+                                  date_time, slurm_id, pipeline_id, output_dataset_uuid=None):
         """
         Creates an image processing node and attaches it to
         - input-dataset node
@@ -880,7 +880,8 @@ class PhercGraphDatabaseLoader:
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (pgs_proc:PGSProcessed {path: $output_ds_path})
-            SET pgs_proc.released = coalesce(pgs_proc.released, $released)
+            SET pgs_proc.released = coalesce(pgs_proc.released, $released),
+                pgs_proc.uuid = coalesce(pgs_proc.uuid, $output_uuid)
             MERGE (pgs)-[:INPUT]->(proc)-[:OUTPUT]->(pgs_proc)
             MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
             MERGE (ppline)-[:FOR]->(e)
@@ -897,7 +898,8 @@ class PhercGraphDatabaseLoader:
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (spec_proc:SpectralProcessed {path: $output_ds_path})
-            SET spec_proc.released = coalesce(spec_proc.released, $released)
+            SET spec_proc.released = coalesce(spec_proc.released, $released),
+                spec_proc.uuid = coalesce(spec_proc.uuid, $output_uuid)
             MERGE (spectral)-[:INPUT]->(proc)-[:OUTPUT]->(spec_proc)
             MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
             MERGE (ppline)-[:FOR]->(e)
@@ -914,7 +916,8 @@ class PhercGraphDatabaseLoader:
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (web:WebProcessed {path: $output_ds_path})
-            SET web.released = coalesce(web.released, $released)
+            SET web.released = coalesce(web.released, $released),
+                web.uuid = coalesce(web.uuid, $output_uuid)
             MERGE (reg)-[:INPUT]->(proc)-[:OUTPUT]->(web)
             MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
@@ -928,6 +931,7 @@ class PhercGraphDatabaseLoader:
             "output_ds_path": output_ds_path,
             "pipeline_id": pipeline_id,
             "released": config.release_default(),
+            "output_uuid": output_dataset_uuid,
         }
           
         proc_node = self._run_query(query, **params)
@@ -935,7 +939,7 @@ class PhercGraphDatabaseLoader:
         return proc_node
         
     def add_registration_processing_node(self, artifact_uuid, date_time, slurm_id, input_pgs_path, input_spectral_path,
-                                         registered_img_path, pipeline_id):
+                                         registered_img_path, pipeline_id, output_dataset_uuid=None):
         query = """
         MATCH (:EduceLabID {uuid: $artifact_uuid})--(:PGSRaw)--(:Process)--(pg_proc:PGSProcessed {path: $input_pg_path})
         MATCH (:EduceLabID {uuid: $artifact_uuid})--(:SpectralRaw)--(:Process)--(spec_proc:SpectralProcessed {path: $input_spectral_path})
@@ -944,7 +948,8 @@ class PhercGraphDatabaseLoader:
         slurm_id: $slurm_id,
         status: "submitted"})
         MERGE (reg:Registered {path: $registered_img_path})
-        SET reg.released = coalesce(reg.released, $released)
+        SET reg.released = coalesce(reg.released, $released),
+            reg.uuid = coalesce(reg.uuid, $output_uuid)
         MERGE (pg_proc)-[:INPUT]->(proc)<-[:INPUT]-(spec_proc)
         MERGE (proc)-[:OUTPUT]->(reg)
         WITH proc
@@ -962,6 +967,7 @@ class PhercGraphDatabaseLoader:
             "registered_img_path": registered_img_path,
             "pipeline_id": pipeline_id,
             "released": config.release_default(),
+            "output_uuid": output_dataset_uuid,
         }
           
         proc_node = self._run_query(query, **params)

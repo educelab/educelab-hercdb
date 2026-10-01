@@ -42,7 +42,7 @@ only released datasets; with `newest_completed` it gives the newest released one
 
 | Method & path | Client method | Purpose |
 |---|---|---|
-| `PUT /educelabid/{uuid}/datasets/released` | `set_dataset_released(uuid, dataset_type, path, released, released_by=None)` | Release or withdraw one of an artifact's datasets, found by type and path. Body `{dataset_type, path, released, released_by?}`; returns the updated `released`, `released_by`, `released_at`. 403 unless the token's user is in `release_writers`; 400 for an unknown or `FlatbedScan` type; 404 when nothing matches. |
+| `PUT /datasets/{dataset_uuid}/released` | `set_dataset_released(dataset_uuid, released, released_by=None)` | Release or withdraw one dataset by its own `uuid`. Body `{released, released_by?}`; returns the dataset's `type`, `uuid`, `path`, `released`, `released_by`, `released_at`. 403 unless the token's user is in `release_writers`; 404 for no such dataset; 409 (nothing written) when two share the UUID. |
 
 New datasets start as `release_default` says (`HERCDB_RELEASE_DEFAULT`, default
 `true`); a pipeline can override it per output with `released` on
@@ -63,7 +63,7 @@ artifact, then fetch by the resolved exact `displayName`.
 | `GET /pipelines/{id}/stages` | `get_pipeline_stages(id)` | All process stages for a pipeline. Each stage carries `input_dataset_paths` (list) and `output_dataset_path` (scalar, or null) alongside `proc_type`/`status`/`slurm_id`/`start_time`/`end_time`. A `REG` stage lists both its PGS and SPEC inputs. |
 | `GET /pipelines/{id}/confirmation` | `get_pipeline_confirmation(id)` | Full summary with all stages. |
 | `POST /pipelines` | `initialize_pipeline(pipeline_id, artifact_uuid, datetime)` | Create a Pipeline linked to an EduceLabID. |
-| `POST /pipelines/{id}/processes` | `initialize_process(pipeline_id, proc_type, input_dataset_paths, output_dataset_path, slurm_id, start_datetime, released=None)` | Create a Process (stage) within a pipeline. `released` sets the output's flag; omitted, the server default applies. |
+| `POST /pipelines/{id}/processes` | `initialize_process(pipeline_id, proc_type, input_dataset_paths, output_dataset_path, slurm_id, start_datetime, released=None, output_dataset_uuid=None)` | Create a Process (stage) within a pipeline. `released` sets the output's flag (omitted, the server default applies); `output_dataset_uuid` records the UUID the pipeline minted for its output. |
 | `PUT /pipelines/{id}/processes/{proc_type}/status` | `update_process_status(pipeline_id, proc_type, status, end_datetime)` | Set a process to `completed` / `failed`. |
 | `DELETE /pipelines/{id}` | `delete_pipeline(id)` | Delete a Pipeline, its Process nodes, and their output datasets (raw/input datasets untouched). |
 

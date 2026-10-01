@@ -1,15 +1,17 @@
-"""Integration tests for the dataset release flag.
+"""Integration tests for the dataset release flag and dataset UUIDs.
 
 Requires a live Neo4j connection. Creates its own EduceLabID, scans and pipeline
 under a TEST- prefix and removes them at the end, so it needs no existing data.
 """
+import importlib.util
+import json
 import os
+import tempfile
 import unittest
 import uuid as uuid_lib
 from datetime import datetime
 
 from educelab import hercdb
-from educelab.hercdb.db import DatasetType
 from educelab.hercdb.loader.graph_loader import PhercGraphDatabaseLoader
 
 STAMP = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -22,6 +24,7 @@ PGS_RAW = f"Dailies/test/release/pgs_raw/{STAMP}"
 SPEC_RAW = f"Dailies/Spectral/test/release/spectral_raw/{STAMP}"
 PGS_OUT = f"/test/release/pgs_processed/{STAMP}"
 SPEC_OUT = f"/test/release/spectral_processed/{STAMP}"
+PGS_OUT_UUID = str(uuid_lib.uuid4())
 NOW = datetime.now().isoformat()
 
 
@@ -49,7 +52,8 @@ class TestDatasetRelease(unittest.TestCase):
                                          zero_byte_files=0, short_files=0, bad_format_files=0)
 
         cls.db.initialize_pipeline(TEST_PIPELINE_ID, TEST_UUID, NOW)
-        cls.db.initialize_process(TEST_PIPELINE_ID, "PGS", [PGS_RAW], PGS_OUT, "1", NOW)
+        cls.db.initialize_process(TEST_PIPELINE_ID, "PGS", [PGS_RAW], PGS_OUT, "1", NOW,
+                                  output_dataset_uuid=PGS_OUT_UUID)
         cls.db.initialize_process(TEST_PIPELINE_ID, "SPEC", [SPEC_RAW], SPEC_OUT, "2", NOW,
                                   released=False)
 
@@ -79,22 +83,39 @@ class TestDatasetRelease(unittest.TestCase):
         paths = {d["path"] for d in self.datasets(released_only=True)}
         self.assertEqual(paths, {PGS_RAW, SPEC_RAW, PGS_OUT})
 
-    def test_3_set_released(self):
-        updated = self.db.set_dataset_released(TEST_UUID, DatasetType.PGSRaw, PGS_RAW, False, "reviewer-a")
-        self.assertEqual(len(updated), 1)
-        self.assertIs(updated[0]["released"], False)
-        self.assertEqual(updated[0]["released_by"], "reviewer-a")
-        self.assertTrue(updated[0]["released_at"])
+    def test_3_set_released_by_dataset_uuid(self):
+        result = self.db.set_dataset_released(PGS_SCAN_UUID, False, "reviewer-a")
+        self.assertEqual(result["matched"], 1)
+        dataset = result["datasets"][0]
+        self.assertEqual((dataset["type"], dataset["path"]), ("PGSRaw", PGS_RAW))
+        self.assertIs(dataset["released"], False)
+        self.assertEqual(dataset["released_by"], "reviewer-a")
+        self.assertTrue(dataset["released_at"])
         self.assertIs(_released(self.datasets(), PGS_RAW), False)
 
-        updated = self.db.set_dataset_released(TEST_UUID, DatasetType.SpectralProcessed, SPEC_OUT,
-                                               True, "reviewer-a")
-        self.assertIs(updated[0]["released"], True)
+        result = self.db.set_dataset_released(PGS_OUT_UUID, False, "reviewer-a")
+        self.assertEqual(result["datasets"][0]["path"], PGS_OUT)
+        self.db.set_dataset_released(PGS_OUT_UUID, True, "reviewer-a")
+        self.assertIs(_released(self.datasets(), PGS_OUT), True)
 
-    def test_4_set_released_needs_type_and_path_on_this_artifact(self):
-        self.assertEqual(self.db.set_dataset_released(TEST_UUID, DatasetType.PGSRaw, "/nope", True, "x"), [])
-        self.assertEqual(self.db.set_dataset_released(TEST_UUID, DatasetType.SpectralRaw, PGS_RAW, True, "x"), [])
-        self.assertEqual(self.db.set_dataset_released("TEST-NO-SUCH-UUID", DatasetType.PGSRaw, PGS_RAW, True, "x"), [])
+    def test_4_output_uuid_recorded_and_read_back(self):
+        out = next(d for d in self.datasets() if d["path"] == PGS_OUT)
+        self.assertEqual(out["uuid"], PGS_OUT_UUID)
+        # The SPEC output was recorded without one, so it waits for the backfill.
+        self.assertNotIn("uuid", next(d for d in self.datasets() if d["path"] == SPEC_OUT))
+
+    def test_4b_only_one_dataset_per_uuid(self):
+        self.assertEqual(self.db.set_dataset_released("no-such-uuid", True, "x")["matched"], 0)
+        # An EduceLabID has a `uuid` too, but isn't a dataset.
+        self.assertEqual(self.db.set_dataset_released(TEST_UUID, True, "x")["matched"], 0)
+        dup = f"/test/release/dup/{STAMP}"
+        self.db._run_query("CREATE (:Registered {path: $p, uuid: $u, released: true})", p=dup, u=PGS_SCAN_UUID)
+        try:
+            result = self.db.set_dataset_released(PGS_SCAN_UUID, True, "x")
+            self.assertEqual(result["matched"], 2)
+            self.assertIs(_released(self.datasets(), PGS_RAW), False)  # untouched
+        finally:
+            self.db._run_query("MATCH (n {path: $p}) DETACH DELETE n", p=dup)
 
     def test_5_reload_keeps_flag(self):
         # Re-adding an existing scan (a --no-replace load) leaves its flag alone.
@@ -124,6 +145,31 @@ class TestDatasetRelease(unittest.TestCase):
             self.assertIs(_released(self.datasets(), SPEC_RAW), False)
         finally:
             os.environ.pop("HERCDB_RELEASE_DEFAULT", None)
+
+    def test_7_uuid_migration_reads_metadata(self):
+        spec = importlib.util.spec_from_file_location(
+            "migrate_dataset_uuids",
+            os.path.join(os.path.dirname(__file__), "..", "..", "preprocessing", "migrate_dataset_uuids.py"))
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+
+        on_disk = str(uuid_lib.uuid4())
+        with tempfile.TemporaryDirectory() as root:
+            out_dir = os.path.join(root, SPEC_OUT.strip("/"))
+            os.makedirs(out_dir)
+            with open(os.path.join(out_dir, "metadata.json"), "w") as f:
+                json.dump({"schema_version": "2.1", "dataset_type": "SpectralProcessed", "uuid": on_disk}, f)
+
+            rows, taken = migration.fetch(self.db)
+            self.assertIn(PGS_OUT_UUID, taken)
+            rows = [r for r in rows if r["path"] == SPEC_OUT]
+            planned = migration.plan(rows, taken, migration.Path(root))
+            self.assertEqual((planned[0]["outcome"], planned[0]["uuid"]), (migration.FROM_METADATA, on_disk))
+            migration.apply(self.db, planned, mint_missing=False)
+
+        self.assertEqual(next(d for d in self.datasets() if d["path"] == SPEC_OUT)["uuid"], on_disk)
+        self.assertEqual(migration.read_uuid(migration.Path("/nonexistent"), "x"), (migration.NO_FILE, None))
+
 
 if __name__ == "__main__":
     unittest.main()

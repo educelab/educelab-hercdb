@@ -81,7 +81,7 @@ match `displayName` **exactly** — resolve noisy input with `/resolve` first.
 | GET | `/pherc/{pherc_id}/subdivisions` | List all Cornici and Pezzi for a PHerc (each with `aliases` + `educelabids`) |
 | GET | `/pherc/{pherc_id}/all-datasets` | All datasets under a PHerc, grouped by artifact (chain-pooled, `belongs_to_uuid`) |
 | GET | `/educelabid/{uuid}/datasets` | Datasets for a specific EduceLabID (chain-pooled, `belongs_to_uuid`) |
-| PUT | `/educelabid/{uuid}/datasets/released` | Release or withdraw one of an artifact's datasets (`release_writers` only) |
+| PUT | `/datasets/{dataset_uuid}/released` | Release or withdraw one dataset by its own UUID (`release_writers` only) |
 | GET | `/resolve` | Fuzzy-resolve a noisy displayName to ranked PHerc/Cornice/Pezzo candidates |
 
 ### Pipelines
@@ -264,42 +264,38 @@ GET /educelabid/abc-123/datasets?dataset_type=SpectralRaw&newest_completed=true
 ]
 ```
 
-### PUT /educelabid/{uuid}/datasets/released
+### PUT /datasets/{dataset_uuid}/released
 
-Release (publish) or withdraw one of an artifact's datasets. It is found by
-type and path among the ones `GET /educelabid/{uuid}/datasets` returns, since
-`path` alone is not unique. Only token users listed in `release_writers`
-(`HERCDB_RELEASE_WRITERS`, or a `release_writers` list in `~/.educedb`) may call it.
+Release (publish) or withdraw one dataset, by its own `uuid`: a raw scan's scan
+UUID, or the UUID a pipeline minted for its output. Only token users listed in
+`release_writers` (`HERCDB_RELEASE_WRITERS`, or a `release_writers` list in
+`~/.educedb`) may call it.
 
 **Request body:**
 ```json
 {
-  "dataset_type": "PGSRaw",
-  "path": "Dailies/PGS/...",
   "released": false,
   "released_by": "reviewer-a"
 }
 ```
 
 `released_by` is optional and defaults to the token's user; pass it when acting
-for someone else. `FlatbedScan` is not releasable.
+for someone else. Flatbed negatives are not releasable.
 
 **Response (200):**
 ```json
-[
-  {
-    "type": "PGSRaw",
-    "path": "Dailies/PGS/...",
-    "belongs_to_uuid": "abc-123",
-    "released": false,
-    "released_by": "reviewer-a",
-    "released_at": "2026-10-01T14:00:00+00:00"
-  }
-]
+{
+  "type": "PGSRaw",
+  "uuid": "550e8400-e29b-41d4-a716-446655440000",
+  "path": "Dailies/PGS/...",
+  "released": false,
+  "released_by": "reviewer-a",
+  "released_at": "2026-10-01T14:00:00+00:00"
+}
 ```
 
-403 for a token not in `release_writers`, 400 for an unknown or flatbed type,
-404 when nothing matches.
+403 for a token not in `release_writers`, 404 for no such dataset, 409 (with
+nothing written) when two datasets share the UUID.
 
 New datasets start as `release_default` says (`HERCDB_RELEASE_DEFAULT`, or
 `release_default` in `~/.educedb`; `true` when unset).
@@ -424,7 +420,9 @@ Create a new process (stage) within a pipeline. Valid stages: `PGS`, `SPEC`, `RE
 ```
 
 An optional `"released": true|false` sets the output dataset's release flag;
-omitted, the server's `release_default` applies.
+omitted, the server's `release_default` applies. An optional
+`"output_dataset_uuid"` records the UUID the pipeline minted for its output
+(422 if it isn't a UUID).
 
 **Response (201):**
 ```json
