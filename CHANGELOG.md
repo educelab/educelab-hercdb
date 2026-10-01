@@ -5,6 +5,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.9] - 2026-10-01
+
+### Added
+- Datasets carry a **release (publish) flag**: a boolean `released` property on every PGSRaw, SpectralRaw, PGSProcessed, SpectralProcessed, Registered and WebProcessed node, plus `released_by` and `released_at` once someone changes it. Flatbed negatives are not published and get no flag.
+- **A server-side default decides what new datasets start as.** `config.release_default()` reads `HERCDB_RELEASE_DEFAULT` or `release_default` in `~/.educedb`, and is `true` when unset, for the first pass over the data. Set it false to make every new dataset wait for review. Pipelines and loaders need no change to pick it up.
+  - `initialize_process(..., released=None)`, `POST /pipelines/{id}/processes` (optional `released`) and `HercClient.initialize_process(..., released=None)` let a caller override it for one output.
+  - `add_pgs_raw_node` / `add_spectral_raw_node` take `released=None` the same way.
+- `PUT /educelabid/{uuid}/datasets/released` with `{dataset_type, path, released, released_by?}` releases or withdraws one of an artifact's datasets, found by type and path among the ones `GET /educelabid/{uuid}/datasets` returns (`path` is not unique across the graph, so the artifact scopes it). Backed by `set_dataset_released`; `HercClient.set_dataset_released`. Returns the updated `released`, `released_by` (the caller's `released_by`, else the token's user) and `released_at`. **403** unless the token's user is listed in `release_writers` (`HERCDB_RELEASE_WRITERS`, comma-separated, or a `release_writers` list in `~/.educedb`), **400** for an unknown or flatbed type, **404** when nothing matches.
+- `released_only` on `GET /educelabid/{uuid}/datasets` and `GET /pherc/{id}/all-datasets` (and their DB methods and client calls) keeps only released datasets. It filters before the newest-per-type reduction, so with `newest_completed` it gives the newest *released* dataset.
+- `preprocessing/migrate_release_flag.py` backfills existing datasets: analyze by default, `--apply` sets `released = true` (or `--value false`) where no flag exists yet.
+
+### Changed
+- `scan_loader.py --replace` saves every scan's release flag before wiping PGSRaw/SpectralRaw and restores it after the load (`get_scan_release_states` / `restore_scan_release_states`), so a reload doesn't undo reviewers' decisions. It stops rather than reload if the flags can't be read.
+
+### Backward compatibility
+- Every new field is optional. A pipeline that sends no `released` gets the server default; a client that omits `released_only` sees every dataset, as before.
+- Existing datasets are **not flagged until the migration runs**. Until then they have no `released` property and are excluded by `released_only=true`. Run `migrate_release_flag.py --apply` when deploying.
+- An existing dataset keeps its flag when its node is written again (`coalesce(d.released, $released)`), so only new datasets take the default.
+- Nobody can change flags until `release_writers` is configured.
+
+---
+
 ## [0.3.8] - 2026-09-18
 
 ### Added

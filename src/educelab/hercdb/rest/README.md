@@ -81,6 +81,7 @@ match `displayName` **exactly** — resolve noisy input with `/resolve` first.
 | GET | `/pherc/{pherc_id}/subdivisions` | List all Cornici and Pezzi for a PHerc (each with `aliases` + `educelabids`) |
 | GET | `/pherc/{pherc_id}/all-datasets` | All datasets under a PHerc, grouped by artifact (chain-pooled, `belongs_to_uuid`) |
 | GET | `/educelabid/{uuid}/datasets` | Datasets for a specific EduceLabID (chain-pooled, `belongs_to_uuid`) |
+| PUT | `/educelabid/{uuid}/datasets/released` | Release or withdraw one of an artifact's datasets (`release_writers` only) |
 | GET | `/resolve` | Fuzzy-resolve a noisy displayName to ranked PHerc/Cornice/Pezzo candidates |
 
 ### Pipelines
@@ -197,6 +198,7 @@ chain and grouped by the active/assigned UUID; each dataset carries
 |-----------|------|---------|-------------|
 | `dataset_type` | string | - | Filter by type: `FlatbedScan`, `PGSRaw`, or `SpectralRaw` |
 | `newest_completed` | bool | false | Return only the newest completed dataset per type per artifact |
+| `released_only` | bool | false | Return only released datasets (with `newest_completed`, the newest released one) |
 
 **Example:**
 ```
@@ -240,6 +242,7 @@ sitting on a retired predecessor UUID is visible.
 |-----------|------|---------|-------------|
 | `dataset_type` | string | - | Filter by type: `FlatbedScan`, `PGSRaw`, or `SpectralRaw` |
 | `newest_completed` | bool | false | Return only the newest completed dataset per type |
+| `released_only` | bool | false | Return only released datasets |
 
 **Example:**
 ```
@@ -255,10 +258,51 @@ GET /educelabid/abc-123/datasets?dataset_type=SpectralRaw&newest_completed=true
     "path": "Dailies/PGS/...",
     "complete": "True",
     "date_end": "2022-11-02T09:38:30.000000000+00:00",
+    "released": true,
     "belongs_to_uuid": "abc-123"
   }
 ]
 ```
+
+### PUT /educelabid/{uuid}/datasets/released
+
+Release (publish) or withdraw one of an artifact's datasets. It is found by
+type and path among the ones `GET /educelabid/{uuid}/datasets` returns, since
+`path` alone is not unique. Only token users listed in `release_writers`
+(`HERCDB_RELEASE_WRITERS`, or a `release_writers` list in `~/.educedb`) may call it.
+
+**Request body:**
+```json
+{
+  "dataset_type": "PGSRaw",
+  "path": "Dailies/PGS/...",
+  "released": false,
+  "released_by": "reviewer-a"
+}
+```
+
+`released_by` is optional and defaults to the token's user; pass it when acting
+for someone else. `FlatbedScan` is not releasable.
+
+**Response (200):**
+```json
+[
+  {
+    "type": "PGSRaw",
+    "path": "Dailies/PGS/...",
+    "belongs_to_uuid": "abc-123",
+    "released": false,
+    "released_by": "reviewer-a",
+    "released_at": "2026-10-01T14:00:00+00:00"
+  }
+]
+```
+
+403 for a token not in `release_writers`, 400 for an unknown or flatbed type,
+404 when nothing matches.
+
+New datasets start as `release_default` says (`HERCDB_RELEASE_DEFAULT`, or
+`release_default` in `~/.educedb`; `true` when unset).
 
 ### GET /resolve
 
@@ -378,6 +422,9 @@ Create a new process (stage) within a pipeline. Valid stages: `PGS`, `SPEC`, `RE
   "start_datetime": "2026-03-12T10:05:00"
 }
 ```
+
+An optional `"released": true|false` sets the output dataset's release flag;
+omitted, the server's `release_default` applies.
 
 **Response (201):**
 ```json

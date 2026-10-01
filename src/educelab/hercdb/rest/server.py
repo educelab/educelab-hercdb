@@ -211,6 +211,7 @@ async def get_all_datasets_for_pherc(
     pherc_id: str,
     dataset_type: Optional[str] = Query(None),
     newest_completed: bool = Query(False),
+    released_only: bool = Query(False),
     user: str = Depends(get_current_user),
 ):
     """Get all datasets under a PHerc, grouped by EduceLabID.
@@ -222,6 +223,8 @@ async def get_all_datasets_for_pherc(
     - dataset_type: One of "FlatbedScan", "PGSRaw", "SpectralRaw",
       "PGSProcessed", "SpectralProcessed", "Registered", "WebProcessed"
     - newest_completed: If true, return only the newest completed dataset per type per artifact
+    - released_only: If true, return only released datasets (with newest_completed,
+      the newest released one)
     """
     logger.info(f"User {user} called /pherc/{pherc_id}/all-datasets")
 
@@ -237,7 +240,8 @@ async def get_all_datasets_for_pherc(
             )
 
     artifacts = db.find_all_datasets_for_pherc(
-        pherc_id, ds_type=ds_type, newest_completed=newest_completed
+        pherc_id, ds_type=ds_type, newest_completed=newest_completed,
+        released_only=released_only,
     )
 
     if not artifacts:
@@ -275,6 +279,7 @@ async def get_datasets_for_educelabid(
     uuid: str,
     dataset_type: Optional[str] = Query(None),
     newest_completed: bool = Query(False),
+    released_only: bool = Query(False),
     user: str = Depends(get_current_user),
 ):
     """Get all datasets for a specific EduceLabID.
@@ -285,7 +290,7 @@ async def get_datasets_for_educelabid(
     (PGSProcessed/SpectralProcessed/Registered/WebProcessed) are included alongside
     the raw scans and carry the ``pipeline_id`` and ``status`` of the Process that
     produced them, plus a ``complete`` flag in the same "True"/"False" string
-    form raw scans use.
+    form raw scans use. ``released_only=true`` keeps only released datasets.
     """
     logger.info(f"User {user} called /educelabid/{uuid}/datasets")
 
@@ -301,7 +306,8 @@ async def get_datasets_for_educelabid(
             )
 
     datasets = db.find_datasets_for_educelabid_with_predecessors(
-        uuid, ds_type=ds_type, newest_completed=newest_completed
+        uuid, ds_type=ds_type, newest_completed=newest_completed,
+        released_only=released_only,
     )
 
     if not datasets:
@@ -311,6 +317,56 @@ async def get_datasets_for_educelabid(
         )
 
     return JSONResponse(content=datasets, status_code=200)
+
+
+class SetDatasetReleasedRequest(BaseModel):
+    dataset_type: str
+    path: str
+    released: bool
+    # Who made the decision, when the caller acts for someone else (the UI
+    # passes its reviewer). Defaults to the token's user.
+    released_by: str | None = None
+
+
+@app.put("/educelabid/{uuid}/datasets/released")
+async def set_dataset_released(
+    uuid: str, body: SetDatasetReleasedRequest, user: str = Depends(get_current_user),
+):
+    """Release (publish) or withdraw one of an artifact's datasets.
+
+    The dataset is found by type and path among the ones
+    ``GET /educelabid/{uuid}/datasets`` returns. Only token users listed in
+    ``release_writers`` may call it.
+    """
+    if user not in hercdb.config.release_writers():
+        raise HTTPException(
+            status_code=403,
+            detail=f"User '{user}' may not change dataset release flags",
+        )
+
+    try:
+        ds_type = DatasetType[body.dataset_type]
+    except KeyError:
+        ds_type = None
+    if ds_type is None or ds_type == DatasetType.FlatbedScan:
+        valid_types = [t.name for t in DatasetType if t != DatasetType.FlatbedScan]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid dataset type '{body.dataset_type}'. Must be one of: {valid_types}",
+        )
+
+    released_by = body.released_by or user
+    logger.info(
+        f"User {user} setting released={body.released} on {body.dataset_type} "
+        f"{body.path} for {uuid} (by {released_by})"
+    )
+    updated = db.set_dataset_released(uuid, ds_type, body.path, body.released, released_by)
+    if not updated:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {body.dataset_type} dataset at '{body.path}' for EduceLabID '{uuid}'",
+        )
+    return JSONResponse(content=updated, status_code=200)
 
 
 @app.get("/pipelines/{pipeline_id}/stages")
@@ -441,6 +497,9 @@ class CreateProcessRequest(BaseModel):
     output_dataset_path: str
     slurm_id: str
     start_datetime: str
+    # Whether the output starts out released. Optional so pipelines need not
+    # send it; omitted, the server's `release_default` decides.
+    released: bool | None = None
 
 class UpdateProcessStatusRequest(BaseModel):
     status: str
@@ -518,6 +577,7 @@ async def initialize_process(pipeline_id: str, body: CreateProcessRequest, user:
         output_dataset_path=body.output_dataset_path,
         slurm_id=body.slurm_id,
         start_datetime=body.start_datetime,
+        released=body.released,
     )
     if not result:
         raise HTTPException(

@@ -62,8 +62,9 @@ with `resolve()`, then look up by the canonical name or — better — by UUID.
 | `get_artifact_by_name(pherc, cornice=None, pezzo=None)` | Full detail for one artifact (PHerc / Cornice / Pezzo) by exact name: own properties, attached metadata, assigned `educelabids`, child counts. No datasets. |
 | `get_artifact(uuid)` | Resolve a UUID to its artifact (the UUID → artifact bridge): `type`, `displayName`, `pherc`/`cornice`/`pezzo`, `parent`, composed `location`. |
 | `get_subdivisions(pherc_id)` | List all Cornici and Pezzi for a PHerc; each node carries `displayName`, `aliases`, `educelabids`. |
-| `get_all_datasets_for_pherc(pherc_id, ...)` | All datasets under a PHerc, grouped by EduceLabID. Pooled across REPLACES chains; each dataset carries `belongs_to_uuid`. Optional `dataset_type` / `newest_completed`. |
-| `get_datasets_for_educelabid(uuid, ...)` | All datasets for a UUID, pooled across its REPLACES chain; each carries `belongs_to_uuid`. Optional `dataset_type` / `newest_completed`. |
+| `get_all_datasets_for_pherc(pherc_id, ...)` | All datasets under a PHerc, grouped by EduceLabID. Pooled across REPLACES chains; each dataset carries `belongs_to_uuid`. Optional `dataset_type` / `newest_completed` / `released_only`. |
+| `get_datasets_for_educelabid(uuid, ...)` | All datasets for a UUID, pooled across its REPLACES chain; each carries `belongs_to_uuid`. Optional `dataset_type` / `newest_completed` / `released_only`. |
+| `set_dataset_released(uuid, dataset_type, path, released, released_by=None)` | Release or withdraw one of an artifact's datasets. The token's user must be in the server's `release_writers`. |
 | `resolve(name, label="PHerc", parent_pherc=None, parent_cornice=None, threshold=75, limit=10)` | Fuzzy-resolve a noisy displayName to ranked PHerc / Cornice / Pezzo candidates. |
 
 ### Pipelines
@@ -73,7 +74,7 @@ with `resolve()`, then look up by the canonical name or — better — by UUID.
 | `get_pipelines()` | Get all pipelines with status summaries. |
 | `get_pipeline_stages(pipeline_id)` | Get all process stages for a pipeline. |
 | `initialize_pipeline(pipeline_id, artifact_uuid, datetime)` | Create a new pipeline linked to an EduceLabID. |
-| `initialize_process(pipeline_id, proc_type, input_dataset_paths, output_dataset_path, slurm_id, start_datetime)` | Create a process (PGS, SPEC, REG, WEB) within a pipeline. |
+| `initialize_process(pipeline_id, proc_type, input_dataset_paths, output_dataset_path, slurm_id, start_datetime, released=None)` | Create a process (PGS, SPEC, REG, WEB) within a pipeline. `released` sets the output's release flag; omitted, the server default applies. |
 | `update_process_status(pipeline_id, proc_type, status, end_datetime)` | Update process status to completed or failed. |
 | `delete_pipeline(pipeline_id)` | Delete a pipeline, its processes, and output datasets. |
 | `get_pipeline_confirmation(pipeline_id)` | Get full pipeline summary with all stages. |

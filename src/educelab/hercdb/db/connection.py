@@ -46,6 +46,9 @@ _RAW_DATASET_LABELS = ['FlatbedScanDataset', 'PGSRaw', 'SpectralRaw']
 _PROCESSED_DATASET_LABELS = ['PGSProcessed', 'SpectralProcessed',
                              'Registered', 'WebProcessed']
 _DATASET_LABELS = _RAW_DATASET_LABELS + _PROCESSED_DATASET_LABELS
+# Datasets that carry a `released` flag: everything but flatbed negatives, which
+# are not published and have no `path` to address a release by.
+_RELEASABLE_DATASET_LABELS = [l for l in _DATASET_LABELS if l != 'FlatbedScanDataset']
 
 
 # Cypher predicate for "a dataset is fully complete": the `complete` flag is
@@ -1277,18 +1280,26 @@ class GraphDBConnection:
         ]
 
     @staticmethod
-    def _dataset_filter_cypher(ds_type: DatasetType | None, newest_completed: bool) -> str:
-        """WHERE clause over the projection from `_dataset_sources_cypher`."""
+    def _dataset_filter_cypher(ds_type: DatasetType | None, newest_completed: bool,
+                               released_only: bool = False) -> str:
+        """WHERE clause over the projection from `_dataset_sources_cypher`.
+
+        Applied before the newest-per-type reduction, so `released_only` with
+        `newest_completed` gives the newest *released* dataset of each type.
+        """
         conditions = []
         if newest_completed:
             conditions.append("is_complete")
+        if released_only:
+            conditions.append("d.released = true")
         if ds_type:
             conditions.append("$data_t IN labels(d)")
         return f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-    def find_datasets_for_educelabid(self, uuid: str, ds_type: DatasetType = None, newest_completed: bool = False) -> list[dict]:
+    def find_datasets_for_educelabid(self, uuid: str, ds_type: DatasetType = None, newest_completed: bool = False,
+                                     released_only: bool = False) -> list[dict]:
         """Find all datasets for a specific EduceLabID, raw and processed."""
-        where_clause = self._dataset_filter_cypher(ds_type, newest_completed)
+        where_clause = self._dataset_filter_cypher(ds_type, newest_completed, released_only)
 
         grouping = """
             WITH d, ds_type, pipeline_id, proc_status, date_end
@@ -1319,7 +1330,8 @@ class GraphDBConnection:
 
         return [self._serialize_dataset(record) for record in records]
 
-    def find_datasets_for_educelabid_with_predecessors(self, uuid: str, ds_type: DatasetType = None, newest_completed: bool = False) -> list[dict]:
+    def find_datasets_for_educelabid_with_predecessors(self, uuid: str, ds_type: DatasetType = None, newest_completed: bool = False,
+                                                      released_only: bool = False) -> list[dict]:
         """Like find_datasets_for_educelabid, but also returns datasets
         BELONGING_TO any predecessor UUID reached by walking [:REPLACES*0..]
         from the given UUID.
@@ -1336,7 +1348,7 @@ class GraphDBConnection:
         FOR the UUID; each carries the
         ``pipeline_id`` and ``status`` of the Process that produced it.
         """
-        where_clause = self._dataset_filter_cypher(ds_type, newest_completed)
+        where_clause = self._dataset_filter_cypher(ds_type, newest_completed, released_only)
 
         grouping = """
             WITH d, ds_type, belongs_to_uuid, pipeline_id, proc_status, date_end
@@ -1376,7 +1388,8 @@ class GraphDBConnection:
             results.append(ds)
         return results
 
-    def find_all_datasets_for_pherc(self, pherc_display_name: str, ds_type: DatasetType = None, newest_completed: bool = False) -> list[dict]:
+    def find_all_datasets_for_pherc(self, pherc_display_name: str, ds_type: DatasetType = None, newest_completed: bool = False,
+                                    released_only: bool = False) -> list[dict]:
         """
         Find all datasets under a PHerc umbrella, grouped by EduceLabID.
 
@@ -1398,7 +1411,7 @@ class GraphDBConnection:
                 ``belongs_to_uuid`` (the EduceLabID it actually belongs to);
                 grouping is by the active/assigned UUID.
         """
-        where_clause = self._dataset_filter_cypher(ds_type, newest_completed)
+        where_clause = self._dataset_filter_cypher(ds_type, newest_completed, released_only)
 
         query = f"""
             MATCH (ph:PHerc {{displayName: $pherc_display_name}})
@@ -1498,6 +1511,53 @@ class GraphDBConnection:
                 artifact['datasets'] = [ds for _, ds in newest_by_type.values()]
 
         return results
+
+    def set_dataset_released(self, uuid: str, ds_type: DatasetType, path: str, released: bool,
+                             released_by: str) -> list[dict]:
+        """Set the release flag on one of an artifact's datasets, found by type and path.
+
+        The dataset is looked up exactly as ``find_datasets_for_educelabid_with_predecessors``
+        returns it, across the UUID's REPLACES chain, so anything a caller can read
+        it can flag. Scoping to the artifact matters because ``path`` is not unique
+        across the graph. Records who changed it and when, alongside the flag.
+
+        Returns the updated datasets: one normally, none when nothing matched.
+        """
+        query = f"""
+            MATCH (e:EduceLabID {{uuid: $uuid}})-[:REPLACES*0..]->(predecessor:EduceLabID)
+            {_dataset_sources_cypher('predecessor')}
+            WITH d, predecessor
+            WHERE $data_t IN labels(d) AND d.path = $path
+            WITH d, min(predecessor.uuid) AS belongs_to_uuid
+            SET d.released = $released,
+                d.released_by = $released_by,
+                d.released_at = $released_at
+            RETURN d, $data_t AS ds_type, belongs_to_uuid
+        """
+        records, _, _ = self._run_query(
+            query,
+            uuid=uuid,
+            data_t=str(ds_type),
+            path=path,
+            released=released,
+            released_by=released_by,
+            released_at=datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        )
+        if not records:
+            return []
+        # Only the node's own properties: the Process-derived fields the reads add
+        # would be null here, so report the flag rather than a partial dataset.
+        return [
+            {
+                'type': r['ds_type'],
+                'path': r['d'].get('path'),
+                'belongs_to_uuid': r['belongs_to_uuid'],
+                'released': r['d'].get('released'),
+                'released_by': r['d'].get('released_by'),
+                'released_at': r['d'].get('released_at'),
+            }
+            for r in records
+        ]
 
     def _raw_candidate_rows(self, proc_type: str) -> list[dict]:
         """One row per (complete raw dataset, artifact it resolves to).
@@ -1742,7 +1802,8 @@ class GraphDBConnection:
         }
 
     def initialize_process(self, pipeline_id: str, proc_type: str, input_dataset_paths: list[str],
-                           output_dataset_path: str, slurm_id: str, start_datetime: str) -> dict | None:
+                           output_dataset_path: str, slurm_id: str, start_datetime: str,
+                           released: bool | None = None) -> dict | None:
         """Create a Process node linked to input/output datasets and a Pipeline.
 
         For PGS/SPEC the raw input dataset is matched across the pipeline
@@ -1765,15 +1826,22 @@ class GraphDBConnection:
             output_dataset_path: Path for the output dataset node.
             slurm_id: Slurm job ID.
             start_datetime: ISO datetime string for start time.
+            released: Whether the output dataset starts out released. None takes
+                ``config.release_default()``. An output that already exists
+                keeps the flag it has.
 
         Returns:
             Dict with process info, or None on failure.
         """
+        if released is None:
+            from educelab.hercdb import config
+            released = config.release_default()
         base_params = {
             "pipeline_id": pipeline_id,
             "slurm_id": slurm_id,
             "start_datetime": start_datetime,
             "output_path": output_dataset_path,
+            "released": released,
         }
 
         if proc_type == "PGS":
@@ -1782,6 +1850,7 @@ class GraphDBConnection:
             MATCH (e)-[:REPLACES*0..]->(:EduceLabID)<-[:BELONGS_TO]-(input:PGSRaw {path: $input_path})
             MERGE (proc:Process {stage: "PGS", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
             MERGE (output:PGSProcessed {path: $output_path})
+            SET output.released = coalesce(output.released, $released)
             MERGE (input)-[:INPUT]->(proc)-[:OUTPUT]->(output)
             MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
@@ -1794,6 +1863,7 @@ class GraphDBConnection:
             MATCH (e)-[:REPLACES*0..]->(:EduceLabID)<-[:BELONGS_TO]-(input:SpectralRaw {path: $input_path})
             MERGE (proc:Process {stage: "SPEC", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
             MERGE (output:SpectralProcessed {path: $output_path})
+            SET output.released = coalesce(output.released, $released)
             MERGE (input)-[:INPUT]->(proc)-[:OUTPUT]->(output)
             MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
@@ -1807,6 +1877,7 @@ class GraphDBConnection:
             {_upstream_input_cypher("spec_proc", "SpectralProcessed", "input_spec_path")}
             MERGE (proc:Process {{stage: "REG", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"}})
             MERGE (reg:Registered {{path: $output_path}})
+            SET reg.released = coalesce(reg.released, $released)
             MERGE (pg_proc)-[:INPUT]->(proc)<-[:INPUT]-(spec_proc)
             MERGE (proc)-[:OUTPUT]->(reg)
             MERGE (proc)-[:STAGE_OF]->(ppline)
@@ -1821,6 +1892,7 @@ class GraphDBConnection:
             {_upstream_input_cypher("reg_in", "Registered", "input_path")}
             MERGE (proc:Process {{stage: "WEB", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"}})
             MERGE (web:WebProcessed {{path: $output_path}})
+            SET web.released = coalesce(web.released, $released)
             MERGE (reg_in)-[:INPUT]->(proc)-[:OUTPUT]->(web)
             MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc

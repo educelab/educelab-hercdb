@@ -31,6 +31,7 @@ path without needing a database.
 - **test_fuzzy_find_node.py** - `GraphDBConnection.fuzzy_find_node` tests (`unittest.TestCase`)
 - **test_pipeline_crud.py** - Pipeline CRUD methods on `GraphDBConnection`: create/update/delete pipelines and processes (`unittest.TestCase`, self-cleaning)
 - **test_pipeline_artifact_link.py** - Regression cover for the Pipeline -> artifact link behind the pipeline list's `dataset_name` / `artifact_uuid` columns. Builds a registration-only submission (REG over processed inputs, no raw input of its own) and asserts it still resolves (`unittest.TestCase`, self-cleaning). One end-to-end assertion runs `get_all_pipeline_summaries`, which queries every pipeline in the database; it is skipped unless `HERCDB_SLOW_TESTS=1` is set, because over a VPN that is minutes rather than seconds.
+- **test_dataset_release.py** - The dataset release flag: defaults on create, `released_only`, `set_dataset_released`, and the scan reload keeping flags. Creates its own EduceLabID, scans and pipeline, so it needs no existing data (`unittest.TestCase`, self-cleaning)
 - **test_pipeline_loader.py** - Pipeline/process node creation via `PhercGraphDatabaseLoader` (script with `--create`/`--cleanup` flags; run directly, not via `unittest`)
 
 ### api/

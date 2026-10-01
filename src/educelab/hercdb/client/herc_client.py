@@ -135,6 +135,7 @@ class HercClient:
         pherc_id: str,
         dataset_type: str = None,
         newest_completed: bool = False,
+        released_only: bool = False,
     ) -> dict:
         """Get all datasets under a PHerc, grouped by EduceLabID.
 
@@ -151,12 +152,15 @@ class HercClient:
                 "SpectralRaw", "PGSProcessed", "SpectralProcessed", "Registered", "WebProcessed".
             newest_completed: If True, return only the newest completed dataset
                 per type per artifact.
+            released_only: If True, return only released datasets.
         """
         params: dict = {}
         if dataset_type is not None:
             params["dataset_type"] = dataset_type
         if newest_completed:
             params["newest_completed"] = "true"
+        if released_only:
+            params["released_only"] = "true"
         resp = self._get(
             f"/pherc/{pherc_id}/all-datasets", params=params, tolerate_404=True,
         )
@@ -178,6 +182,7 @@ class HercClient:
         uuid: str,
         dataset_type: str = None,
         newest_completed: bool = False,
+        released_only: bool = False,
     ) -> list[dict]:
         """Get all datasets for a specific EduceLabID.
 
@@ -193,18 +198,41 @@ class HercClient:
             dataset_type: Optional filter. One of "FlatbedScan", "PGSRaw",
                 "SpectralRaw", "PGSProcessed", "SpectralProcessed", "Registered", "WebProcessed".
             newest_completed: If True, return only the newest completed dataset per type.
+            released_only: If True, return only released datasets.
         """
         params: dict = {}
         if dataset_type is not None:
             params["dataset_type"] = dataset_type
         if newest_completed:
             params["newest_completed"] = "true"
+        if released_only:
+            params["released_only"] = "true"
         resp = self._get(
             f"/educelabid/{uuid}/datasets", params=params, tolerate_404=True,
         )
         if resp.status_code == 404:
             return []
         return resp.json()
+
+    def set_dataset_released(
+        self,
+        uuid: str,
+        dataset_type: str,
+        path: str,
+        released: bool,
+        released_by: str = None,
+    ) -> list[dict]:
+        """Release (publish) or withdraw one of an artifact's datasets.
+
+        The token's user must be listed in the server's ``release_writers``.
+        ``released_by`` records who decided, when acting for someone else.
+        Returns the updated datasets with their ``released``, ``released_by``
+        and ``released_at``.
+        """
+        body = {"dataset_type": dataset_type, "path": path, "released": released}
+        if released_by is not None:
+            body["released_by"] = released_by
+        return self._put(f"/educelabid/{uuid}/datasets/released", json=body).json()
 
     def resolve(
         self,
@@ -288,6 +316,7 @@ class HercClient:
         output_dataset_path: str,
         slurm_id: str,
         start_datetime: str,
+        released: bool = None,
     ) -> dict:
         """Create a new process (stage) within a pipeline.
 
@@ -298,14 +327,19 @@ class HercClient:
             output_dataset_path: Path for the output dataset.
             slurm_id: Slurm job ID.
             start_datetime: ISO datetime string for start time.
+            released: Whether the output starts out released. Omitted when
+                None, and the server's default applies.
         """
-        return self._post(f"/pipelines/{pipeline_id}/processes", json={
+        body = {
             "proc_type": proc_type,
             "input_dataset_paths": input_dataset_paths,
             "output_dataset_path": output_dataset_path,
             "slurm_id": slurm_id,
             "start_datetime": start_datetime,
-        }).json()
+        }
+        if released is not None:
+            body["released"] = released
+        return self._post(f"/pipelines/{pipeline_id}/processes", json=body).json()
 
     def update_process_status(
         self,

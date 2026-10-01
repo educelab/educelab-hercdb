@@ -30,11 +30,23 @@ By-name fetches match `displayName` **exactly**. Resolve noisy input with
 | `GET /artifacts?pherc=&cornice=&pezzo=` | `get_artifact_by_name(pherc, cornice=None, pezzo=None)` | Full detail for one artifact by exact name: own props, metadata, assigned `educelabids`, child counts. `pherc` required (missing → 422, not found → 404). No datasets. |
 | `GET /artifacts/{uuid}` | `get_artifact(uuid)` | UUID → artifact bridge: `{uuid, type, displayName, pherc, cornice, pezzo, parent, location}`. |
 | `GET /pherc/{id}/subdivisions` | `get_subdivisions(pherc_id)` | Full Cornici/Pezzi hierarchy. Each node `{displayName, aliases, educelabids, parent}`; `parent` is `{type, displayName}` (or `None` for the PHerc) so a nested Pezzo renders under its Cornice. |
-| `GET /pherc/{id}/all-datasets` | `get_all_datasets_for_pherc(pherc_id, dataset_type=None, newest_completed=False)` | All datasets grouped by active/assigned EduceLabID, pooled across REPLACES chains; each dataset carries `belongs_to_uuid`. |
-| `GET /educelabid/{uuid}/datasets` | `get_datasets_for_educelabid(uuid, dataset_type=None, newest_completed=False)` | Datasets for one UUID, pooled across its REPLACES chain; each carries `belongs_to_uuid`. |
+| `GET /pherc/{id}/all-datasets` | `get_all_datasets_for_pherc(pherc_id, dataset_type=None, newest_completed=False, released_only=False)` | All datasets grouped by active/assigned EduceLabID, pooled across REPLACES chains; each dataset carries `belongs_to_uuid`. |
+| `GET /educelabid/{uuid}/datasets` | `get_datasets_for_educelabid(uuid, dataset_type=None, newest_completed=False, released_only=False)` | Datasets for one UUID, pooled across its REPLACES chain; each carries `belongs_to_uuid`. |
 | `GET /resolve` | `resolve(name, label="PHerc", parent_pherc=None, parent_cornice=None, threshold=75, limit=10)` | Fuzzy-resolve a noisy displayName to ranked candidates. Empty result is `200 []`, not 404. Invalid `label` → 400. |
 
-`dataset_type` is one of `FlatbedScan`, `PGSRaw`, `SpectralRaw`.
+`dataset_type` is one of `FlatbedScan`, `PGSRaw`, `SpectralRaw`, `PGSProcessed`,
+`SpectralProcessed`, `Registered`, `WebProcessed`. `released_only=true` keeps
+only released datasets; with `newest_completed` it gives the newest released one.
+
+## Release endpoint
+
+| Method & path | Client method | Purpose |
+|---|---|---|
+| `PUT /educelabid/{uuid}/datasets/released` | `set_dataset_released(uuid, dataset_type, path, released, released_by=None)` | Release or withdraw one of an artifact's datasets, found by type and path. Body `{dataset_type, path, released, released_by?}`; returns the updated `released`, `released_by`, `released_at`. 403 unless the token's user is in `release_writers`; 400 for an unknown or `FlatbedScan` type; 404 when nothing matches. |
+
+New datasets start as `release_default` says (`HERCDB_RELEASE_DEFAULT`, default
+`true`); a pipeline can override it per output with `released` on
+`POST /pipelines/{id}/processes`.
 
 ### `/resolve` notes
 
@@ -51,7 +63,7 @@ artifact, then fetch by the resolved exact `displayName`.
 | `GET /pipelines/{id}/stages` | `get_pipeline_stages(id)` | All process stages for a pipeline. Each stage carries `input_dataset_paths` (list) and `output_dataset_path` (scalar, or null) alongside `proc_type`/`status`/`slurm_id`/`start_time`/`end_time`. A `REG` stage lists both its PGS and SPEC inputs. |
 | `GET /pipelines/{id}/confirmation` | `get_pipeline_confirmation(id)` | Full summary with all stages. |
 | `POST /pipelines` | `initialize_pipeline(pipeline_id, artifact_uuid, datetime)` | Create a Pipeline linked to an EduceLabID. |
-| `POST /pipelines/{id}/processes` | `initialize_process(pipeline_id, proc_type, input_dataset_paths, output_dataset_path, slurm_id, start_datetime)` | Create a Process (stage) within a pipeline. |
+| `POST /pipelines/{id}/processes` | `initialize_process(pipeline_id, proc_type, input_dataset_paths, output_dataset_path, slurm_id, start_datetime, released=None)` | Create a Process (stage) within a pipeline. `released` sets the output's flag; omitted, the server default applies. |
 | `PUT /pipelines/{id}/processes/{proc_type}/status` | `update_process_status(pipeline_id, proc_type, status, end_datetime)` | Set a process to `completed` / `failed`. |
 | `DELETE /pipelines/{id}` | `delete_pipeline(id)` | Delete a Pipeline, its Process nodes, and their output datasets (raw/input datasets untouched). |
 
