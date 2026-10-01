@@ -880,6 +880,7 @@ class PhercGraphDatabaseLoader:
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (pgs_proc:PGSProcessed {path: $output_ds_path})
+            SET pgs_proc.released = coalesce(pgs_proc.released, $released)
             MERGE (pgs)-[:INPUT]->(proc)-[:OUTPUT]->(pgs_proc)
             MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
             MERGE (ppline)-[:FOR]->(e)
@@ -896,6 +897,7 @@ class PhercGraphDatabaseLoader:
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (spec_proc:SpectralProcessed {path: $output_ds_path})
+            SET spec_proc.released = coalesce(spec_proc.released, $released)
             MERGE (spectral)-[:INPUT]->(proc)-[:OUTPUT]->(spec_proc)
             MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
             MERGE (ppline)-[:FOR]->(e)
@@ -912,6 +914,7 @@ class PhercGraphDatabaseLoader:
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (web:WebProcessed {path: $output_ds_path})
+            SET web.released = coalesce(web.released, $released)
             MERGE (reg)-[:INPUT]->(proc)-[:OUTPUT]->(web)
             MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
@@ -923,7 +926,8 @@ class PhercGraphDatabaseLoader:
             "date_t": date_time,
             "slurm_id": slurm_id,
             "output_ds_path": output_ds_path,
-            "pipeline_id": pipeline_id
+            "pipeline_id": pipeline_id,
+            "released": config.release_default(),
         }
           
         proc_node = self._run_query(query, **params)
@@ -940,6 +944,7 @@ class PhercGraphDatabaseLoader:
         slurm_id: $slurm_id,
         status: "submitted"})
         MERGE (reg:Registered {path: $registered_img_path})
+        SET reg.released = coalesce(reg.released, $released)
         MERGE (pg_proc)-[:INPUT]->(proc)<-[:INPUT]-(spec_proc)
         MERGE (proc)-[:OUTPUT]->(reg)
         WITH proc
@@ -955,7 +960,8 @@ class PhercGraphDatabaseLoader:
             "date_t": date_time,
             "slurm_id": slurm_id,
             "registered_img_path": registered_img_path,
-            "pipeline_id": pipeline_id
+            "pipeline_id": pipeline_id,
+            "released": config.release_default(),
         }
           
         proc_node = self._run_query(query, **params)

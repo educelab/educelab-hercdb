@@ -17,8 +17,9 @@ TEST_UUID = f"TEST-RELEASE-{STAMP}"
 TEST_PIPELINE_ID = f"TEST-RELEASE-{STAMP}"
 PGS_SCAN_UUID = str(uuid_lib.uuid4())
 SPEC_SCAN_UUID = str(uuid_lib.uuid4())
-PGS_RAW = f"/test/release/pgs_raw/{STAMP}"
-SPEC_RAW = f"/test/release/spectral_raw/{STAMP}"
+# Already under the data root, so the loader stores them as given.
+PGS_RAW = f"Dailies/test/release/pgs_raw/{STAMP}"
+SPEC_RAW = f"Dailies/Spectral/test/release/spectral_raw/{STAMP}"
 PGS_OUT = f"/test/release/pgs_processed/{STAMP}"
 SPEC_OUT = f"/test/release/spectral_processed/{STAMP}"
 NOW = datetime.now().isoformat()
