@@ -43,6 +43,9 @@ Derived from `src/educelab/hercdb/loader/graph_loader.py`.
 | | `zero_byte_files` | integer | `0` |
 | | `short_files` | integer | `0` |
 | | `bad_format_files` | integer | `0` |
+| | `released` | boolean | `true` |
+| | `released_by` | string *(optional)* | `"reviewer-a"` |
+| | `released_at` | string (ISO datetime) *(optional)* | `"2026-10-01T14:00:00+00:00"` |
 | **SpectralRaw** | `uuid` | string | `"550e8400-..."` |
 | | `path` | string | `"/data/spectral/421/..."` |
 | | `date_start` | string (ISO datetime) | `"2024-01-15T09:00:00"` |
@@ -53,10 +56,29 @@ Derived from `src/educelab/hercdb/loader/graph_loader.py`.
 | | `zero_byte_files` | integer | `0` |
 | | `short_files` | integer | `0` |
 | | `bad_format_files` | integer | `0` |
+| | `released` | boolean | `true` |
+| | `released_by` | string *(optional)* | `"reviewer-a"` |
+| | `released_at` | string (ISO datetime) *(optional)* | `"2026-10-01T14:00:00+00:00"` |
 | **PGSProcessed** | `path` | string | `"/data/pgs_proc/421/..."` |
+| | `uuid` | string *(0.3.9)* | `"0032b31b-..."` |
+| | `released` | boolean | `true` |
+| | `released_by` | string *(optional)* | `"reviewer-a"` |
+| | `released_at` | string (ISO datetime) *(optional)* | `"2026-10-01T14:00:00+00:00"` |
 | **SpectralProcessed** | `path` | string | `"/data/spec_proc/421/..."` |
+| | `uuid` | string *(0.3.9)* | `"0032b31b-..."` |
+| | `released` | boolean | `true` |
+| | `released_by` | string *(optional)* | `"reviewer-a"` |
+| | `released_at` | string (ISO datetime) *(optional)* | `"2026-10-01T14:00:00+00:00"` |
 | **Registered** | `path` | string | `"/data/registered/421/..."` |
+| | `uuid` | string *(0.3.9)* | `"0032b31b-..."` |
+| | `released` | boolean | `true` |
+| | `released_by` | string *(optional)* | `"reviewer-a"` |
+| | `released_at` | string (ISO datetime) *(optional)* | `"2026-10-01T14:00:00+00:00"` |
 | **WebProcessed** | `path` | string | `"/data/web/421/..."` |
+| | `uuid` | string *(0.3.9)* | `"0032b31b-..."` |
+| | `released` | boolean | `true` |
+| | `released_by` | string *(optional)* | `"reviewer-a"` |
+| | `released_at` | string (ISO datetime) *(optional)* | `"2026-10-01T14:00:00+00:00"` |
 | **Process** | `stage` | string | `"PGS"`, `"SPEC"`, `"REG"`, `"WEB"` |
 | | `start_time` | string (ISO datetime) | `"2024-01-15T09:00:00"` |
 | | `slurm_id` | string/int | `"12345"` |
@@ -71,6 +93,8 @@ Derived from `src/educelab/hercdb/loader/graph_loader.py`.
 - `ObjectFormat` and `MaterialType` use `format` as their key property (not `name`), unlike all other metadata nodes.
 - `OsloMethod` has no properties — it is used as a singleton/tag node.
 - `Process.stage` stores the process type in Neo4j (`"PGS"`, `"SPEC"`, `"REG"`, `"WEB"`), but the Python API and REST layer refer to this field as `proc_type`.
+- `released` (0.3.9) is a real **boolean**, unlike `complete`. New datasets take `config.release_default()` when created, an existing node keeps its flag when rewritten, and `released_by`/`released_at` appear once someone changes it through `PUT /datasets/{dataset_uuid}/released`. Nodes from before 0.3.9 have none until `preprocessing/migrate_release_flag.py --apply` runs. FlatbedScanDataset has no flag.
+- Processed datasets' `uuid` (0.3.9) is the one the pipeline minted for the output and wrote to its `metadata.json`, recorded through `output_dataset_uuid`. Older ones get it from `preprocessing/migrate_dataset_uuids.py`. Like raw scans' `uuid`, it is what `PUT /datasets/{dataset_uuid}/released` addresses.
 - `PGSRaw`/`SpectralRaw` `complete` is stored as the canonical **string** `"True"` / `"False"` / `"unknown"` (normalized case-insensitively by `scan_loader.normalize_complete`), not a boolean.
 - The 2026 integer counts (`file_count`, `missing_files`, `zero_byte_files`, `short_files`, `bad_format_files`) are parsed onto both raw scan node types. Note the Spectral CSV `file count` column is currently unpopulated, so `SpectralRaw.file_count` is always `0`.
 - `Pipeline.version` is the semantic version of the pipeline code that made the submission, recorded at `POST /pipelines`. Pipelines created before 0.3.8 have no `version` property and read back as `null`; they were all `2.0.0`, but nothing backfills them. The format is enforced at the REST boundary (SemVer 2.0.0, 422 on a malformed value), not in the DB layer.

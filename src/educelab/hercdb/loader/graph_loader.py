@@ -733,8 +733,9 @@ class PhercGraphDatabaseLoader:
     def add_pgs_raw_node(self, pgs_path, scan_uuid, datetime_start, datetime_end=None,
                          complete=False, sample_uuid=None, file_count=None,
                          missing_files=None, zero_byte_files=None, short_files=None,
-                         bad_format_files=None):
+                         bad_format_files=None, released=None):
         params = {
+            "released": config.release_default() if released is None else released,
             "pgs_path": _data_root_relative(pgs_path, REL_RAW_DIR_PGS),
             "scan_uuid": scan_uuid,
             "datetime_start": datetime_start,
@@ -750,10 +751,12 @@ class PhercGraphDatabaseLoader:
 
         # MERGE on the scan uuid alone (a unique key); path/date_start are SET so a
         # changed path on re-load updates the node in place rather than duplicating it.
-        # The file counts are always SET (a legitimate 0 must be stored).
+        # The file counts are always SET (a legitimate 0 must be stored). An existing
+        # scan keeps its release flag; a new one gets `released` (the config default).
         query = """
             MERGE (pg:PGSRaw {uuid: $scan_uuid})
-            SET pg.path = $pgs_path,
+            SET pg.released = coalesce(pg.released, $released),
+                pg.path = $pgs_path,
                 pg.date_start = $datetime_start,
                 pg.file_count = $file_count,
                 pg.missing_files = $missing_files,
@@ -774,8 +777,9 @@ class PhercGraphDatabaseLoader:
     def add_spectral_raw_node(self, spectral_path, scan_uuid, datetime_start, datetime_end=None,
                               complete=False, sample_uuid=None, file_count=None,
                               missing_files=None, zero_byte_files=None, short_files=None,
-                              bad_format_files=None):
+                              bad_format_files=None, released=None):
         params = {
+            "released": config.release_default() if released is None else released,
             "spectral_path": _data_root_relative(spectral_path, REL_RAW_DIR_SPEC),
             "scan_uuid": scan_uuid,
             "datetime_start": datetime_start,
@@ -792,7 +796,8 @@ class PhercGraphDatabaseLoader:
         # See add_pgs_raw_node for the MERGE-on-uuid / always-SET-counts rationale.
         query = """
             MERGE (s:SpectralRaw {uuid: $scan_uuid})
-            SET s.path = $spectral_path,
+            SET s.released = coalesce(s.released, $released),
+                s.path = $spectral_path,
                 s.date_start = $datetime_start,
                 s.file_count = $file_count,
                 s.missing_files = $missing_files,
@@ -809,6 +814,34 @@ class PhercGraphDatabaseLoader:
 
         self._run_query(query, **params)
 
+    def get_scan_release_states(self) -> list[dict]:
+        """Every PGSRaw/SpectralRaw scan's release flag, keyed by scan uuid.
+
+        Read before `delete_all_scan_nodes` so a full reload can put reviewers'
+        decisions back with `restore_scan_release_states`.
+        """
+        records, _, _ = self._run_query("""
+            MATCH (n) WHERE (n:PGSRaw OR n:SpectralRaw) AND n.released IS NOT NULL
+            RETURN n.uuid AS uuid, n.released AS released,
+                   n.released_by AS released_by, n.released_at AS released_at
+        """)
+        # _run_query hides errors as None; carrying on would wipe every flag.
+        if records is None:
+            raise RuntimeError("Could not read scan release flags; not reloading scans")
+        return [dict(r) for r in records]
+
+    def restore_scan_release_states(self, states: list[dict]) -> None:
+        """Re-apply flags saved by `get_scan_release_states`; scans no longer loaded are skipped."""
+        records, _, _ = self._run_query("""
+            UNWIND $states AS st
+            MATCH (n {uuid: st.uuid}) WHERE n:PGSRaw OR n:SpectralRaw
+            SET n.released = st.released,
+                n.released_by = st.released_by,
+                n.released_at = st.released_at
+        """, states=states)
+        if records is None:
+            raise RuntimeError(f"Could not restore {len(states)} scan release flags")
+
     def delete_all_scan_nodes(self):
         """Remove every PGSRaw and SpectralRaw node (and their relationships).
 
@@ -823,7 +856,7 @@ class PhercGraphDatabaseLoader:
     
     
     def add_image_processing_node(self, artifact_uuid, op_type, input_ds_path, output_ds_path,
-                                  date_time, slurm_id, pipeline_id):
+                                  date_time, slurm_id, pipeline_id, output_dataset_uuid=None):
         """
         Creates an image processing node and attaches it to
         - input-dataset node
@@ -847,6 +880,8 @@ class PhercGraphDatabaseLoader:
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (pgs_proc:PGSProcessed {path: $output_ds_path})
+            SET pgs_proc.released = coalesce(pgs_proc.released, $released),
+                pgs_proc.uuid = coalesce(pgs_proc.uuid, $output_uuid)
             MERGE (pgs)-[:INPUT]->(proc)-[:OUTPUT]->(pgs_proc)
             MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
             MERGE (ppline)-[:FOR]->(e)
@@ -863,6 +898,8 @@ class PhercGraphDatabaseLoader:
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (spec_proc:SpectralProcessed {path: $output_ds_path})
+            SET spec_proc.released = coalesce(spec_proc.released, $released),
+                spec_proc.uuid = coalesce(spec_proc.uuid, $output_uuid)
             MERGE (spectral)-[:INPUT]->(proc)-[:OUTPUT]->(spec_proc)
             MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
             MERGE (ppline)-[:FOR]->(e)
@@ -879,6 +916,8 @@ class PhercGraphDatabaseLoader:
             slurm_id: $slurm_id,
             status: "submitted"})
             MERGE (web:WebProcessed {path: $output_ds_path})
+            SET web.released = coalesce(web.released, $released),
+                web.uuid = coalesce(web.uuid, $output_uuid)
             MERGE (reg)-[:INPUT]->(proc)-[:OUTPUT]->(web)
             MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
@@ -890,7 +929,9 @@ class PhercGraphDatabaseLoader:
             "date_t": date_time,
             "slurm_id": slurm_id,
             "output_ds_path": output_ds_path,
-            "pipeline_id": pipeline_id
+            "pipeline_id": pipeline_id,
+            "released": config.release_default(),
+            "output_uuid": output_dataset_uuid,
         }
           
         proc_node = self._run_query(query, **params)
@@ -898,7 +939,7 @@ class PhercGraphDatabaseLoader:
         return proc_node
         
     def add_registration_processing_node(self, artifact_uuid, date_time, slurm_id, input_pgs_path, input_spectral_path,
-                                         registered_img_path, pipeline_id):
+                                         registered_img_path, pipeline_id, output_dataset_uuid=None):
         query = """
         MATCH (:EduceLabID {uuid: $artifact_uuid})--(:PGSRaw)--(:Process)--(pg_proc:PGSProcessed {path: $input_pg_path})
         MATCH (:EduceLabID {uuid: $artifact_uuid})--(:SpectralRaw)--(:Process)--(spec_proc:SpectralProcessed {path: $input_spectral_path})
@@ -907,6 +948,8 @@ class PhercGraphDatabaseLoader:
         slurm_id: $slurm_id,
         status: "submitted"})
         MERGE (reg:Registered {path: $registered_img_path})
+        SET reg.released = coalesce(reg.released, $released),
+            reg.uuid = coalesce(reg.uuid, $output_uuid)
         MERGE (pg_proc)-[:INPUT]->(proc)<-[:INPUT]-(spec_proc)
         MERGE (proc)-[:OUTPUT]->(reg)
         WITH proc
@@ -922,7 +965,9 @@ class PhercGraphDatabaseLoader:
             "date_t": date_time,
             "slurm_id": slurm_id,
             "registered_img_path": registered_img_path,
-            "pipeline_id": pipeline_id
+            "pipeline_id": pipeline_id,
+            "released": config.release_default(),
+            "output_uuid": output_dataset_uuid,
         }
           
         proc_node = self._run_query(query, **params)
