@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.3.9] - 2026-10-01
 
 ### Added
+- **An `archiving` Process status**: the stage's output is published on the cluster, and its transfer to the archive is not yet confirmed. `PUT /pipelines/{id}/processes/{proc_type}/status` accepts it alongside `completed` and `failed`, and so does the bulk loader's status update.
+  - The work-list (`find_unprocessed_datasets`) treats an `archiving` Process like a `completed` one, so the scan isn't queued again while its archive is retried.
+  - Nothing else reads it as complete: a processed dataset's `complete` flag and `newest_completed` still require `completed`, so whatever consumes that output waits for the archive.
+  - The `GET /pipelines` summary reads `archiving` when no stage is submitted or failed and at least one is still archiving. An archiving stage counts as done beside a failed one (`partially_completed`).
 - Datasets carry a **release (publish) flag**: a boolean `released` property on every PGSRaw, SpectralRaw, PGSProcessed, SpectralProcessed, Registered and WebProcessed node, plus `released_by` and `released_at` once someone changes it. Flatbed negatives are not published and get no flag.
 - **A server-side default decides what new datasets start as.** `config.release_default()` reads `HERCDB_RELEASE_DEFAULT` or `release_default` in `~/.educedb`, and is `true` when unset, for the first pass over the data. Set it false to make every new dataset wait for review. Pipelines and loaders need no change to pick it up.
   - `initialize_process(..., released=None)`, `POST /pipelines/{id}/processes` (optional `released`) and `HercClient.initialize_process(..., released=None)` let a caller override it for one output.

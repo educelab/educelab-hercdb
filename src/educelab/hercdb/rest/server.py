@@ -599,7 +599,9 @@ async def update_process_status(
     """Update the status of a process in a pipeline."""
     logger.info(f"User {user} updating {proc_type} status to {body.status} for pipeline {pipeline_id}")
 
-    valid_statuses = ("completed", "failed")
+    # "archiving": the stage's output is published on the cluster but not yet
+    # confirmed on the archive. Reads still treat only "completed" as complete.
+    valid_statuses = ("archiving", "completed", "failed")
     if body.status not in valid_statuses:
         raise HTTPException(
             status_code=400,
