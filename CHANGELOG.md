@@ -5,7 +5,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.3.9] - 2026-10-01
+## [0.3.9] - 2026-10-08
 
 ### Added
 - **An `archiving` Process status**: the stage's output is published on the cluster, and its transfer to the archive is not yet confirmed. `PUT /pipelines/{id}/processes/{proc_type}/status` accepts it alongside `completed` and `failed`, and so does the bulk loader's status update.
@@ -25,6 +25,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - `scan_loader.py --replace` saves every scan's release flag before wiping PGSRaw/SpectralRaw and restores it after the load (`get_scan_release_states` / `restore_scan_release_states`), so a reload doesn't undo reviewers' decisions. It stops rather than reload if the flags can't be read.
+
+### Fixed
+- `PUT /pipelines/{id}/processes/{proc_type}/status` folds `status` to lowercase and requires `end_datetime` to parse as ISO-8601, storing it in canonical `isoformat()` form and rejecting anything else with a **422** (#18). An unparseable `end_time` made Cypher's `datetime()` throw in the `newest_completed` dataset queries, so a UUID's datasets (raw scans included) came back as a 404 (#11).
+- `find_all_datasets_for_pherc` picks the newest dataset per type by comparing parsed, timezone-aware datetimes rather than strings, so ISO spellings that sort differently as text order chronologically; unparseable values sort oldest instead of raising (#13).
 
 ### Backward compatibility
 - Every new field is optional. A pipeline that sends no `released` gets the server default, and one that sends no `output_dataset_uuid` records its output as before (without a UUID until the backfill runs). A client that omits `released_only` sees every dataset, as before.
