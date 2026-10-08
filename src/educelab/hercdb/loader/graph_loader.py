@@ -987,7 +987,7 @@ class PhercGraphDatabaseLoader:
         Returns:
             The updated process node
         """
-        if property_name == "status" and value in ("completed", "failed"):
+        if property_name == "status" and value in ("archiving", "completed", "failed"):
             query = f"""
             MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:STAGE_OF]-(proc:Process {{stage: $stage}})
             SET proc.{property_name} = $value, proc.end_time = $end_time

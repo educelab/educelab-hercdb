@@ -1011,12 +1011,17 @@ class GraphDBConnection:
             processes: List of process dicts with 'stage' and 'status' keys.
 
         Returns:
-            str: One of 'completed', 'partially_completed', 'running', 'failed', 'unknown(error)'
+            str: One of 'completed', 'partially_completed', 'running', 'archiving',
+                'failed', 'unknown(error)'
                 - completed: All stages in the pipeline finished successfully.
                 - partially_completed: At least one stage completed but one or more failed.
-                - running: At least one stage is still submitted and none have completed yet.
+                - running: At least one stage is still submitted and none have failed.
+                - archiving: No stage is submitted or failed, and at least one
+                  is still waiting on its archive.
                 - failed: No stage completed successfully (first stage likely failed).
                 - unknown(error): No processes found or unrecognizable state.
+
+            An 'archiving' stage counts as completed for 'partially_completed'.
         """
         if not processes:
             return 'unknown(error)'
@@ -1039,7 +1044,7 @@ class GraphDBConnection:
             return 'completed'
 
         # At least one completed but one or more failed
-        has_completed = any(s == 'completed' for s in statuses)
+        has_completed = any(s in ('completed', 'archiving') for s in statuses)
         has_failed = any(s == 'failed' for s in statuses)
         if has_completed and has_failed:
             return 'partially_completed'
@@ -1052,6 +1057,9 @@ class GraphDBConnection:
         has_submitted = any(s == 'submitted' for s in statuses)
         if has_submitted:
             return 'running'
+
+        if any(s == 'archiving' for s in statuses):
+            return 'archiving'
 
         return 'unknown(error)'
 
@@ -1613,7 +1621,10 @@ class GraphDBConnection:
                    size(procs) AS attempts,
                    head(procs).status AS last_status,
                    head(procs).notes AS last_notes,
-                   any(p IN procs WHERE p.status = "completed") AS processed
+                   // An "archiving" Process has already produced its output,
+                   // so its scan is not queued again while the archive retries.
+                   any(p IN procs WHERE p.status IN ["completed", "archiving"])
+                       AS processed
             """)
 
         return [
