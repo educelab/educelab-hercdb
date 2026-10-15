@@ -48,6 +48,7 @@ Repository = "https://github.com/educelab/educelab-hercdb"
 el-hercdb-scan-report = "educelab.hercdb.cli.scan_completeness:main"
 el-hercdb-sample-uuid-check = "educelab.hercdb.cli.sample_uuid_check:main"
 el-hercdb-pipeline-cleanup = "educelab.hercdb.cli.cleanup_pipelines:main"
+el-hercdb-exclude-test-scans = "educelab.hercdb.cli.exclude_test_scans:main"
 
 [dependency-groups]
 dev = [

@@ -335,6 +335,16 @@ column (col 1), creating spurious non-numeric values.
 - **Count change:** `1007/1673` now has 17 cornice rows (old file showed 6).
 - **Retained:** all 23 non-numeric entries from the old file are still present.
 
+## Section 9 — Test-run raw scans excluded from artifact coverage (2026-10)
+
+83 PGSRaw/SpectralRaw rows in the ground-truth scan CSVs are calibration or test runs, not scans of the object their `sample uuid` names: resolution tests (`*_ResTest_*`), focus checks, set-up flats/colour, colour checks, `PHerctest*`/`TestTest`, and blank/`NULL` names. The loader attached them like any other scan, so the unattended dispatcher picked several as an artifact's newest complete scan, processed them, and then treated the artifact as done.
+
+- **List:** `input_data/excluded_test_scans.csv` (`category, label, ds_uuid, path, complete, eid, atype, aname`). The ground-truth CSVs are left as they are.
+- **Graph state:** these scans are kept as floating nodes, with no `BELONGS_TO`, marked `excluded = true`, `excluded_reason` (the category), `detached_from_eid` (the EduceLabID(s) they used to belong to) and `detached_at`. That makes the detach reversible, and stops a floating node from being mistaken for a loader bug.
+- **Durability:** `scan_loader.py --exclude` (on by default, reading that file) detaches them again after every load. Without it, a `--replace` reload would re-attach them.
+- **Derived data:** `el-hercdb-exclude-test-scans` (`report` → `detach` → `purge`) lists every processed dataset downstream of these scans, for deletion from storage, then removes those nodes and their Processes. A REG with one test-scan input is deleted even though its other input is clean. `report` writes `needs_reprocessing.csv` with the clean outputs that lose their registration this way, and they must be re-registered by hand. On the dev copy of 2026-10-02: 17 processed datasets (11 SPEC, 1 PGS, 3 REG, 2 WEB) and 3 PGS outputs needing re-registration.
+- **Question:** is the list complete? It was built from path patterns, so a test run with a normal-looking path would not be on it.
+
 ## Maintenance
 
 Add a new entry whenever a CSV anomaly is found that the loaders pass through faithfully but that a domain expert should verify. When a question is resolved, replace the “Question” line with the resolution and date so the file remains a record of decisions.

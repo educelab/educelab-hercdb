@@ -2,6 +2,7 @@ import argparse
 from datetime import datetime, timezone
 import csv
 from educelab.hercdb.loader import PhercGraphDatabaseLoader
+from educelab.hercdb.cli.exclude_test_scans import DETACH_QUERY, load_exclusions
 
 parser = argparse.ArgumentParser(description='Load scan data into Neo4j')
 parser.add_argument('--negatives', default='input_data/negatives.csv',
@@ -13,6 +14,10 @@ parser.add_argument('--spectral', default='input_data/spectral_datasets_20260609
 parser.add_argument('--replace', action=argparse.BooleanOptionalAction, default=True,
                     help='Delete all existing PGSRaw/SpectralRaw nodes before loading '
                          '(default: --replace). Use --no-replace to merge into existing data.')
+parser.add_argument('--exclude', default='input_data/excluded_test_scans.csv',
+                    help='Test-run scans to load without a BELONGS_TO edge (see '
+                         'el-hercdb-exclude-test-scans). Default: '
+                         'input_data/excluded_test_scans.csv; pass "" to skip.')
 args = parser.parse_args()
 
 negatives_file = args.negatives
@@ -136,3 +141,14 @@ with open(spectral_file, 'r') as csvfile:
 if saved_release_states:
     loader.restore_scan_release_states(saved_release_states)
     print(f"Restored release flags on {len(saved_release_states)} scans.")
+
+# Test-run scans are in the ground-truth CSVs with a sample uuid, so the loads
+# above attached them like any other scan. Detach them again, or a --replace
+# reload would hand them back to the dispatcher.
+if args.exclude:
+    excluded = load_exclusions(args.exclude)
+    records, _, _ = loader._run_query(DETACH_QUERY, scans=excluded)
+    if records is None:
+        raise SystemExit(f"Failed to detach the scans listed in {args.exclude}.")
+    print(f"Detached {records[0]['detached']} of {len(excluded)} excluded "
+          f"test scan(s) listed in {args.exclude}.")

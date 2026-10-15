@@ -50,6 +50,7 @@ After `uv sync --extra server`, the package exposes shell entry points (see `[pr
 - `el-hercdb-scan-report` — scan-completeness CSV report (`cli/scan_completeness.py`); writes a full report and an issues-only report, walking the PHerc hierarchy plus any `REPLACES` chains. Run via `uv run el-hercdb-scan-report --out-dir ./tmp`. By default coverage comes from loaded PGSRaw/SpectralRaw **nodes**. With `--scans-from-csv` (plus `--pgs-csv`/`--spectral-csv`, ground-truth defaults) coverage is read **directly from the scan CSVs** — **read-only on the DB, no scan-load required** — and a third `scan_completeness_review.csv` of wrong/missing/inconsistent entries is written (suppress with `--no-review`). Each row carries the **museum** (`Institution`) column.
 - `el-hercdb-sample-uuid-check` — cross-checks each scan's `sample uuid` against the artifact named in its `path` (`cli/sample_uuid_check.py`); read-only, writes a categorized text report. The same module exposes `load_scan_rows`/`cross_check`, reused by the `--scans-from-csv` report.
 - `el-hercdb-pipeline-cleanup` — DB-admin tool to delete pipeline records by id (`cli/cleanup_pipelines.py`); talks straight to Neo4j (no REST server). `--list` shows every pipeline + its artifact; passing one or more `uber_job_id`s deletes each via `db.delete_pipeline` (Pipeline + Process + output dataset nodes; raw/input datasets untouched). Companion to the acquisition-workflow `submit_uber_pipeline.py` pipeline-recording write path, which records every (dry-run or real) submission keyed by `uber_job_id`.
+- `el-hercdb-exclude-test-scans` — DB-admin tool that takes test-run raw scans (`input_data/excluded_test_scans.csv`) out of artifact coverage (`cli/exclude_test_scans.py`). `report` (read-only) validates the list and writes the storage **delete manifest**, built by walking `(raw)-[:INPUT|OUTPUT*]->` downstream, plus side reports. `detach` removes the scans' `BELONGS_TO` edges and marks them `excluded = true`. `purge` (run after the files are deleted from storage) deletes the manifest's processed datasets and their Processes in one transaction, then any Pipeline left with no Process. It refuses if the recomputed set differs from the manifest. Deletion is per stage, not per pipeline. Queries go to the driver directly so a failed query raises instead of reading as no rows. See `docs/data_review_notes.md` §9.
 
 ### Deploying the REST API Server (Production)
 
@@ -97,7 +98,8 @@ educelab-hercdb/
 │       ├── __init__.py
 │       ├── scan_completeness.py
 │       ├── sample_uuid_check.py
-│       └── cleanup_pipelines.py
+│       ├── cleanup_pipelines.py
+│       └── exclude_test_scans.py
 │
 ├── preprocessing/            # Data preparation (notebooks, etc.)
 ├── tests/
@@ -136,6 +138,7 @@ educelab-hercdb/
 - Loads the 2026 scan schema: PGS and Spectral CSVs both carry `file count, missing files, zero-byte files, short files, bad format files` (parsed as ints onto the nodes as `file_count, missing_files, zero_byte_files, short_files, bad_format_files`). The Spectral `sample uuid 2` column was dropped in 2026; the loader no longer reads it.
 - `normalize_complete(raw)` collapses CSV `complete` variants (`"TRUE"` / `"True"` / `"true"` / etc.) to the canonical strings `"True"`, `"False"`, or `"unknown"` so PGS and Spectral nodes share the same `complete` semantics. The canonical strings always satisfy the loader's `if complete:` guard, so re-runs overwrite stale values in either direction.
 - `--replace` (default on; `--no-replace` to disable) calls `loader.delete_all_scan_nodes()` to DETACH DELETE all PGSRaw/SpectralRaw nodes before reloading (FlatbedScanDataset untouched). `add_pgs_raw_node` / `add_spectral_raw_node` MERGE on the scan `uuid` alone (a unique key) and SET `path`/`date_start`/counts, so a changed path updates the node in place rather than duplicating it — the load is idempotent.
+- `--exclude` (default `input_data/excluded_test_scans.csv`; `""` to skip) runs `exclude_test_scans.DETACH_QUERY` after loading, so the listed test-run scans end up as floating, `excluded = true` nodes, and a `--replace` reload cannot re-attach them.
 - The 2023 → 2026 reconciliation (78 backfilled sample uuids, 147 unlinked calibration/test scans, 1 dropped `sample uuid 2`) and the current spectral ground-truth file (`input_data/spectral_datasets_20260609_final.csv`, which supersedes the earlier `_reconciled.csv` with hand-corrected sample-uuid links) are recorded in `docs/data_review_notes.md` §5.
 
 **src/educelab/hercdb/cli/scan_completeness.py**: Scan-completeness report CLI
@@ -295,6 +298,7 @@ A **PHerc / Cornice / Pezzo is an "artifact"**, addressed on one `/artifacts` re
 
 ### CSV Anomalies and Data Review
 - `docs/data_review_notes.md` tracks CSV anomalies and modelling questions awaiting papyrologist confirmation (multi-row UUIDs, hard-coded loader edge cases, name-form inconsistencies). Add new entries there when you encounter data that the loaders pass through faithfully but that a domain expert should verify; update or remove entries once resolved.
+- `docs/graph_data_audit.md` is the same thing seen from the **live graph** rather than the CSVs going in: open questions with current counts, parked as of 2026-09-17. Read it before acting on anything that looks like malformed artifact data — most of it is already explained in `data_review_notes.md`, and one large group that reads as corruption (28 EduceLabIDs assigned to several artifacts) is correct by design. **Do not "fix" artifact display names to tidy these up.** Display names are the join key between the uuid sheet, the metadata CSV, the scan CSVs and the graph, so renaming to satisfy one source makes the others miss. The live outstanding item is 46 scans stranded on 16 unassigned EduceLabIDs, unreachable from any artifact page; the dominant cause is a Cornice written `Cn` instead of `Cr`.
 
 ## Claude Code Instructions
 
