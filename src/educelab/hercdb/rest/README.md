@@ -92,7 +92,7 @@ match `displayName` **exactly** — resolve noisy input with `/resolve` first.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/pipelines` | Get all pipelines with status summaries |
+| GET | `/pipelines` | Get all pipelines with status summaries; `search`/`sort`/`dir`/`offset`/`limit` return one page |
 | GET | `/pipelines/{pipeline_id}/stages` | Get all process stages for a pipeline (each stage includes `input_dataset_paths` / `output_dataset_path`) |
 | POST | `/pipelines` | Create a new pipeline linked to an EduceLabID |
 | POST | `/pipelines/{pipeline_id}/processes` | Create a process (PGS, SPEC, REG, WEB) within a pipeline |
@@ -431,16 +431,34 @@ Returns all pipelines with their computed status summaries.
 ```json
 [
   {
-    "datetime": "2025-01-15T10:30:00",
+    "start_time": "2025-01-15T10:30:00",
     "dataset_name": "PHerc1044 Cornice 4",
     "artifact_uuid": "abc-123",
     "pipeline_id": "20251222-389",
-    "status": "completed"
+    "status": "completed",
+    "version": "2.2.0",
+    "proc_types": ["PGS", "SPEC", "REG"]
   }
 ]
 ```
 
-Possible status values: `completed`, `partially_completed`, `running`, `failed`, `unknown(error)`.
+`start_time` is the latest stage start. `version` is `null` when the pipeline
+recorded none. Possible status values: `completed`, `partially_completed`,
+`running`, `archiving`, `failed`, `unknown(error)`.
+
+**Paging.** Give any of these and the response becomes one page,
+`{"rows": [...], "matched": 12, "total": 7353, "sort": "started", "dir": "desc"}`:
+
+| Param | Meaning |
+|-------|---------|
+| `search` | Keep pipelines where `dataset_name`, `artifact_uuid`, `pipeline_id`, `proc_types`, `version` or `status` contains it, compared as folded words, so `PHerc6`, `pherc 6` and `PHerc. 6` are the same. A search ending in a space or punctuation must end on a word: `PHerc. 6,` skips PHerc 60. |
+| `sort` | `started` (default), `type`, `version`, `artifact` (natural order on `dataset_name`) or `status`; anything else is a `422` |
+| `dir` | `asc` or `desc`; defaults to newest-first for `started` and `version` (unversioned last), ascending otherwise |
+| `offset`, `limit` | The slice of the sorted matches; no `limit` returns them all |
+
+Ties break on `pipeline_id`, so consecutive pages never repeat or skip a row.
+With no parameters the response is the plain list above, unchanged for
+existing callers.
 
 ### GET /pipelines/{pipeline_id}/stages
 

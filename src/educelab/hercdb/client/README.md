@@ -74,6 +74,7 @@ with `resolve()`, then look up by the canonical name or — better — by UUID.
 | Method | Description |
 |--------|-------------|
 | `get_pipelines()` | Get all pipelines with status summaries. |
+| `get_pipelines_page(search=None, sort="started", direction=None, offset=0, limit=None)` | One page of pipeline summaries, filtered and sorted on the server: `{rows, matched, total, sort, dir}`. |
 | `get_pipeline_stages(pipeline_id)` | Get all process stages for a pipeline. |
 | `initialize_pipeline(pipeline_id, artifact_uuid, datetime)` | Create a new pipeline linked to an EduceLabID. |
 | `initialize_process(pipeline_id, proc_type, input_dataset_paths, output_dataset_path, slurm_id, start_datetime, released=None)` | Create a process (PGS, SPEC, REG, WEB) within a pipeline. `released` sets the output's release flag (omitted, the server default applies); `output_dataset_uuid` records the UUID the pipeline minted for its output. |

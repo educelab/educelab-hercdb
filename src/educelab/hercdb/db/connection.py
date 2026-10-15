@@ -1,4 +1,5 @@
 import logging
+import re
 from collections import OrderedDict, defaultdict
 from datetime import datetime, timezone
 from enum import Enum
@@ -210,6 +211,71 @@ def _as_datetime(value) -> datetime | None:
     if not isinstance(value, datetime):
         return None
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+# Search and sort for get_pipeline_summaries_page, the pipeline UI's rules so
+# moving its paging to the server changes no result. A search folds to
+# lowercase words, split on punctuation and between letters and digits, so
+# "PHerc6", "pherc 6" and "PHerc. 6" all read "pherc 6".
+_SEARCH_WORDS = re.compile(r"[^\W\d_]+|\d+")
+
+
+def _fold(text: str) -> str:
+    return " ".join(_SEARCH_WORDS.findall(text.lower()))
+
+
+def _natural_key(text: str | None) -> list[tuple]:
+    """Sort key under which PHerc2 < PHerc10 and 2.2.0 < 2.10.0."""
+    return [
+        (1, int(chunk), "") if chunk.isdigit() else (0, 0, chunk.lower())
+        for chunk in re.split(r"(\d+)", text or "")
+        if chunk
+    ]
+
+
+_PIPELINE_SEARCH_FIELDS = ('dataset_name', 'artifact_uuid', 'pipeline_id', 'proc_types',
+                           'version', 'status')
+# sort name -> (default direction, key). Ties break on pipeline_id.
+PIPELINE_SORTS = {
+    'started': ('desc', lambda p: p['start_time'] or ''),
+    'type': ('asc', lambda p: ' '.join(p['proc_types'])),
+    # Unversioned pipelines sort below every versioned one when newest-first.
+    'version': ('desc', lambda p: (bool(p['version']), _natural_key(p['version']))),
+    'artifact': ('asc', lambda p: _natural_key(p['dataset_name'])),
+    'status': ('asc', lambda p: p['status'] or ''),
+}
+
+
+def _page_pipeline_summaries(rows: list[dict], search: str | None, sort: str,
+                             direction: str | None, offset: int, limit: int | None) -> dict:
+    """Filter, sort and slice pipeline summaries; see get_pipeline_summaries_page."""
+    if sort not in PIPELINE_SORTS:
+        raise ValueError(f"Unknown sort {sort!r}; expected one of {list(PIPELINE_SORTS)}")
+    if direction not in (None, 'asc', 'desc'):
+        raise ValueError(f"Unknown direction {direction!r}; expected 'asc' or 'desc'")
+    total = len(rows)
+
+    # A search of only punctuation folds to nothing and matches everything. One
+    # ending in a space or punctuation must end on a word, so "PHerc. 6," skips
+    # PHerc. 60.
+    needle = _fold(search or '')
+    if needle:
+        if not search[-1].isalnum():
+            needle += ' '
+
+        def text(row, field):
+            value = row.get(field)
+            return ' '.join(value) if isinstance(value, list) else (value or '')
+        rows = [row for row in rows
+                if any(needle in _fold(text(row, f)) + ' ' for f in _PIPELINE_SEARCH_FIELDS)]
+
+    default_direction, key = PIPELINE_SORTS[sort]
+    direction = direction or default_direction
+    rows = sorted(rows, key=lambda row: (key(row), row['pipeline_id']),
+                  reverse=direction == 'desc')
+    end = None if limit is None else offset + limit
+    return {'rows': rows[offset:end], 'matched': len(rows), 'total': total,
+            'sort': sort, 'dir': direction}
 
 
 class GraphDBConnection:
@@ -1360,6 +1426,38 @@ class GraphDBConnection:
             })
 
         return summaries
+
+    def get_pipeline_summaries_page(self, search: str | None = None, sort: str = 'started',
+                                    direction: str | None = None, offset: int = 0,
+                                    limit: int | None = None) -> dict:
+        """One page of `get_all_pipeline_summaries`, filtered and sorted.
+
+        Backs ``GET /pipelines`` when it is given any paging parameter.
+
+        Args:
+            search: Keep pipelines where any of dataset_name, artifact_uuid,
+                pipeline_id, proc_types, version or status contains it, compared
+                as folded words (case, punctuation and "PHerc6" vs "PHerc 6" are
+                ignored). A search ending in a space or punctuation must end on
+                a word boundary.
+            sort: A key of `PIPELINE_SORTS`: 'started' (latest stage start),
+                'type' (stage types in order), 'version', 'artifact'
+                (dataset_name, in natural order) or 'status'.
+            direction: 'asc' or 'desc'; None takes the sort's default (newest
+                first for 'started' and 'version', ascending otherwise).
+            offset, limit: the slice of the sorted matches; limit None is all.
+
+        Returns:
+            ``{rows, matched, total, sort, dir}``: the page, the number of
+            pipelines that matched, the number there are, and the sort and
+            direction applied. Ties break on pipeline_id, so pages don't repeat
+            or skip rows.
+
+        Raises:
+            ValueError: on an unknown sort or direction.
+        """
+        return _page_pipeline_summaries(self.get_all_pipeline_summaries(),
+                                        search, sort, direction, offset, limit)
 
     @staticmethod
     def _ordered_proc_types(processes: list[dict]) -> list[str]:
