@@ -875,17 +875,16 @@ class PhercGraphDatabaseLoader:
         
             query = """
             MATCH (e:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(pgs:PGSRaw {path: $input_ds_path})
+            MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
+            MERGE (ppline)-[:FOR]->(e)
             MERGE (proc:Process {stage: "PGS",
             start_time: $date_t,
-            slurm_id: $slurm_id,
-            status: "submitted"})
+            slurm_id: $slurm_id})-[:STAGE_OF]->(ppline)
+            ON CREATE SET proc.status = "submitted"
             MERGE (pgs_proc:PGSProcessed {path: $output_ds_path})
             SET pgs_proc.released = coalesce(pgs_proc.released, $released),
                 pgs_proc.uuid = coalesce(pgs_proc.uuid, $output_uuid)
             MERGE (pgs)-[:INPUT]->(proc)-[:OUTPUT]->(pgs_proc)
-            MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
-            MERGE (ppline)-[:FOR]->(e)
-            MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
             """
 
@@ -893,17 +892,16 @@ class PhercGraphDatabaseLoader:
 
             query = """
             MATCH (e:EduceLabID {uuid: $artifact_uuid})-[:BELONGS_TO]-(spectral:SpectralRaw {path: $input_ds_path})
+            MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
+            MERGE (ppline)-[:FOR]->(e)
             MERGE (proc:Process {stage: "SPEC",
             start_time: $date_t,
-            slurm_id: $slurm_id,
-            status: "submitted"})
+            slurm_id: $slurm_id})-[:STAGE_OF]->(ppline)
+            ON CREATE SET proc.status = "submitted"
             MERGE (spec_proc:SpectralProcessed {path: $output_ds_path})
             SET spec_proc.released = coalesce(spec_proc.released, $released),
                 spec_proc.uuid = coalesce(spec_proc.uuid, $output_uuid)
             MERGE (spectral)-[:INPUT]->(proc)-[:OUTPUT]->(spec_proc)
-            MERGE (ppline:Pipeline {pipeline_id: $pipeline_id})
-            MERGE (ppline)-[:FOR]->(e)
-            MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
             """
 
@@ -913,13 +911,12 @@ class PhercGraphDatabaseLoader:
             MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})--(:Process)--(reg:Registered {path: $input_ds_path})
             MERGE (proc:Process {stage: "WEB",
             start_time: $date_t,
-            slurm_id: $slurm_id,
-            status: "submitted"})
+            slurm_id: $slurm_id})-[:STAGE_OF]->(ppline)
+            ON CREATE SET proc.status = "submitted"
             MERGE (web:WebProcessed {path: $output_ds_path})
             SET web.released = coalesce(web.released, $released),
                 web.uuid = coalesce(web.uuid, $output_uuid)
             MERGE (reg)-[:INPUT]->(proc)-[:OUTPUT]->(web)
-            MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
             """
             
@@ -943,18 +940,16 @@ class PhercGraphDatabaseLoader:
         query = """
         MATCH (:EduceLabID {uuid: $artifact_uuid})--(:PGSRaw)--(:Process)--(pg_proc:PGSProcessed {path: $input_pg_path})
         MATCH (:EduceLabID {uuid: $artifact_uuid})--(:SpectralRaw)--(:Process)--(spec_proc:SpectralProcessed {path: $input_spectral_path})
+        MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})
         MERGE (proc:Process {stage: "REG",
         start_time: $date_t,
-        slurm_id: $slurm_id,
-        status: "submitted"})
+        slurm_id: $slurm_id})-[:STAGE_OF]->(ppline)
+        ON CREATE SET proc.status = "submitted"
         MERGE (reg:Registered {path: $registered_img_path})
         SET reg.released = coalesce(reg.released, $released),
             reg.uuid = coalesce(reg.uuid, $output_uuid)
         MERGE (pg_proc)-[:INPUT]->(proc)<-[:INPUT]-(spec_proc)
         MERGE (proc)-[:OUTPUT]->(reg)
-        WITH proc
-        MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})
-        MERGE (proc)-[:STAGE_OF]->(ppline)
         RETURN proc
             """    
             
@@ -976,7 +971,9 @@ class PhercGraphDatabaseLoader:
 
     def update_process_status(self, pipeline_id, stage, property_name, value):
         """
-        Updates a property of a Process node identified by pipeline_id and slurm_id.
+        Updates a property of the pipeline's newest Process (by start_time) of
+        the given stage -- a resubmitted pipeline holds one per attempt, and
+        only the latest should change (#12).
 
         Args:
             pipeline_id: The pipeline ID to identify the process
@@ -990,6 +987,7 @@ class PhercGraphDatabaseLoader:
         if property_name == "status" and value in ("archiving", "completed", "failed"):
             query = f"""
             MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:STAGE_OF]-(proc:Process {{stage: $stage}})
+            WITH proc ORDER BY proc.start_time DESC LIMIT 1
             SET proc.{property_name} = $value, proc.end_time = $end_time
             RETURN proc
             """
@@ -1002,6 +1000,7 @@ class PhercGraphDatabaseLoader:
         else:
             query = f"""
             MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:STAGE_OF]-(proc:Process {{stage: $stage}})
+            WITH proc ORDER BY proc.start_time DESC LIMIT 1
             SET proc.{property_name} = $value
             RETURN proc
             """
