@@ -82,7 +82,11 @@ with open(negatives_file, 'r') as csvfile:
 
 # Wipe existing scan nodes before reload so changed paths / dropped rows can't
 # leave stale or duplicate PGSRaw/SpectralRaw nodes behind (negatives untouched).
+# Reviewers' release decisions live on the scan nodes, so save them before the
+# wipe and put them back after the load.
+saved_release_states = []
 if args.replace:
+    saved_release_states = loader.get_scan_release_states()
     loader.delete_all_scan_nodes()
     print("Deleted existing PGSRaw/SpectralRaw nodes.")
 
@@ -133,6 +137,10 @@ with open(spectral_file, 'r') as csvfile:
             short_files=to_int(row['short files']),
             bad_format_files=to_int(row['bad format files'])
         )
+
+if saved_release_states:
+    loader.restore_scan_release_states(saved_release_states)
+    print(f"Restored release flags on {len(saved_release_states)} scans.")
 
 # Test-run scans are in the ground-truth CSVs with a sample uuid, so the loads
 # above attached them like any other scan. Detach them again, or a --replace

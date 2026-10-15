@@ -5,6 +5,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.9] - 2026-10-08
+
+### Added
+- **An `archiving` Process status**: the stage's output is published on the cluster, and its transfer to the archive is not yet confirmed. `PUT /pipelines/{id}/processes/{proc_type}/status` accepts it alongside `completed` and `failed`, and so does the bulk loader's status update.
+  - The work-list (`find_unprocessed_datasets`) treats an `archiving` Process like a `completed` one, so the scan isn't queued again while its archive is retried.
+  - Nothing else reads it as complete: a processed dataset's `complete` flag and `newest_completed` still require `completed`, so whatever consumes that output waits for the archive.
+  - The `GET /pipelines` summary reads `archiving` when no stage is submitted or failed and at least one is still archiving. An archiving stage counts as done beside a failed one (`partially_completed`).
+- Datasets carry a **release (publish) flag**: a boolean `released` property on every PGSRaw, SpectralRaw, PGSProcessed, SpectralProcessed, Registered and WebProcessed node, plus `released_by` and `released_at` once someone changes it. Flatbed negatives are not published and get no flag.
+- **A server-side default decides what new datasets start as.** `config.release_default()` reads `HERCDB_RELEASE_DEFAULT` or `release_default` in `~/.educedb`, and is `true` when unset, for the first pass over the data. Set it false to make every new dataset wait for review. Pipelines and loaders need no change to pick it up.
+  - `initialize_process(..., released=None)`, `POST /pipelines/{id}/processes` (optional `released`) and `HercClient.initialize_process(..., released=None)` let a caller override it for one output.
+  - `add_pgs_raw_node` / `add_spectral_raw_node` take `released=None` the same way.
+- `PUT /datasets/{dataset_uuid}/released` with `{released, released_by?}` releases or withdraws one dataset, by its own UUID. Backed by `set_dataset_released`; `HercClient.set_dataset_released`. Returns the dataset's `type`, `uuid`, `path`, `released`, `released_by` (the caller's `released_by`, else the token's user) and `released_at`. **403** unless the token's user is listed in `release_writers` (`HERCDB_RELEASE_WRITERS`, comma-separated, or a `release_writers` list in `~/.educedb`); **404** for no such dataset; **409**, with nothing written, when two datasets share the UUID.
+- **Processed datasets get their own `uuid`** (#20), as raw scans already have. `initialize_process(..., output_dataset_uuid=None)`, `POST /pipelines/{id}/processes` (optional `output_dataset_uuid`, validated as a UUID and stored in canonical form) and `HercClient.initialize_process(..., output_dataset_uuid=None)` record the UUID the pipeline minted for its output; the bulk loader's `add_image_processing_node` / `add_registration_processing_node` take it too. An output that already has one keeps it. The dataset reads return it.
+- `preprocessing/migrate_dataset_uuids.py --data-root <dir>` backfills processed datasets from `<data_root>/<path>/metadata.json` (top-level `uuid`, from pipeline metadata only, never one another dataset already has). With `--apply --mint-missing` it mints one where no file gives it. `--apply` also creates a `uuid` index on each dataset label.
+- `proc_types` on each `GET /pipelines` row: the pipeline's stage types in start order (#17).
+- `released_only` on `GET /educelabid/{uuid}/datasets` and `GET /pherc/{id}/all-datasets` (and their DB methods and client calls) keeps only released datasets. It filters before the newest-per-type reduction, so with `newest_completed` it gives the newest *released* dataset.
+- `preprocessing/migrate_release_flag.py` backfills existing datasets: analyze by default, `--apply` sets `released = true` (or `--value false`) where no flag exists yet.
+
+### Changed
+- `scan_loader.py --replace` saves every scan's release flag before wiping PGSRaw/SpectralRaw and restores it after the load (`get_scan_release_states` / `restore_scan_release_states`), so a reload doesn't undo reviewers' decisions. It stops rather than reload if the flags can't be read.
+
+### Fixed
+- `PUT /pipelines/{id}/processes/{proc_type}/status` folds `status` to lowercase and requires `end_datetime` to parse as ISO-8601, storing it in canonical `isoformat()` form and rejecting anything else with a **422** (#18). An unparseable `end_time` made Cypher's `datetime()` throw in the `newest_completed` dataset queries, so a UUID's datasets (raw scans included) came back as a 404 (#11).
+- `find_all_datasets_for_pherc` picks the newest dataset per type by comparing parsed, timezone-aware datetimes rather than strings, so ISO spellings that sort differently as text order chronologically; unparseable values sort oldest instead of raising (#13).
+
+### Backward compatibility
+- Every new field is optional. A pipeline that sends no `released` gets the server default, and one that sends no `output_dataset_uuid` records its output as before (without a UUID until the backfill runs). A client that omits `released_only` sees every dataset, as before.
+- Existing datasets are **not flagged until the migration runs**. Until then they have no `released` property and are excluded by `released_only=true`. Run `migrate_release_flag.py --apply` when deploying.
+- Existing processed datasets **have no `uuid` until `migrate_dataset_uuids.py` runs**, and can't be released or withdrawn until they do.
+- An existing dataset keeps its flag when its node is written again (`coalesce(d.released, $released)`), so only new datasets take the default.
+- Nobody can change flags until `release_writers` is configured.
+
+---
+
 ## [0.3.8] - 2026-09-18
 
 ### Added

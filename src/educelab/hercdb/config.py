@@ -78,3 +78,33 @@ def request_required():
             password = getpass('Enter password: ')
         except GetPassWarning:
             pass
+
+
+def _as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def release_default() -> bool:
+    """Whether a newly created dataset starts out released (published).
+
+    ``HERCDB_RELEASE_DEFAULT`` or ``release_default`` in ~/.educedb; true when
+    unset, for the first pass over the data. Set it false to make every new
+    dataset wait for review.
+    """
+    value = _get_cfg_val('HERCDB_RELEASE_DEFAULT', 'release_default')
+    return True if value is None else _as_bool(value)
+
+
+def release_writers() -> set[str]:
+    """Token users (from ~/.tokens) allowed to change a dataset's release flag.
+
+    ``HERCDB_RELEASE_WRITERS`` (comma-separated) or ``release_writers`` (a list)
+    in ~/.educedb. Empty when unset, so nobody can until it is configured.
+    """
+    value = _get_cfg_val('HERCDB_RELEASE_WRITERS', 'release_writers')
+    if value is None:
+        return set()
+    names = value if isinstance(value, list) else str(value).split(',')
+    return {str(n).strip() for n in names if str(n).strip()}
