@@ -300,6 +300,26 @@ class HercClient:
         """Get all pipelines with their status summaries."""
         return self._get("/pipelines").json()
 
+    def get_pipelines_page(
+        self,
+        search: str = None,
+        sort: str = "started",
+        direction: str = None,
+        offset: int = 0,
+        limit: int = None,
+    ) -> dict:
+        """One page of pipeline summaries, filtered and sorted on the server.
+
+        *sort* is ``started``, ``type``, ``version``, ``artifact`` or
+        ``status``; *direction* (``asc`` / ``desc``) defaults to the sort's own.
+        Returns ``{rows, matched, total, sort, dir}``.
+        """
+        params: dict = {"sort": sort, "offset": offset}
+        for name, value in (("search", search), ("dir", direction), ("limit", limit)):
+            if value is not None:
+                params[name] = value
+        return self._get("/pipelines", params=params).json()
+
     def get_pipeline_stages(self, pipeline_id: str) -> list[dict]:
         """Get all process stages for a given pipeline."""
         return self._get(f"/pipelines/{pipeline_id}/stages").json()

@@ -3,7 +3,7 @@ import re
 import uuid as _uuid
 from datetime import datetime as _datetime
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 from fastapi import FastAPI, HTTPException, Request, Depends, Query, status
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
@@ -450,11 +450,33 @@ async def get_pipeline_stages(pipeline_id: str, user: str = Depends(get_current_
 
 
 @app.get("/pipelines")
-async def get_pipelines(user: str = Depends(get_current_user)):
-    """Get all pipelines with their status summaries."""
-    logger.info(f"User {user} requested all pipelines")
-    result = db.get_all_pipeline_summaries()
-    return JSONResponse(content=result, status_code=200)
+async def get_pipelines(
+    search: Optional[str] = Query(None, description="Folded-word match on artifact name, artifact uuid, "
+                                                    "pipeline id, stage types, version or status"),
+    sort: Optional[Literal["started", "type", "version", "artifact", "status"]] = Query(None),
+    direction: Optional[Literal["asc", "desc"]] = Query(None, alias="dir"),
+    offset: Optional[int] = Query(None, ge=0),
+    limit: Optional[int] = Query(None, ge=1),
+    user: str = Depends(get_current_user),
+):
+    """Get all pipelines with their status summaries, or one page of them.
+
+    With no parameters, returns every pipeline as a list, as before. Given any
+    of ``search``, ``sort``, ``dir``, ``offset`` or ``limit``, returns
+    ``{rows, matched, total, sort, dir}``: the page of matching pipelines, how
+    many matched, how many there are, and the sort applied. ``sort`` defaults
+    to ``started``, ``dir`` to the sort's own default (newest first for
+    ``started`` and ``version``), and a missing ``limit`` returns every match.
+    See ``get_pipeline_summaries_page``.
+    """
+    if all(v is None for v in (search, sort, direction, offset, limit)):
+        logger.info(f"User {user} requested all pipelines")
+        return JSONResponse(content=db.get_all_pipeline_summaries(), status_code=200)
+    logger.info(f"User {user} requested pipelines search={search!r} sort={sort} dir={direction} "
+                f"offset={offset} limit={limit}")
+    page = db.get_pipeline_summaries_page(search=search, sort=sort or "started", direction=direction,
+                                          offset=offset or 0, limit=limit)
+    return JSONResponse(content=page, status_code=200)
 
 
 @app.get("/datasets/spectral/unprocessed")
