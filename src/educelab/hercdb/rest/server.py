@@ -131,6 +131,20 @@ async def get_artifact_by_name(
     return JSONResponse(content=info, status_code=200)
 
 
+@app.get("/pherc")
+async def list_phercs(user: str = Depends(get_current_user)):
+    """List every scroll (PHerc), one summary row each.
+
+    Each row is ``{displayName, literary_work, unrolling_status, metadata,
+    cornici_count, pezzi_count}``, with Author and Language under ``metadata`` as
+    on ``/artifacts``. Drawer placeholders filed as PHercs (``tavoletta``,
+    ``Cassetto``, ``frammenti``) are not scrolls and are left out. Use
+    ``/artifacts?pherc=`` for one scroll's full record.
+    """
+    logger.info(f"User {user} called /pherc")
+    return JSONResponse(content=db.list_phercs(), status_code=200)
+
+
 def _subdivisions(pherc: str) -> JSONResponse:
     result = db.list_cornici_and_pezzi_for_pherc(pherc)
 

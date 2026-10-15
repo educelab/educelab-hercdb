@@ -78,6 +78,7 @@ match `displayName` **exactly** — resolve noisy input with `/resolve` first.
 |--------|------|-------------|
 | GET | `/artifacts?pherc=&cornice=&pezzo=` | Full detail for one artifact by name (properties, metadata, `educelabids`, child counts) |
 | GET | `/artifacts/{uuid}` | Resolve a UUID to its artifact (type, displayName, hierarchy, parent, location) |
+| GET | `/pherc` | List every scroll (PHerc), one summary row each; drawer placeholders left out |
 | GET | `/subdivisions?pherc=` | List all Cornici and Pezzi for a PHerc (each with `aliases` + `educelabids`) |
 | GET | `/all-datasets?pherc=` | All datasets under a PHerc, grouped by artifact (chain-pooled, `belongs_to_uuid`) |
 | GET | `/pherc/{pherc_id}/subdivisions` | Path form of `/subdivisions`, kept for existing clients; 404s on ids containing a slash |
@@ -162,6 +163,32 @@ GET /artifacts/85f7b1ea-e57a-5d98-b481-658d75ac2dcf
 ```
 
 Returns `404` if no artifact is found for the UUID.
+
+### GET /pherc
+
+Lists every scroll (PHerc), one row each, ordered by `displayName`:
+
+```json
+[
+  {
+    "displayName": "0101b",
+    "literary_work": null,
+    "unrolling_status": "Unrolled",
+    "metadata": {
+      "Author": {"name": "Scriptor Graecus incertus"},
+      "Language": {"name": "grc", "url": "http://id.loc.gov/vocabulary/iso639-2/grc"}
+    },
+    "cornici_count": 0,
+    "pezzi_count": 0
+  }
+]
+```
+
+`metadata` holds Author and Language as `/artifacts` gives them; a label is
+absent when the scroll has none. The counts are direct Cornice / Pezzo children,
+as on `/artifacts`. PHerc nodes that are drawer placeholders (`tavoletta`,
+`Cassetto`, `frammenti`) are not scrolls and are left out. For one scroll's full
+record use `/artifacts?pherc=`.
 
 ### GET /subdivisions?pherc=
 

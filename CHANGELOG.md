@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **`GET /pherc` lists every scroll in one call** (#22), one row each with `displayName`, `literary_work`, `unrolling_status`, Author and Language under `metadata` (shaped as on `/artifacts`), and `cornici_count` / `pezzi_count`. Backed by `GraphDBConnection.list_phercs()`; `HercClient.list_phercs()` calls it. The drawer placeholders filed as PHercs (`tavoletta`, `Cassetto`, `frammenti`) are not scrolls and are left out until #23 settles object kinds.
 - **Processed datasets carry their pipeline's `version`** beside `pipeline_id` (#27), on `GET /educelabid/{uuid}/datasets`, `GET /all-datasets` / `/pherc/{id}/all-datasets` and the `find_*datasets*` methods behind them. It is `null` for pipelines that recorded none (those written before 0.3.8). Raw scans don't get the key. A client no longer needs a `GET /pipelines/{id}/confirmation` call per pipeline to show it.
 
 ### Fixed

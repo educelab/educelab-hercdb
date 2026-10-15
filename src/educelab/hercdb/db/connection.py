@@ -420,20 +420,7 @@ class GraphDBConnection:
         result['type'] = node_type
         result['educelabids'] = [u for u in record['educelabids'] if u]
 
-        metadata = {}
-        for meta in record['metas']:
-            if meta is None:
-                continue
-            label = next(iter(meta.labels))
-            props = self._jsonify_props(dict(meta))
-            if label in metadata:
-                if isinstance(metadata[label], list):
-                    metadata[label].append(props)
-                else:
-                    metadata[label] = [metadata[label], props]
-            else:
-                metadata[label] = props
-        result['metadata'] = metadata
+        result['metadata'] = self._group_metadata(record['metas'])
 
         if node_type == "PHerc":
             result['cornici_count'] = record['cornici_count']
@@ -442,6 +429,25 @@ class GraphDBConnection:
             result['pezzi_count'] = record['pezzi_count']
 
         return result
+
+    @classmethod
+    def _group_metadata(cls, metas) -> dict:
+        """Metadata nodes keyed by label: one node's properties as a dict, or a
+        list of them when several nodes share the label."""
+        metadata = {}
+        for meta in metas:
+            if meta is None:
+                continue
+            label = next(iter(meta.labels))
+            props = cls._jsonify_props(dict(meta))
+            if label in metadata:
+                if isinstance(metadata[label], list):
+                    metadata[label].append(props)
+                else:
+                    metadata[label] = [metadata[label], props]
+            else:
+                metadata[label] = props
+        return metadata
 
     @staticmethod
     def _jsonify_props(props: dict) -> dict:
@@ -658,6 +664,51 @@ class GraphDBConnection:
             return []
         return [
             {'display_name': r['display_name'], 'is_casetta': r['is_casetta']}
+            for r in records
+        ]
+
+    # Drawer contents the uuid sheet files in the PHerc column: PHerc nodes that
+    # are not scrolls, so list_phercs leaves them out. A stopgap until artifacts
+    # carry a real object kind (#23); match by exact displayName, never rename.
+    _PHERC_PLACEHOLDERS = ['tavoletta', 'Cassetto', 'frammenti']
+
+    def list_phercs(self) -> list[dict]:
+        """Every scroll, one summary row each. Backs ``GET /pherc``.
+
+        Each row is ``{displayName, literary_work, unrolling_status, metadata,
+        cornici_count, pezzi_count}``. ``metadata`` holds the Author and Language
+        in the shape ``get_artifact_info`` gives them (a label is absent when the
+        scroll has none), and the counts are its direct Cornice / Pezzo children,
+        as ``/artifacts`` counts them. Both counts come from the graph, not the
+        CSV-loaded ``cornici_count`` / ``pezzi_count`` properties on the node.
+
+        The ``_PHERC_PLACEHOLDERS`` drawer nodes are left out; the
+        scan-completeness walk uses ``list_all_pherc_display_names`` instead,
+        because it must cover every node. Ordered by displayName (as text).
+        """
+        records, _, _ = self._run_query("""
+            MATCH (p:PHerc)
+            WHERE NOT p.displayName IN $placeholders
+            RETURN p.displayName AS displayName,
+                   p.literary_work AS literary_work,
+                   p.unrolling_status AS unrolling_status,
+                   [(p)-[:AUTHORED_BY]->(a:Author) | a]
+                     + [(p)-[:HAS_LANGUAGE]->(l:Language) | l] AS metas,
+                   COUNT { (p)-[:HAS]->(:Cornice) } AS cornici_count,
+                   COUNT { (p)-[:HAS]->(:Pezzo) } AS pezzi_count
+            ORDER BY displayName
+            """, placeholders=self._PHERC_PLACEHOLDERS)
+        if not records:
+            return []
+        return [
+            {
+                'displayName': r['displayName'],
+                'literary_work': r['literary_work'],
+                'unrolling_status': r['unrolling_status'],
+                'metadata': self._group_metadata(r['metas']),
+                'cornici_count': r['cornici_count'],
+                'pezzi_count': r['pezzi_count'],
+            }
             for r in records
         ]
 
