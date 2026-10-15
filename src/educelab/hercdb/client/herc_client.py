@@ -128,7 +128,7 @@ class HercClient:
         ``{type, displayName}`` (a nested Pezzo's parent Cornice, or the PHerc
         for a directly-attached node) or ``None`` for the PHerc itself.
         """
-        return self._get(f"/pherc/{pherc_id}/subdivisions").json()
+        return self._get("/subdivisions", params={"pherc": pherc_id}).json()
 
     def get_all_datasets_for_pherc(
         self,
@@ -154,16 +154,14 @@ class HercClient:
                 per type per artifact.
             released_only: If True, return only released datasets.
         """
-        params: dict = {}
+        params: dict = {"pherc": pherc_id}
         if dataset_type is not None:
             params["dataset_type"] = dataset_type
         if newest_completed:
             params["newest_completed"] = "true"
         if released_only:
             params["released_only"] = "true"
-        resp = self._get(
-            f"/pherc/{pherc_id}/all-datasets", params=params, tolerate_404=True,
-        )
+        resp = self._get("/all-datasets", params=params, tolerate_404=True)
         if resp.status_code == 404:
             return {"pherc": pherc_id, "artifacts": []}
         return resp.json()
