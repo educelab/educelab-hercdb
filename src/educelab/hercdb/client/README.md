@@ -59,6 +59,7 @@ with `resolve()`, then look up by the canonical name or — better — by UUID.
 
 | Method | Description |
 |--------|-------------|
+| `list_artifacts()` | Every artifact with an EduceLabID, one row per UUID: identity (as `get_artifact`), `artifacts`, per-type `datasets` counts (`count`, `complete`, `failed`, `released`, `newest_complete_version`), `catalogue` (`author`, `work`, `language`). |
 | `get_artifact_by_name(pherc, cornice=None, pezzo=None)` | Full detail for one artifact (PHerc / Cornice / Pezzo) by exact name: own properties, attached metadata, assigned `educelabids`, child counts. No datasets. |
 | `get_artifact(uuid)` | Resolve a UUID to its artifact (the UUID → artifact bridge): `type`, `displayName`, `pherc`/`cornice`/`pezzo`, `parent`, composed `location`. |
 | `list_phercs()` | Every scroll (PHerc), one row each: `displayName`, `literary_work`, `unrolling_status`, `metadata` (Author, Language), `cornici_count`, `pezzi_count`. Drawer placeholders left out. |

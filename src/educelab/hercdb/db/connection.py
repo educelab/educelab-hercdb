@@ -89,6 +89,43 @@ def _upstream_input_cypher(var: str, label: str, path_param: str) -> str:
             WHERE ({var}_e)-[:REPLACES*0..]-(e)"""
 
 
+# Identity of the artifact `n` that EduceLabID `e` is ASSIGNED_TO: its own
+# labels and name, the PHerc / Cornice / Pezzo names in its hierarchy, its
+# immediate HAS-parent, and the PHerc node (as `pherc`) for scroll-level fields.
+# Rows come out per UUID with PHercs first, then by name, so a UUID assigned to
+# several artifacts always reports the same one first. Read with
+# `GraphDBConnection._artifact_identity`.
+_ARTIFACT_IDENTITY_CYPHER = """
+    OPTIONAL MATCH (n)<-[:HAS]-(parent1)
+    OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
+    WITH e, n, parent1,
+         CASE
+             WHEN 'PHerc' IN labels(n) THEN n
+             WHEN 'PHerc' IN labels(parent1) THEN parent1
+             WHEN 'PHerc' IN labels(parent2) THEN parent2
+         END AS pherc,
+         CASE
+             WHEN 'Cornice' IN labels(n) THEN n
+             WHEN 'Cornice' IN labels(parent1) THEN parent1
+         END AS cornice,
+         CASE
+             WHEN 'Pezzo' IN labels(n) THEN n
+         END AS pezzo
+    RETURN e.uuid AS uuid,
+           labels(n) AS node_labels,
+           n.displayName AS display_name,
+           pherc.displayName AS pherc_name,
+           cornice.displayName AS cornice_name,
+           pezzo.displayName AS pezzo_name,
+           labels(parent1) AS parent_labels,
+           parent1.displayName AS parent_name,
+           pherc
+    ORDER BY uuid,
+             CASE WHEN n:PHerc THEN 0 WHEN n:Cornice THEN 1 ELSE 2 END,
+             pherc_name, cornice_name, pezzo_name
+"""
+
+
 def _dataset_sources_cypher(anchor: str) -> str:
     """Cypher binding every dataset reachable from `anchor`, an EduceLabID.
 
@@ -593,37 +630,23 @@ class GraphDBConnection:
         lighter than ``get_artifact_info`` (no metadata/counts); a caller who
         needs full detail re-queries by name. Returns ``None`` if the UUID is
         not assigned to any artifact.
+
+        A UUID assigned to several artifacts (28 on the graph, by design)
+        reports the first in `_ARTIFACT_IDENTITY_CYPHER`'s order, the same one
+        `list_artifacts` reports it as.
         """
-        records, _, _ = self._run_query("""
-            MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)
-            OPTIONAL MATCH (n)<-[:HAS]-(parent1)
-            OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
-            WITH n, parent1, parent2,
-                 CASE
-                     WHEN 'PHerc' IN labels(n) THEN n
-                     WHEN 'PHerc' IN labels(parent1) THEN parent1
-                     WHEN 'PHerc' IN labels(parent2) THEN parent2
-                 END AS pherc,
-                 CASE
-                     WHEN 'Cornice' IN labels(n) THEN n
-                     WHEN 'Cornice' IN labels(parent1) THEN parent1
-                 END AS cornice,
-                 CASE
-                     WHEN 'Pezzo' IN labels(n) THEN n
-                 END AS pezzo
-            RETURN labels(n) AS node_labels,
-                   n.displayName AS display_name,
-                   pherc.displayName AS pherc_name,
-                   cornice.displayName AS cornice_name,
-                   pezzo.displayName AS pezzo_name,
-                   labels(parent1) AS parent_labels,
-                   parent1.displayName AS parent_name
+        records, _, _ = self._run_query(f"""
+            MATCH (e:EduceLabID {{uuid: $uuid}})-[:ASSIGNED_TO]->(n)
+            {_ARTIFACT_IDENTITY_CYPHER}
+            LIMIT 1
             """, uuid=uuid)
 
         if not records:
             return None
+        return self._artifact_identity(records[0])
 
-        r = records[0]
+    def _artifact_identity(self, r) -> dict:
+        """The identity dict from one `_ARTIFACT_IDENTITY_CYPHER` row."""
         parent = None
         if r['parent_name'] is not None:
             parent = {
@@ -641,6 +664,108 @@ class GraphDBConnection:
             'pezzo': r['pezzo_name'],
             'parent': parent,
         }
+
+    def list_artifacts(self) -> list[dict]:
+        """Every artifact that has an EduceLabID, with dataset counts per type.
+        Backs ``GET /artifacts`` with no parameters.
+
+        One row per assigned UUID, ordered by PHerc / Cornice / Pezzo name:
+        ``uuid``, the identity ``find_artifact_location_by_uuid`` gives (``type``,
+        ``displayName``, ``pherc``, ``cornice``, ``pezzo``, ``parent``) plus its
+        composed ``location``; ``artifacts``, every artifact the UUID is
+        assigned to (one, except for the 28 shared UUIDs, whose identity is the
+        first of these); ``datasets``; and ``catalogue``.
+
+        ``datasets`` maps each dataset type the UUID has to ``{count, complete,
+        failed, released, newest_complete_version}``, pooled across the
+        REPLACES chain as the dataset reads are, one per dataset. ``complete``
+        follows ``newest_completed``: the strict file-count rule for a raw scan,
+        a finished Process for a processed dataset. ``failed`` counts processed
+        datasets whose Process failed. ``released`` counts datasets both
+        released and complete -- what a viewer can see. The version is the
+        pipeline's on the complete processed dataset with the latest end time,
+        and None for raw types or when that pipeline recorded none.
+
+        ``catalogue`` is ``{author, work, language}`` from the artifact's PHerc
+        (names joined with "; " if there are several). Artifacts without an
+        EduceLabID can hold no datasets and are not listed; ``/pherc`` and
+        ``/subdivisions`` cover them.
+        """
+        identity_rows, _, _ = self._run_query(f"""
+            MATCH (e:EduceLabID)-[:ASSIGNED_TO]->(n)
+            {_ARTIFACT_IDENTITY_CYPHER}
+            """)
+        if not identity_rows:
+            return []
+
+        catalogue_rows, _, _ = self._run_query("""
+            MATCH (p:PHerc)
+            RETURN elementId(p) AS id,
+                   p.literary_work AS work,
+                   [(p)-[:AUTHORED_BY]->(a:Author) | a.name] AS authors,
+                   [(p)-[:HAS_LANGUAGE]->(l:Language) | l.name] AS languages
+            """)
+        catalogues = {
+            r['id']: {
+                'author': '; '.join(sorted(r['authors'])) or None,
+                'work': r['work'],
+                'language': '; '.join(sorted(r['languages'])) or None,
+            }
+            for r in catalogue_rows or []
+        }
+
+        count_rows, _, _ = self._run_query(f"""
+            MATCH (e:EduceLabID) WHERE (e)-[:ASSIGNED_TO]->()
+            MATCH (e)-[:REPLACES*0..]->(pred:EduceLabID)
+            {_dataset_sources_cypher('pred')}
+            WITH DISTINCT e, d, date_end, is_complete, pipeline_version, proc_status
+            WITH e.uuid AS uuid, d, date_end, is_complete, pipeline_version, proc_status,
+                 [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
+            RETURN uuid, ds_type,
+                   count(d) AS count,
+                   sum(CASE WHEN is_complete THEN 1 ELSE 0 END) AS complete,
+                   sum(CASE WHEN proc_status = 'failed' THEN 1 ELSE 0 END) AS failed,
+                   sum(CASE WHEN is_complete AND d.released = true THEN 1 ELSE 0 END) AS released,
+                   collect(CASE WHEN is_complete AND ds_type IN $processed
+                                THEN {{date_end: date_end, version: pipeline_version}} END) AS finished
+            """, dataset_labels=_DATASET_LABELS, processed=_PROCESSED_DATASET_LABELS)
+        datasets = defaultdict(dict)
+        for r in count_rows or []:
+            # Compared in Python, not Cypher: processed end times are
+            # client-written strings, and `datetime()` raises on a bad one.
+            newest = None
+            for run in r['finished']:
+                ended = _as_datetime(run['date_end'])
+                if newest is None or _newer(ended, newest[0]):
+                    newest = (ended, run['version'])
+            datasets[r['uuid']][r['ds_type']] = {
+                'count': r['count'],
+                'complete': r['complete'],
+                'failed': r['failed'],
+                'released': r['released'],
+                'newest_complete_version': newest[1] if newest else None,
+            }
+
+        rows = OrderedDict()
+        for r in identity_rows:
+            identity = self._artifact_identity(r)
+            identity['location'] = self._format_dataset_name(identity)
+            row = rows.get(r['uuid'])
+            if row is None:
+                pherc = r['pherc']
+                rows[r['uuid']] = row = {
+                    'uuid': r['uuid'],
+                    **identity,
+                    'artifacts': [],
+                    'datasets': datasets.get(r['uuid'], {}),
+                    'catalogue': (catalogues.get(pherc.element_id) if pherc is not None else None)
+                                 or {'author': None, 'work': None, 'language': None},
+                }
+            row['artifacts'].append(identity)
+
+        def name_key(row):
+            return tuple(row[k] or '' for k in ('pherc', 'cornice', 'pezzo', 'uuid'))
+        return sorted(rows.values(), key=name_key)
 
     def list_all_pherc_display_names(self) -> list[dict]:
         """List every PHerc node, flagging which are also labeled :Casetta.

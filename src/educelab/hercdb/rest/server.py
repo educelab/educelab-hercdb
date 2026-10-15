@@ -102,19 +102,29 @@ async def check_token(user: str = Depends(get_current_user)):
 
 @app.get("/artifacts")
 async def get_artifact_by_name(
-    pherc: str = Query(..., description="PHerc displayName (exact)"),
+    pherc: Optional[str] = Query(None, description="PHerc displayName (exact); omit to list every artifact"),
     cornice: Optional[str] = Query(None, description="Cornice displayName (exact)"),
     pezzo: Optional[str] = Query(None, description="Pezzo displayName (exact)"),
     user: str = Depends(get_current_user),
 ):
-    """Get full detail for one artifact (PHerc / Cornice / Pezzo) by exact name.
+    """List every artifact, or get full detail for one by exact name.
 
-    ``pherc`` is always required; add ``cornice`` and/or ``pezzo`` to address a
+    With no parameters, returns one row per assigned EduceLabID: its identity
+    (the fields ``/artifacts/{uuid}`` gives, plus ``artifacts``, every artifact
+    a shared UUID is assigned to), ``datasets`` counted per type and
+    ``catalogue`` (author, work, language). See ``list_artifacts``.
+
+    Otherwise ``pherc`` is required; add ``cornice`` and/or ``pezzo`` to address a
     subdivision. Names must be exact displayNames — resolve noisy input via
     ``/resolve`` first. Returns the artifact's own properties, attached metadata,
     the ``educelabids`` assigned to it, and child counts. Datasets are not
     included (use ``/all-datasets`` or ``/educelabid/{uuid}/datasets``).
     """
+    if pherc is None:
+        if cornice is not None or pezzo is not None:
+            raise HTTPException(status_code=422, detail="cornice and pezzo need pherc")
+        logger.info(f"User {user} called /artifacts (list)")
+        return JSONResponse(content=db.list_artifacts(), status_code=200)
     logger.info(
         f"User {user} called /artifacts pherc={pherc!r} "
         f"cornice={cornice!r} pezzo={pezzo!r}"
