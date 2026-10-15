@@ -250,6 +250,9 @@ async def get_all_datasets_by_name(
     - newest_completed: If true, return only the newest completed dataset per type per artifact
     - released_only: If true, return only released datasets (with newest_completed,
       the newest released one)
+
+    A PHerc with no (matching) datasets returns ``200`` with ``artifacts: []``;
+    404 means no PHerc has that displayName.
     """
     logger.info(f"User {user} called /all-datasets pherc={pherc!r}")
     return _all_datasets(pherc, dataset_type, newest_completed, released_only)
@@ -290,10 +293,11 @@ def _all_datasets(pherc_id: str, dataset_type: Optional[str],
         released_only=released_only,
     )
 
-    if not artifacts:
+    # An empty result is 200 for a PHerc that exists, 404 only for one that doesn't.
+    if not artifacts and not db.pherc_exists(pherc_id):
         raise HTTPException(
             status_code=404,
-            detail=f"No datasets found under PHerc '{pherc_id}'",
+            detail=f"No PHerc found with displayName '{pherc_id}'",
         )
 
     return JSONResponse(
@@ -337,6 +341,9 @@ async def get_datasets_for_educelabid(
     the raw scans and carry the ``pipeline_id`` and ``status`` of the Process that
     produced them, plus a ``complete`` flag in the same "True"/"False" string
     form raw scans use. ``released_only=true`` keeps only released datasets.
+
+    An EduceLabID with no (matching) datasets returns ``200 []``; 404 means the
+    uuid is not an EduceLabID.
     """
     logger.info(f"User {user} called /educelabid/{uuid}/datasets")
 
@@ -356,10 +363,12 @@ async def get_datasets_for_educelabid(
         released_only=released_only,
     )
 
-    if not datasets:
+    # An empty result is 200 [] for an EduceLabID that exists, 404 only for one
+    # that doesn't.
+    if not datasets and not db.educelabid_exists(uuid):
         raise HTTPException(
             status_code=404,
-            detail=f"No datasets found for EduceLabID '{uuid}'",
+            detail=f"No EduceLabID found with uuid '{uuid}'",
         )
 
     return JSONResponse(content=datasets, status_code=200)

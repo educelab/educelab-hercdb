@@ -243,11 +243,17 @@ GET /all-datasets?pherc=1044&dataset_type=PGSRaw&newest_completed=true
 }
 ```
 
+A PHerc with no datasets (or none matching the filters) returns `200` with
+`"artifacts": []`; `404` means no PHerc has that displayName.
+
 ### GET /educelabid/{uuid}/datasets
 
 Returns all datasets for a specific EduceLabID, pooled across the UUID's
 replacement (REPLACES) chain. Each dataset carries `belongs_to_uuid` so a scan
 sitting on a retired predecessor UUID is visible.
+
+An EduceLabID with no datasets (or none matching the filters) returns `200 []`;
+`404` means the uuid is not an EduceLabID.
 
 **Query parameters:**
 | Parameter | Type | Default | Description |

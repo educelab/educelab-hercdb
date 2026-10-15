@@ -32,7 +32,7 @@ By-name fetches match `displayName` **exactly**. Resolve noisy input with
 | `GET /subdivisions?pherc=` | `get_subdivisions(pherc_id)` | Full Cornici/Pezzi hierarchy. Each node `{displayName, aliases, educelabids, parent}`; `parent` is `{type, displayName}` (or `None` for the PHerc) so a nested Pezzo renders under its Cornice. |
 | `GET /all-datasets?pherc=` | `get_all_datasets_for_pherc(pherc_id, dataset_type=None, newest_completed=False, released_only=False)` | All datasets grouped by active/assigned EduceLabID, pooled across REPLACES chains; each dataset carries `belongs_to_uuid`. |
 | `GET /pherc/{id}/subdivisions`, `GET /pherc/{id}/all-datasets` | — | Path forms of the two above, kept for existing callers. They 404 on PHerc ids containing a slash (`1007/1673`), even URL-encoded; the client uses the query forms. |
-| `GET /educelabid/{uuid}/datasets` | `get_datasets_for_educelabid(uuid, dataset_type=None, newest_completed=False, released_only=False)` | Datasets for one UUID, pooled across its REPLACES chain; each carries `belongs_to_uuid`. |
+| `GET /educelabid/{uuid}/datasets` | `get_datasets_for_educelabid(uuid, dataset_type=None, newest_completed=False, released_only=False)` | Datasets for one UUID, pooled across its REPLACES chain; each carries `belongs_to_uuid`. `200 []` for an EduceLabID with no datasets (likewise `artifacts: []` on `/all-datasets` for such a PHerc); 404 only for an unknown id. |
 | `GET /resolve` | `resolve(name, label="PHerc", parent_pherc=None, parent_cornice=None, threshold=75, limit=10)` | Fuzzy-resolve a noisy displayName to ranked candidates. Empty result is `200 []`, not 404. Invalid `label` → 400. |
 
 `dataset_type` is one of `FlatbedScan`, `PGSRaw`, `SpectralRaw`, `PGSProcessed`,

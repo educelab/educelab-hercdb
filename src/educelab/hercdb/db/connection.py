@@ -545,6 +545,26 @@ class GraphDBConnection:
             self._format_dataset_name(parts),
         )
 
+    def educelabid_exists(self, uuid: str) -> bool:
+        """Whether an EduceLabID node with this ``uuid`` exists, assigned or not.
+
+        Lets the dataset endpoints tell "no datasets" (200 ``[]``) from "no such
+        EduceLabID" (404).
+        """
+        records, _, _ = self._run_query(
+            "MATCH (e:EduceLabID {uuid: $uuid}) RETURN count(e) > 0 AS found",
+            uuid=uuid,
+        )
+        return bool(records) and records[0]["found"]
+
+    def pherc_exists(self, display_name: str) -> bool:
+        """Whether a PHerc node with this exact ``displayName`` exists."""
+        records, _, _ = self._run_query(
+            "MATCH (ph:PHerc {displayName: $name}) RETURN count(ph) > 0 AS found",
+            name=display_name,
+        )
+        return bool(records) and records[0]["found"]
+
     def find_artifact_location_by_uuid(self, uuid: str) -> dict | None:
         """Lightweight UUID -> artifact bridge. Backs ``GET /artifacts/{uuid}``.
 
