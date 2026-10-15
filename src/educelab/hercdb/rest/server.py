@@ -131,8 +131,23 @@ async def get_artifact_by_name(
     return JSONResponse(content=info, status_code=200)
 
 
-@app.get("/pherc/{pherc_id}/subdivisions")
-async def get_subdivisions(pherc_id: str, user: str = Depends(get_current_user)):
+def _subdivisions(pherc: str) -> JSONResponse:
+    result = db.list_cornici_and_pezzi_for_pherc(pherc)
+
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No PHerc found with displayName '{pherc}'",
+        )
+
+    return JSONResponse(content=result, status_code=200)
+
+
+@app.get("/subdivisions")
+async def get_subdivisions_by_name(
+    pherc: str = Query(..., description="PHerc displayName (exact)"),
+    user: str = Depends(get_current_user),
+):
     """List all Cornici and Pezzi for a PHerc.
 
     Each node (the PHerc itself, every Cornice, every Pezzo) is returned as
@@ -140,17 +155,23 @@ async def get_subdivisions(pherc_id: str, user: str = Depends(get_current_user))
     the UUID bridge, and the node's immediate parent (``{type, displayName}``, or
     ``None`` for the PHerc) so a nested Pezzo can be shown under its Cornice. No
     other physical characteristics are included (those live on ``/artifacts``).
+
+    The PHerc is a query parameter, as on ``/artifacts``, so ids containing a
+    slash (``1007/1673``) work; ``/pherc/{pherc_id}/subdivisions`` cannot route them.
+    """
+    logger.info(f"User {user} called /subdivisions pherc={pherc!r}")
+    return _subdivisions(pherc)
+
+
+@app.get("/pherc/{pherc_id}/subdivisions")
+async def get_subdivisions(pherc_id: str, user: str = Depends(get_current_user)):
+    """List all Cornici and Pezzi for a PHerc (path form of ``/subdivisions``).
+
+    Kept for existing clients. It 404s on PHerc ids containing a slash, even
+    URL-encoded, so prefer ``GET /subdivisions?pherc=``.
     """
     logger.info(f"User {user} called /pherc/{pherc_id}/subdivisions")
-    result = db.list_cornici_and_pezzi_for_pherc(pherc_id)
-
-    if result is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No PHerc found with displayName '{pherc_id}'",
-        )
-
-    return JSONResponse(content=result, status_code=200)
+    return _subdivisions(pherc_id)
 
 
 @app.get("/home")
@@ -207,9 +228,9 @@ async def resolve_name(
     return JSONResponse(content=result, status_code=200)
 
 
-@app.get("/pherc/{pherc_id}/all-datasets")
-async def get_all_datasets_for_pherc(
-    pherc_id: str,
+@app.get("/all-datasets")
+async def get_all_datasets_by_name(
+    pherc: str = Query(..., description="PHerc displayName (exact)"),
     dataset_type: Optional[str] = Query(None),
     newest_completed: bool = Query(False),
     released_only: bool = Query(False),
@@ -220,6 +241,9 @@ async def get_all_datasets_for_pherc(
     Traverses the full hierarchy (PHerc, Cornici, Pezzi) and returns all
     datasets nested by physical artifact.
 
+    The PHerc is a query parameter, as on ``/artifacts``, so ids containing a
+    slash (``1007/1673``) work; ``/pherc/{pherc_id}/all-datasets`` cannot route them.
+
     Optional query parameters:
     - dataset_type: One of "FlatbedScan", "PGSRaw", "SpectralRaw",
       "PGSProcessed", "SpectralProcessed", "Registered", "WebProcessed"
@@ -227,8 +251,29 @@ async def get_all_datasets_for_pherc(
     - released_only: If true, return only released datasets (with newest_completed,
       the newest released one)
     """
-    logger.info(f"User {user} called /pherc/{pherc_id}/all-datasets")
+    logger.info(f"User {user} called /all-datasets pherc={pherc!r}")
+    return _all_datasets(pherc, dataset_type, newest_completed, released_only)
 
+
+@app.get("/pherc/{pherc_id}/all-datasets")
+async def get_all_datasets_for_pherc(
+    pherc_id: str,
+    dataset_type: Optional[str] = Query(None),
+    newest_completed: bool = Query(False),
+    released_only: bool = Query(False),
+    user: str = Depends(get_current_user),
+):
+    """Get all datasets under a PHerc (path form of ``/all-datasets``).
+
+    Kept for existing clients. It 404s on PHerc ids containing a slash, even
+    URL-encoded, so prefer ``GET /all-datasets?pherc=``.
+    """
+    logger.info(f"User {user} called /pherc/{pherc_id}/all-datasets")
+    return _all_datasets(pherc_id, dataset_type, newest_completed, released_only)
+
+
+def _all_datasets(pherc_id: str, dataset_type: Optional[str],
+                  newest_completed: bool, released_only: bool) -> JSONResponse:
     ds_type = None
     if dataset_type:
         try:

@@ -5,6 +5,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **PHerc ids containing a slash** (`1007/1673` and six others) 404'd on `/pherc/{id}/subdivisions` and `/pherc/{id}/all-datasets`, URL-encoded or not, because the server decodes `%2F` before routing (#24). New `GET /subdivisions?pherc=` and `GET /all-datasets?pherc=` take the PHerc as a query parameter, as `GET /artifacts?pherc=` does, with the same responses and options. The path forms remain for existing callers.
+- `HercClient.get_subdivisions` and `get_all_datasets_for_pherc` call the new query forms (signatures unchanged), so this client needs a server with them.
+
+---
+
 ## [0.3.9] - 2026-10-08
 
 ### Added

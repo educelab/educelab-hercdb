@@ -78,8 +78,10 @@ match `displayName` **exactly** — resolve noisy input with `/resolve` first.
 |--------|------|-------------|
 | GET | `/artifacts?pherc=&cornice=&pezzo=` | Full detail for one artifact by name (properties, metadata, `educelabids`, child counts) |
 | GET | `/artifacts/{uuid}` | Resolve a UUID to its artifact (type, displayName, hierarchy, parent, location) |
-| GET | `/pherc/{pherc_id}/subdivisions` | List all Cornici and Pezzi for a PHerc (each with `aliases` + `educelabids`) |
-| GET | `/pherc/{pherc_id}/all-datasets` | All datasets under a PHerc, grouped by artifact (chain-pooled, `belongs_to_uuid`) |
+| GET | `/subdivisions?pherc=` | List all Cornici and Pezzi for a PHerc (each with `aliases` + `educelabids`) |
+| GET | `/all-datasets?pherc=` | All datasets under a PHerc, grouped by artifact (chain-pooled, `belongs_to_uuid`) |
+| GET | `/pherc/{pherc_id}/subdivisions` | Path form of `/subdivisions`, kept for existing clients; 404s on ids containing a slash |
+| GET | `/pherc/{pherc_id}/all-datasets` | Path form of `/all-datasets`, kept for existing clients; 404s on ids containing a slash |
 | GET | `/educelabid/{uuid}/datasets` | Datasets for a specific EduceLabID (chain-pooled, `belongs_to_uuid`) |
 | PUT | `/datasets/{dataset_uuid}/released` | Release or withdraw one dataset by its own UUID (`release_writers` only) |
 | GET | `/resolve` | Fuzzy-resolve a noisy displayName to ranked PHerc/Cornice/Pezzo candidates |
@@ -161,15 +163,21 @@ GET /artifacts/85f7b1ea-e57a-5d98-b481-658d75ac2dcf
 
 Returns `404` if no artifact is found for the UUID.
 
-### GET /pherc/{pherc_id}/subdivisions
+### GET /subdivisions?pherc=
 
 Lists all Cornici and Pezzi for a PHerc, including Pezzi nested under Cornici.
 Each node (the PHerc itself, every Cornice, every Pezzo) is returned as
 `{displayName, aliases, educelabids}` — no other physical characteristics.
+`pherc` is required (422 if missing); 404 if no PHerc has that displayName.
+
+The PHerc is a query parameter, as on `/artifacts`, because some ids contain a
+slash (`1007/1673`). The older path form `/pherc/{pherc_id}/subdivisions` still
+works for other ids but 404s on those, even URL-encoded.
 
 **Example:**
 ```
-GET /pherc/238/subdivisions
+GET /subdivisions?pherc=238
+GET /subdivisions?pherc=1007%2F1673
 ```
 
 **Response:**
@@ -185,7 +193,7 @@ GET /pherc/238/subdivisions
 }
 ```
 
-### GET /pherc/{pherc_id}/all-datasets
+### GET /all-datasets?pherc=
 
 Returns all datasets under a PHerc umbrella, grouped by EduceLabID (physical
 artifact). Traverses the full hierarchy: PHerc itself, its Cornici, and all
@@ -193,17 +201,21 @@ Pezzi. Datasets are pooled across each artifact's UUID-replacement (REPLACES)
 chain and grouped by the active/assigned UUID; each dataset carries
 `belongs_to_uuid` (the UUID it actually belongs to).
 
+As with `/subdivisions`, the older path form `/pherc/{pherc_id}/all-datasets`
+takes the same parameters but 404s on PHerc ids containing a slash.
+
 **Query parameters:**
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
+| `pherc` | string | required | PHerc displayName (exact) |
 | `dataset_type` | string | - | Filter by type: `FlatbedScan`, `PGSRaw`, or `SpectralRaw` |
 | `newest_completed` | bool | false | Return only the newest completed dataset per type per artifact |
 | `released_only` | bool | false | Return only released datasets (with `newest_completed`, the newest released one) |
 
 **Example:**
 ```
-GET /pherc/1044/all-datasets
-GET /pherc/1044/all-datasets?dataset_type=PGSRaw&newest_completed=true
+GET /all-datasets?pherc=1044
+GET /all-datasets?pherc=1044&dataset_type=PGSRaw&newest_completed=true
 ```
 
 **Response:**
