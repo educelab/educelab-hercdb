@@ -93,8 +93,8 @@ def _dataset_sources_cypher(anchor: str) -> str:
     """Cypher binding every dataset reachable from `anchor`, an EduceLabID.
 
     Raw and processed datasets sit on different edges, so this unions the two
-    and projects a uniform shape: `d`, `date_end`, `is_complete`, `pipeline_id`
-    and `proc_status`. A processed node carries no completeness flag or timing
+    and projects a uniform shape: `d`, `date_end`, `is_complete`, `pipeline_id`,
+    `pipeline_version` and `proc_status`. A processed node carries no completeness flag or timing
     of its own, so both are read off the Process that produced it -- "complete"
     there means the stage finished, the analogue of a raw scan's file checks.
 
@@ -116,6 +116,7 @@ def _dataset_sources_cypher(anchor: str) -> str:
                    d.date_end AS date_end,
                    ({_FULLY_COMPLETE_PREDICATE}) AS is_complete,
                    null AS pipeline_id,
+                   null AS pipeline_version,
                    null AS proc_status
         UNION
             MATCH ({anchor})<-[:FOR]-(ppline:Pipeline)<-[:STAGE_OF]-(proc:Process)-[:OUTPUT]->(d)
@@ -126,6 +127,7 @@ def _dataset_sources_cypher(anchor: str) -> str:
                    newest.proc.end_time AS date_end,
                    (newest.proc.status = "completed") AS is_complete,
                    newest.ppline.pipeline_id AS pipeline_id,
+                   newest.ppline.version AS pipeline_version,
                    newest.proc.status AS proc_status
         }}
     """
@@ -264,8 +266,10 @@ class GraphDBConnection:
         """Convert a Neo4j dataset record to a JSON-safe dict.
 
         A processed dataset node holds only its `path`, so the `date_end`,
-        `status` and `complete` it is reported with, plus the `pipeline_id` that
-        produced it, come from the Process rather than the node itself. It gets
+        `status` and `complete` it is reported with, plus the `pipeline_id` and
+        `version` of the pipeline that produced it, come from the Process and
+        Pipeline rather than the node itself (`version` is None where the
+        Pipeline recorded none, as before 0.3.8). It gets
         `complete` as the same "True"/"False" string `normalize_complete` writes
         on raw scans, so a consumer can gate on one field across both kinds
         without knowing which branch a row came from.
@@ -282,6 +286,7 @@ class GraphDBConnection:
         ds['type'] = record['ds_type']
         if record['ds_type'] in _PROCESSED_DATASET_LABELS:
             ds['pipeline_id'] = record['pipeline_id']
+            ds['version'] = record['pipeline_version']
             ds['status'] = record['proc_status']
             ds['date_end'] = record['date_end']
             ds['complete'] = str(record['proc_status'] == 'completed')
@@ -1338,18 +1343,19 @@ class GraphDBConnection:
         where_clause = self._dataset_filter_cypher(ds_type, newest_completed, released_only)
 
         grouping = """
-            WITH d, ds_type, pipeline_id, proc_status, date_end
+            WITH d, ds_type, pipeline_id, pipeline_version, proc_status, date_end
             ORDER BY datetime(date_end) DESC
-            WITH ds_type, collect({d: d, pipeline_id: pipeline_id,
+            WITH ds_type, collect({d: d, pipeline_id: pipeline_id, pipeline_version: pipeline_version,
                                    proc_status: proc_status, date_end: date_end})[0] AS top
             RETURN top.d AS d, ds_type, top.pipeline_id AS pipeline_id,
+                   top.pipeline_version AS pipeline_version,
                    top.proc_status AS proc_status, top.date_end AS date_end
-        """ if newest_completed else "RETURN d, ds_type, pipeline_id, proc_status, date_end"
+        """ if newest_completed else "RETURN d, ds_type, pipeline_id, pipeline_version, proc_status, date_end"
 
         query = f"""
             MATCH (e:EduceLabID {{uuid: $uuid}})
             {_dataset_sources_cypher('e')}
-            WITH d, date_end, is_complete, pipeline_id, proc_status,
+            WITH d, date_end, is_complete, pipeline_id, pipeline_version, proc_status,
                  [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
             {where_clause}
             {grouping}
@@ -1382,26 +1388,27 @@ class GraphDBConnection:
         Processed datasets (PGSProcessed, SpectralProcessed, Registered,
         WebProcessed) are included too, reached through the Pipeline that ran
         FOR the UUID; each carries the
-        ``pipeline_id`` and ``status`` of the Process that produced it.
+        ``pipeline_id``, ``version`` and ``status`` of the Process that produced it.
         """
         where_clause = self._dataset_filter_cypher(ds_type, newest_completed, released_only)
 
         grouping = """
-            WITH d, ds_type, belongs_to_uuid, pipeline_id, proc_status, date_end
+            WITH d, ds_type, belongs_to_uuid, pipeline_id, pipeline_version, proc_status, date_end
             ORDER BY datetime(date_end) DESC
             WITH ds_type, collect({d: d, belongs_to_uuid: belongs_to_uuid, pipeline_id: pipeline_id,
+                                   pipeline_version: pipeline_version,
                                    proc_status: proc_status, date_end: date_end})[0] AS top
             RETURN top.d AS d, ds_type, top.belongs_to_uuid AS belongs_to_uuid,
-                   top.pipeline_id AS pipeline_id, top.proc_status AS proc_status,
-                   top.date_end AS date_end
+                   top.pipeline_id AS pipeline_id, top.pipeline_version AS pipeline_version,
+                   top.proc_status AS proc_status, top.date_end AS date_end
         """ if newest_completed else """
-            RETURN d, ds_type, belongs_to_uuid, pipeline_id, proc_status, date_end
+            RETURN d, ds_type, belongs_to_uuid, pipeline_id, pipeline_version, proc_status, date_end
         """
 
         query = f"""
             MATCH (e:EduceLabID {{uuid: $uuid}})-[:REPLACES*0..]->(predecessor:EduceLabID)
             {_dataset_sources_cypher('predecessor')}
-            WITH DISTINCT d, date_end, is_complete, pipeline_id, proc_status,
+            WITH DISTINCT d, date_end, is_complete, pipeline_id, pipeline_version, proc_status,
                  predecessor.uuid AS belongs_to_uuid,
                  [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type
             {where_clause}
@@ -1456,11 +1463,11 @@ class GraphDBConnection:
             MATCH (eid:EduceLabID)-[:ASSIGNED_TO]->(artifact)
             MATCH (eid)-[:REPLACES*0..]->(pred:EduceLabID)
             {_dataset_sources_cypher('pred')}
-            WITH eid, pred, d, artifact, date_end, is_complete, pipeline_id, proc_status
+            WITH eid, pred, d, artifact, date_end, is_complete, pipeline_id, pipeline_version, proc_status
             {where_clause}
             OPTIONAL MATCH (artifact)<-[:HAS]-(parent1)
             OPTIONAL MATCH (parent1)<-[:HAS]-(parent2)
-            WITH eid, pred, d, artifact, parent1, parent2, date_end, pipeline_id, proc_status,
+            WITH eid, pred, d, artifact, parent1, parent2, date_end, pipeline_id, pipeline_version, proc_status,
                  [l IN labels(d) WHERE l IN $dataset_labels][0] AS ds_type,
                  CASE
                      WHEN 'PHerc' IN labels(artifact) THEN artifact
@@ -1483,6 +1490,7 @@ class GraphDBConnection:
                    pred.uuid AS belongs_to_uuid,
                    date_end AS date_end,
                    pipeline_id AS pipeline_id,
+                   pipeline_version AS pipeline_version,
                    proc_status AS proc_status
             ORDER BY pherc_name, cornice_name, pezzo_name
         """
@@ -1525,6 +1533,7 @@ class GraphDBConnection:
                 'd': record['dataset'],
                 'ds_type': record['dataset_type'],
                 'pipeline_id': record['pipeline_id'],
+                'pipeline_version': record['pipeline_version'],
                 'proc_status': record['proc_status'],
                 'date_end': record['date_end'],
             })

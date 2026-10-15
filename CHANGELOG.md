@@ -7,6 +7,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Processed datasets carry their pipeline's `version`** beside `pipeline_id` (#27), on `GET /educelabid/{uuid}/datasets`, `GET /all-datasets` / `/pherc/{id}/all-datasets` and the `find_*datasets*` methods behind them. It is `null` for pipelines that recorded none (those written before 0.3.8). Raw scans don't get the key. A client no longer needs a `GET /pipelines/{id}/confirmation` call per pipeline to show it.
+
 ### Fixed
 - **PHerc ids containing a slash** (`1007/1673` and six others) 404'd on `/pherc/{id}/subdivisions` and `/pherc/{id}/all-datasets`, URL-encoded or not, because the server decodes `%2F` before routing (#24). New `GET /subdivisions?pherc=` and `GET /all-datasets?pherc=` take the PHerc as a query parameter, as `GET /artifacts?pherc=` does, with the same responses and options. The path forms remain for existing callers.
 - `HercClient.get_subdivisions` and `get_all_datasets_for_pherc` call the new query forms (signatures unchanged), so this client needs a server with them.
