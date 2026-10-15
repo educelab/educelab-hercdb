@@ -98,6 +98,12 @@ def _dataset_sources_cypher(anchor: str) -> str:
     of its own, so both are read off the Process that produced it -- "complete"
     there means the stage finished, the analogue of a raw scan's file checks.
 
+    A processed dataset yields one row, from its newest Process (by
+    ``start_time``), even if several Processes OUTPUT to it -- otherwise the
+    rows differ in status and the UNION can't fold them, so one path comes
+    back twice with conflicting ``complete`` (#12). Raw scans are one node per
+    scan ``uuid`` and need no such step.
+
     Uses the scoped `CALL (anchor) {{ ... }}` variable-scope clause, which needs
     Neo4j 5.23 or newer (production runs 5.26). The older importing-`WITH` form
     still parses there but logs a deprecation notification on every call.
@@ -114,11 +120,13 @@ def _dataset_sources_cypher(anchor: str) -> str:
         UNION
             MATCH ({anchor})<-[:FOR]-(ppline:Pipeline)<-[:STAGE_OF]-(proc:Process)-[:OUTPUT]->(d)
             WHERE {_any_label(_PROCESSED_DATASET_LABELS)}
+            WITH d, ppline, proc ORDER BY proc.start_time DESC
+            WITH d, collect({{ppline: ppline, proc: proc}})[0] AS newest
             RETURN d,
-                   proc.end_time AS date_end,
-                   (proc.status = "completed") AS is_complete,
-                   ppline.pipeline_id AS pipeline_id,
-                   proc.status AS proc_status
+                   newest.proc.end_time AS date_end,
+                   (newest.proc.status = "completed") AS is_complete,
+                   newest.ppline.pipeline_id AS pipeline_id,
+                   newest.proc.status AS proc_status
         }}
     """
 
@@ -1847,6 +1855,12 @@ class GraphDBConnection:
         instead still finds them, while keeping a mistyped path from wiring in
         another artifact's data (see ``_upstream_input_cypher``).
 
+        Recording the same submission again is a no-op: the Process is MERGEd on
+        ``(stage, start_time, slurm_id)`` *under this Pipeline*, and only a new
+        Process starts at ``submitted``. Status is deliberately not part of the
+        key, or re-recording after a status update would add a second Process
+        (#12).
+
         Args:
             pipeline_id: Pipeline to attach the process to.
             proc_type: One of PGS, SPEC, REG, WEB.
@@ -1880,12 +1894,12 @@ class GraphDBConnection:
             query = """
             MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})-[:FOR]->(e:EduceLabID)
             MATCH (e)-[:REPLACES*0..]->(:EduceLabID)<-[:BELONGS_TO]-(input:PGSRaw {path: $input_path})
-            MERGE (proc:Process {stage: "PGS", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
+            MERGE (proc:Process {stage: "PGS", start_time: $start_datetime, slurm_id: $slurm_id})-[:STAGE_OF]->(ppline)
+            ON CREATE SET proc.status = "submitted"
             MERGE (output:PGSProcessed {path: $output_path})
             SET output.released = coalesce(output.released, $released),
                 output.uuid = coalesce(output.uuid, $output_uuid)
             MERGE (input)-[:INPUT]->(proc)-[:OUTPUT]->(output)
-            MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
             """
             base_params["input_path"] = input_dataset_paths[0]
@@ -1894,12 +1908,12 @@ class GraphDBConnection:
             query = """
             MATCH (ppline:Pipeline {pipeline_id: $pipeline_id})-[:FOR]->(e:EduceLabID)
             MATCH (e)-[:REPLACES*0..]->(:EduceLabID)<-[:BELONGS_TO]-(input:SpectralRaw {path: $input_path})
-            MERGE (proc:Process {stage: "SPEC", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"})
+            MERGE (proc:Process {stage: "SPEC", start_time: $start_datetime, slurm_id: $slurm_id})-[:STAGE_OF]->(ppline)
+            ON CREATE SET proc.status = "submitted"
             MERGE (output:SpectralProcessed {path: $output_path})
             SET output.released = coalesce(output.released, $released),
                 output.uuid = coalesce(output.uuid, $output_uuid)
             MERGE (input)-[:INPUT]->(proc)-[:OUTPUT]->(output)
-            MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
             """
             base_params["input_path"] = input_dataset_paths[0]
@@ -1909,13 +1923,13 @@ class GraphDBConnection:
             MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:FOR]->(e:EduceLabID)
             {_upstream_input_cypher("pg_proc", "PGSProcessed", "input_pgs_path")}
             {_upstream_input_cypher("spec_proc", "SpectralProcessed", "input_spec_path")}
-            MERGE (proc:Process {{stage: "REG", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"}})
+            MERGE (proc:Process {{stage: "REG", start_time: $start_datetime, slurm_id: $slurm_id}})-[:STAGE_OF]->(ppline)
+            ON CREATE SET proc.status = "submitted"
             MERGE (reg:Registered {{path: $output_path}})
             SET reg.released = coalesce(reg.released, $released),
                 reg.uuid = coalesce(reg.uuid, $output_uuid)
             MERGE (pg_proc)-[:INPUT]->(proc)<-[:INPUT]-(spec_proc)
             MERGE (proc)-[:OUTPUT]->(reg)
-            MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
             """
             base_params["input_pgs_path"] = input_dataset_paths[0]
@@ -1925,12 +1939,12 @@ class GraphDBConnection:
             query = f"""
             MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})-[:FOR]->(e:EduceLabID)
             {_upstream_input_cypher("reg_in", "Registered", "input_path")}
-            MERGE (proc:Process {{stage: "WEB", start_time: $start_datetime, slurm_id: $slurm_id, status: "submitted"}})
+            MERGE (proc:Process {{stage: "WEB", start_time: $start_datetime, slurm_id: $slurm_id}})-[:STAGE_OF]->(ppline)
+            ON CREATE SET proc.status = "submitted"
             MERGE (web:WebProcessed {{path: $output_path}})
             SET web.released = coalesce(web.released, $released),
                 web.uuid = coalesce(web.uuid, $output_uuid)
             MERGE (reg_in)-[:INPUT]->(proc)-[:OUTPUT]->(web)
-            MERGE (proc)-[:STAGE_OF]->(ppline)
             RETURN proc
             """
             base_params["input_path"] = input_dataset_paths[0]
@@ -1955,6 +1969,11 @@ class GraphDBConnection:
                               end_datetime: str, notes: str = None) -> dict | None:
         """Update the status, end_time and optionally the notes of a process.
 
+        Only the pipeline's *newest* Process of that stage (by ``start_time``)
+        is updated. A pipeline resubmitted under the same ``pipeline_id`` holds
+        one Process per attempt, and the job reporting is the latest one --
+        updating them all overwrote earlier attempts' outcomes (#12).
+
         Args:
             pipeline_id: The pipeline ID.
             stage: The process stage (PGS, SPEC, REG, WEB).
@@ -1974,6 +1993,7 @@ class GraphDBConnection:
 
         records, _, _ = self._run_query(f"""
             MATCH (ppline:Pipeline {{pipeline_id: $pipeline_id}})<-[:STAGE_OF]-(proc:Process {{stage: $stage}})
+            WITH proc ORDER BY proc.start_time DESC LIMIT 1
             {set_clause}
             RETURN proc
             """, pipeline_id=pipeline_id, stage=stage, status=status,
