@@ -76,6 +76,7 @@ match `displayName` **exactly** — resolve noisy input with `/resolve` first.
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/artifacts` | List every artifact with an EduceLabID, one row per UUID, with per-type dataset counts and catalogue fields |
 | GET | `/artifacts?pherc=&cornice=&pezzo=` | Full detail for one artifact by name (properties, metadata, `educelabids`, child counts) |
 | GET | `/artifacts/{uuid}` | Resolve a UUID to its artifact (type, displayName, hierarchy, parent, location) |
 | GET | `/pherc` | List every scroll (PHerc), one summary row each; drawer placeholders left out |
@@ -136,7 +137,47 @@ GET /artifacts?pherc=1044&cornice=6
 }
 ```
 
-Returns `404` if no matching artifact exists; `422` if `pherc` is omitted.
+Returns `404` if no matching artifact exists; `422` if `cornice` or `pezzo` is
+given without `pherc`. With no parameters at all, the list below is returned.
+
+### GET /artifacts (list)
+
+With no parameters, lists every artifact that has an EduceLabID, one row per
+UUID, ordered by PHerc / Cornice / Pezzo name:
+
+```json
+{
+  "uuid": "338f86f5-f8cc-5606-8c99-a48541b6801d",
+  "type": "Cornice", "displayName": "1",
+  "pherc": "2", "cornice": "1", "pezzo": null,
+  "parent": {"type": "PHerc", "displayName": "2"},
+  "location": "PHerc2 Cornice 1",
+  "artifacts": [{"type": "Cornice", "displayName": "1", "pherc": "2", "cornice": "1",
+                 "pezzo": null, "parent": {"type": "PHerc", "displayName": "2"},
+                 "location": "PHerc2 Cornice 1"}],
+  "datasets": {
+    "PGSRaw": {"count": 1, "complete": 1, "failed": 0, "released": 1, "newest_complete_version": null},
+    "WebProcessed": {"count": 2, "complete": 1, "failed": 0, "released": 1, "newest_complete_version": "2.2.0"}
+  },
+  "catalogue": {"author": "Scriptor Graecus incertus", "work": null, "language": "grc"}
+}
+```
+
+- **Identity** is what `/artifacts/{uuid}` returns. `artifacts` lists every
+  artifact the UUID is assigned to; that is one, except for the few UUIDs shared
+  by several artifacts, whose identity is the first entry (PHercs first, then by
+  name; `/artifacts/{uuid}` picks the same one).
+- **`datasets`** is keyed by dataset type, with absent types omitted, pooled
+  across the REPLACES chain like the dataset reads. `complete` uses the
+  `newest_completed` rule (strict file counts for raw scans, a finished Process
+  for processed data); `failed` counts processed datasets whose Process failed;
+  `released` counts datasets that are released *and* complete; and
+  `newest_complete_version` is the pipeline version of the complete processed
+  dataset with the latest end time (`null` for raw types or when unrecorded).
+- **`catalogue`** holds the PHerc's Author, `literary_work` and Language.
+
+Artifacts with no EduceLabID can't hold datasets and aren't listed; use
+`/pherc` or `/subdivisions` for them.
 
 ### GET /artifacts/{uuid} (by UUID)
 

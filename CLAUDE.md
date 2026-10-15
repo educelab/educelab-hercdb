@@ -127,7 +127,7 @@ educelab-hercdb/
 **src/educelab/hercdb/rest/server.py**: FastAPI REST API
 - Token-based authentication using `~/.tokens` file
 - App-wide exception handler maps `DatabaseUnavailableError` (Neo4j unreachable) to **HTTP 503** with a `Retry-After: 60` header, so clients can retry over a brief DB outage (e.g. the nightly offline backup) rather than misreading it as a 404. Writes are idempotent (`MERGE`), so retries are safe.
-- One `/artifacts` resource for PHerc/Cornice/Pezzo artifacts — by name (`?pherc=&cornice=&pezzo=`, full detail) or by UUID (`/{uuid}`, location bridge); plus `/subdivisions`, `/all-datasets`, `/educelabid/{uuid}/datasets`, `/resolve`
+- One `/artifacts` resource for PHerc/Cornice/Pezzo artifacts — by name (`?pherc=&cornice=&pezzo=`, full detail), by UUID (`/{uuid}`, location bridge), or all at once (no params, per-type dataset counts); plus `/subdivisions`, `/all-datasets`, `/educelabid/{uuid}/datasets`, `/resolve`
 - `/resolve` endpoint fuzzy-resolves a noisy displayName to ranked candidates (the only fuzzy entry point; fetch endpoints match `displayName` exactly)
 
 **src/educelab/hercdb/loader/graph_loader.py**: Database loading utilities
@@ -215,7 +215,8 @@ The `GraphDBConnection` class provides two patterns for queries:
 
 4. **UUID lookups**:
    - `find_artifact_name_by_uuid(uuid)` - returns dict with `pherc`, `cornice`, `pezzo` display names for a UUID (used internally by pipeline summaries).
-   - `find_artifact_location_by_uuid(uuid)` - the UUID → artifact bridge: `{type, displayName, pherc, cornice, pezzo, parent}`. Backs `GET /artifacts/{uuid}` (the handler adds `uuid` + a composed `location`).
+   - `find_artifact_location_by_uuid(uuid)` - the UUID → artifact bridge: `{type, displayName, pherc, cornice, pezzo, parent}`. Backs `GET /artifacts/{uuid}` (the handler adds `uuid` + a composed `location`). Built from the shared `_ARTIFACT_IDENTITY_CYPHER` fragment + `_artifact_identity`, whose order (PHerc first, then by name) decides which artifact a shared UUID reports.
+   - `list_artifacts()` - every assigned EduceLabID, one row per UUID: the identity above + `location`, `artifacts` (every artifact the UUID is assigned to — more than one for the 28 shared UUIDs), `datasets` (per type `{count, complete, failed, released, newest_complete_version}`, chain-pooled through `_dataset_sources_cypher`; `complete` is the `newest_completed` rule, `released` means released **and** complete, the version is picked in Python with `_as_datetime` because `datetime()` raises on a bad client-written end time), and `catalogue` (`{author, work, language}` from the PHerc). Three queries, ~2 s / 3.5 MB on dev. Backs `GET /artifacts` with no params (#21).
 
 5. **Pipeline queries**:
    - `find_pipelines()` - returns list of all pipelines with their `pipeline_id`, `artifact_uuid` and `version`
@@ -248,7 +249,8 @@ A **PHerc / Cornice / Pezzo is an "artifact"**, addressed on one `/artifacts` re
 
 - `GET /check-token` - Verify token validity
 - `GET /home` - Welcome message
-- `GET /artifacts?pherc=&cornice=&pezzo=` - Full detail for one artifact by exact name (own props, metadata, assigned `educelabids`, child counts; no datasets). `pherc` required; missing → 422, not found → 404. Backed by `get_artifact_info`.
+- `GET /artifacts` (no params) - Every artifact with an EduceLabID, one row per UUID, with per-type dataset counts and catalogue fields. Backed by `list_artifacts`.
+- `GET /artifacts?pherc=&cornice=&pezzo=` - Full detail for one artifact by exact name (own props, metadata, assigned `educelabids`, child counts; no datasets). `cornice`/`pezzo` without `pherc` → 422, not found → 404. Backed by `get_artifact_info`.
 - `GET /artifacts/{uuid}` - Resolve a UUID to its artifact: `{uuid, type, displayName, pherc, cornice, pezzo, parent, location}`. Backed by `find_artifact_location_by_uuid`.
 - `GET /pherc` - List every scroll, one summary row each (see `list_phercs`); drawer placeholders are left out. `200 []` if none.
 - `GET /subdivisions?pherc=` - List all Cornici and Pezzi (full hierarchy); each node is `{displayName, aliases, educelabids, parent}` (`parent` = `{type, displayName}`, or `None` for the PHerc — a nested Pezzo carries its parent Cornice).

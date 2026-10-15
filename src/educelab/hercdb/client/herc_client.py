@@ -99,6 +99,17 @@ class HercClient:
         """Call the welcome endpoint."""
         return self._get("/home").json()
 
+    def list_artifacts(self) -> list[dict]:
+        """List every artifact that has an EduceLabID, one row per UUID.
+
+        Each row has the identity :meth:`get_artifact` gives plus
+        ``artifacts`` (every artifact the UUID is assigned to), ``datasets``
+        (per type: ``count``, ``complete``, ``failed``, ``released``,
+        ``newest_complete_version``) and ``catalogue`` (``author``, ``work``,
+        ``language``).
+        """
+        return self._get("/artifacts").json()
+
     def get_artifact_by_name(
         self,
         pherc: str,
