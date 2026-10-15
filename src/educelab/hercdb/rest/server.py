@@ -339,7 +339,7 @@ async def get_datasets_for_educelabid(
     sitting on a retired predecessor UUID are visible. Pipeline outputs
     (PGSProcessed/SpectralProcessed/Registered/WebProcessed) are included alongside
     the raw scans and carry the ``pipeline_id`` and ``status`` of the Process that
-    produced them, plus a ``complete`` flag in the same "True"/"False" string
+    produced them, the pipeline's ``version`` (null where unrecorded), plus a ``complete`` flag in the same "True"/"False" string
     form raw scans use. ``released_only=true`` keeps only released datasets.
 
     An EduceLabID with no (matching) datasets returns ``200 []``; 404 means the

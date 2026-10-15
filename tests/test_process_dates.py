@@ -79,7 +79,7 @@ def _processed_row(path, end_time, uuid='u1'):
         'uuid': uuid, 'pherc_name': '1', 'cornice_name': None, 'pezzo_name': None,
         'dataset': {'path': path}, 'dataset_type': 'PGSProcessed',
         'belongs_to_uuid': uuid, 'date_end': end_time,
-        'pipeline_id': f'p-{path}', 'proc_status': 'completed',
+        'pipeline_id': f'p-{path}', 'pipeline_version': None, 'proc_status': 'completed',
     }
 
 
