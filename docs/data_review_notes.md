@@ -345,6 +345,13 @@ column (col 1), creating spurious non-numeric values.
 - **Derived data:** `el-hercdb-exclude-test-scans` (`report` → `detach` → `purge`) lists every processed dataset downstream of these scans, for deletion from storage, then removes those nodes and their Processes. A REG with one test-scan input is deleted even though its other input is clean. `report` writes `needs_reprocessing.csv` with the clean outputs that lose their registration this way, and they must be re-registered by hand. On the dev copy of 2026-10-02: 17 processed datasets (11 SPEC, 1 PGS, 3 REG, 2 WEB) and 3 PGS outputs needing re-registration.
 - **Question:** is the list complete? It was built from path patterns, so a test run with a normal-looking path would not be on it.
 
+## Section 10 — Failed processed outputs with no `uuid` (2026-10)
+
+When the 0.3.9 `migrate_dataset_uuids.py` ran on 2026-10-21 (see `docs/deploy_log.md`), 433 processed dataset nodes got no `uuid`: PGSProcessed 194, Registered 167, WebProcessed 69, SpectralProcessed 3. All of them are outputs whose newest Process `failed`. Their output was never archived, so no `metadata.json` exists to read the UUID from.
+
+- **Effect:** these nodes can't be released or withdrawn through `PUT /datasets/{uuid}/released`. Dataset reads still return them, marked not complete, so nothing downstream treats them as data.
+- **Question:** delete these nodes (and their failed Processes), or mint UUIDs for them with `--mint-missing`? Minting gives a UUID to a dataset that doesn't exist in storage.
+
 ## Maintenance
 
 Add a new entry whenever a CSV anomaly is found that the loaders pass through faithfully but that a domain expert should verify. When a question is resolved, replace the “Question” line with the resolution and date so the file remains a record of decisions.
