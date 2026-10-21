@@ -54,7 +54,7 @@ After `uv sync --extra server`, the package exposes shell entry points (see `[pr
 
 ### Deploying the REST API Server (Production)
 
-For full server setup (Neo4j credentials, API tokens, systemd service), see `docs/SERVER_SETUP.md`. `docs/deploy_log.md` records, with dates, what was run against which database (migrations, data fixes) and the server deploys. Add an entry whenever you write to production. For a visual overview, see `docs/hercdb_setup_quickstart.svg`. For the nightly Neo4j backup (offline dump → cold-spare VM, restore/DR, cron schedule), see `docs/BACKUP.md` and `scripts/neo4j_backup.sh`.
+For full server setup (Neo4j credentials, API tokens, systemd service), see `docs/SERVER_SETUP.md`. The production server runs one exact PyPI release from its own venv (`~/hercdb-server`), not a git checkout. `scripts/deploy_server.sh X.Y.Z` installs that version, restarts `hercdb.service` and checks that `/openapi.json` reports it, and the same command with the previous version rolls back. Deploy the server the same day a tag publishes: acquisition-workflow installs the client from PyPI with a range (`>=0.3.9,<0.4`), so a new client reaches the cluster at once (#52). `docs/deploy_log.md` records, with dates, what was run against which database (migrations, data fixes) and the server deploys. Add an entry whenever you write to production. For a visual overview, see `docs/hercdb_setup_quickstart.svg`. For the nightly Neo4j backup (offline dump → cold-spare VM, restore/DR, cron schedule), see `docs/BACKUP.md` and `scripts/neo4j_backup.sh`.
 
 ### Database Configuration
 
