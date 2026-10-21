@@ -7,11 +7,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [0.3.10] - 2026-10-21
+
 ### Added
+- **`el-hercdb-exclude-test-scans` takes test-run raw scans out of artifact coverage** (#32). 83 PGSRaw/SpectralRaw scans in the ground-truth CSVs are calibration or test runs, listed in `input_data/excluded_test_scans.csv`. The loader had attached them like real scans, so the dispatcher could pick one as an artifact's newest complete scan. `report` (read-only) validates the list and writes the storage delete manifest; `detach` removes the scans' `BELONGS_TO` edges and marks them `excluded = true`; `purge`, run after the files are deleted from storage, deletes the manifest's processed datasets and their Processes, then any Pipeline left with none. See `docs/data_review_notes.md` §9.
+- `docs/papyrus_tray_model.md`: the agreed papyrus / tray / object vocabulary and model (#41). No code change.
 - **Server-side filter, sort and paging on `GET /pipelines`** (#26). Any of `search`, `sort` (`started` / `type` / `version` / `artifact` / `status`), `dir`, `offset` or `limit` returns `{rows, matched, total, sort, dir}`; with none, the response is the plain list as before. The rules are the pipeline UI's `_page()`: folded-word search over artifact name, artifact uuid, pipeline id, stage types, version and status; natural-order artifact and version sorts; ties broken on pipeline id. Backed by `GraphDBConnection.get_pipeline_summaries_page()`; `HercClient.get_pipelines_page()` calls it.
 - **`GET /artifacts` with no parameters lists every artifact** (#21), one row per assigned EduceLabID, so a client needs one call instead of one per PHerc. Each row has the identity `/artifacts/{uuid}` returns, `artifacts` (every artifact a shared UUID is assigned to), `datasets` with per-type `count` / `complete` / `failed` / `released` / `newest_complete_version` (pooled across the REPLACES chain), and `catalogue` (author, work, language). Backed by `GraphDBConnection.list_artifacts()`; `HercClient.list_artifacts()` calls it. `/artifacts?pherc=` is unchanged; `cornice` or `pezzo` without `pherc` is still a 422.
 - **`GET /pherc` lists every scroll in one call** (#22), one row each with `displayName`, `literary_work`, `unrolling_status`, Author and Language under `metadata` (shaped as on `/artifacts`), and `cornici_count` / `pezzi_count`. Backed by `GraphDBConnection.list_phercs()`; `HercClient.list_phercs()` calls it. The drawer placeholders filed as PHercs (`tavoletta`, `Cassetto`, `frammenti`) are not scrolls and are left out until #23 settles object kinds.
 - **Processed datasets carry their pipeline's `version`** beside `pipeline_id` (#27), on `GET /educelabid/{uuid}/datasets`, `GET /all-datasets` / `/pherc/{id}/all-datasets` and the `find_*datasets*` methods behind them. It is `null` for pipelines that recorded none (those written before 0.3.8). Raw scans don't get the key. A client no longer needs a `GET /pipelines/{id}/confirmation` call per pipeline to show it.
+
+### Changed
+- `scan_loader.py --exclude` (default `input_data/excluded_test_scans.csv`; `""` to skip) re-applies the test-scan detach after every load, so a `--replace` reload cannot re-attach them (#32).
 
 ### Fixed
 - **`GET /artifacts/{uuid}` picked an arbitrary artifact for a UUID shared by several** (28 on the graph). It now reports the first by a fixed order (PHercs first, then by name), the same one the artifact list gives.
