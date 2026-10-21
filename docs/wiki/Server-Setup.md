@@ -9,18 +9,17 @@ managed service. Assumes Neo4j is already installed and running.
 - [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - Neo4j running and reachable (note the URI, username, password)
 
-## 1. Clone and install
+## 1. Install a release into the server's venv
 
 ```bash
-git clone <repo-url> ~/educelab-hercdb
-cd ~/educelab-hercdb
-git checkout v0.3.0            # or the version you intend to run
-uv sync --extra server --no-dev   # FastAPI + uvicorn + Neo4j driver
+uv venv ~/hercdb-server
+uv pip install --python ~/hercdb-server "educelab-hercdb[server]==0.3.10"   # FastAPI + uvicorn + Neo4j driver
 ```
 
-> hercdb is published to **PyPI** on each release tag (`pip install educelab-hercdb`).
-> The server deployment still uses a git clone checked out at the release tag, so
-> that the systemd unit has a working directory and the exact source it runs.
+> hercdb is published to **PyPI** on each release tag. The server runs one exact
+> release from its own venv, not a git checkout, so the version it reports is a
+> tag. Later versions go in with `scripts/deploy_server.sh` — see
+> "Deploying a release" in `docs/SERVER_SETUP.md`.
 
 ## 2. Neo4j credentials — `~/.educedb`
 
@@ -57,7 +56,7 @@ Clients send the token as `Authorization: Bearer <token>`.
 ## 4. Verify the connection
 
 ```bash
-uv run python -c "from educelab.hercdb.db import connect; print('OK' if connect().verify_connection() else 'FAIL')"
+~/hercdb-server/bin/python -c "from educelab.hercdb.db import connect; print('OK' if connect().verify_connection() else 'FAIL')"
 ```
 
 ## 5. Run as a systemd service (production)
@@ -77,8 +76,8 @@ uv run python -c "from educelab.hercdb.db import connect; print('OK' if connect(
 
    [Service]
    User=your_user
-   WorkingDirectory=/home/your_user/educelab-hercdb
-   ExecStart=/home/your_user/educelab-hercdb/.venv/bin/uvicorn educelab.hercdb.rest.server:app --host 0.0.0.0 --port 8000
+   WorkingDirectory=/home/your_user
+   ExecStart=/home/your_user/hercdb-server/bin/uvicorn educelab.hercdb.rest.server:app --host 0.0.0.0 --port 8000
    Restart=always
    RestartSec=3
 
@@ -100,9 +99,10 @@ uv run python -c "from educelab.hercdb.db import connect; print('OK' if connect(
    journalctl -u hercdb -f         # follow logs
    ```
 
-### Development alternative (no service)
+### Development alternative (from a checkout, no service)
 
 ```bash
+uv sync --extra server
 uv run uvicorn educelab.hercdb.rest.server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -132,4 +132,6 @@ open it, or use an SSH tunnel (`ssh -N -L 8000:localhost:8000 user@vm-host`).
 |------|---------|
 | `~/.educedb` | Neo4j connection credentials (server-side) |
 | `~/.tokens` | API Bearer tokens (server-side) |
+| `~/hercdb-server/` | The venv the service runs from, holding one PyPI release |
 | `src/educelab/hercdb/rest/hercdb.service` | systemd unit template |
+| `scripts/deploy_server.sh` | Deploy or roll back one exact version |

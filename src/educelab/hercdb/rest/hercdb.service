@@ -4,8 +4,10 @@ After=network.target
 
 [Service]
 User=your_user
-WorkingDirectory=/path/to/educelab-hercdb
-ExecStart=/path/to/educelab-hercdb/.venv/bin/uvicorn educelab.hercdb.rest.server:app --host 0.0.0.0 --port 8000
+# Runs from a venv holding a PyPI release (scripts/deploy_server.sh), not a git
+# checkout. ~/.educedb and ~/.tokens are read from User's home.
+WorkingDirectory=/home/your_user
+ExecStart=/home/your_user/hercdb-server/bin/uvicorn educelab.hercdb.rest.server:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=3
 
