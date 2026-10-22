@@ -8,6 +8,8 @@ from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable, SessionExpired
 from rapidfuzz import fuzz
 
+from educelab.hercdb import naming
+
 # Driver-level errors that mean "couldn't reach Neo4j" (e.g. the server is down
 # for its nightly backup), as opposed to a query that ran and matched nothing.
 # execute_query already retries these internally for up to
@@ -521,6 +523,7 @@ class GraphDBConnection:
         record = records[0]
         result = self._jsonify_props(dict(record['n']))
         result['type'] = node_type
+        result.update(naming.describe(pherc, cornice, pezzo))
         result['educelabids'] = [u for u in record['educelabids'] if u]
 
         result['metadata'] = self._group_metadata(record['metas'])
@@ -729,6 +732,7 @@ class GraphDBConnection:
             'cornice': r['cornice_name'],
             'pezzo': r['pezzo_name'],
             'parent': parent,
+            **naming.describe(r['pherc_name'], r['cornice_name'], r['pezzo_name']),
         }
 
     def list_artifacts(self) -> list[dict]:
@@ -859,9 +863,8 @@ class GraphDBConnection:
         ]
 
     # Drawer contents the uuid sheet files in the PHerc column: PHerc nodes that
-    # are not scrolls, so list_phercs leaves them out. A stopgap until artifacts
-    # carry a real object kind (#23); match by exact displayName, never rename.
-    _PHERC_PLACEHOLDERS = ['tavoletta', 'Cassetto', 'frammenti']
+    # are not papyri. Matched by exact displayName, never renamed.
+    _PHERC_PLACEHOLDERS = list(naming.PLACEHOLDERS)
 
     def list_phercs(self) -> list[dict]:
         """Every scroll, one summary row each. Backs ``GET /pherc``.
@@ -907,9 +910,10 @@ class GraphDBConnection:
         """Full Cornici + Pezzi listing for a PHerc. Backs ``GET /subdivisions``.
 
         Each node (the PHerc itself, every Cornice, every Pezzo) is reported as
-        ``{displayName, aliases, educelabids, parent}`` — the resolution surface,
-        the UUID bridge, and the node's immediate parent (so a nested Pezzo can be
-        shown under its Cornice). ``parent`` is ``{type, displayName}`` (e.g. a
+        ``{displayName, aliases, educelabids, parent, kind, method, label,
+        label_parts}`` — the resolution surface, the UUID bridge, the node's
+        immediate parent (so a nested Pezzo can be shown under its Cornice), and
+        what the object is, derived by ``naming.describe``. ``parent`` is ``{type, displayName}`` (e.g. a
         Pezzo nested under a Cornice carries ``{'type': 'Cornice', ...}``, a Pezzo
         directly under the PHerc carries ``{'type': 'PHerc', ...}``) or ``None`` for
         the PHerc itself. No other physical characteristics are included (those live
@@ -939,12 +943,14 @@ class GraphDBConnection:
             return None
 
         first = records[0]
+        pherc = first['ph_display']
         result = {
             'pherc': {
-                'displayName': first['ph_display'],
+                'displayName': pherc,
                 'aliases': first['ph_aliases'] or [],
                 'educelabids': [u for u in (first['ph_uuids'] or []) if u],
                 'parent': None,
+                **naming.describe(pherc),
             },
             'cornici': [],
             'pezzi': [],
@@ -965,8 +971,12 @@ class GraphDBConnection:
                 'parent': parent,
             }
             if 'Cornice' in r['node_labels']:
+                entry.update(naming.describe(pherc, r['node_display']))
                 result['cornici'].append(entry)
             elif 'Pezzo' in r['node_labels']:
+                in_cornice = parent is not None and parent['type'] == 'Cornice'
+                entry.update(naming.describe(
+                    pherc, r['parent_display'] if in_cornice else None, r['node_display']))
                 result['pezzi'].append(entry)
         return result
 
