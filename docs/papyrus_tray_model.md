@@ -173,6 +173,9 @@ material, so they belong in a tray view, not the papyrus list.
 
 ## Open questions for the papyrologists
 
+Tracked, with working assumptions, in [open_questions.md](open_questions.md) as
+Q-03 and Q-08. Definitions are in [glossary.md](glossary.md).
+
 1. **`4456f59f`**: the uuid sheet assigns it to 1191 `1 (Osloense)` and 1157
    `2 (Osloense)`. In the metadata sheet, 1157's `2 (Osloense)` is marked in
    red, but the uuid sheet lists only `1 (Osloense)` for it. Which cornice of

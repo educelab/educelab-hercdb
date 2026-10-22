@@ -354,4 +354,6 @@ When the 0.3.9 `migrate_dataset_uuids.py` ran on 2026-10-21 (see `docs/deploy_lo
 
 ## Maintenance
 
+Every open question here also has an entry in [open_questions.md](open_questions.md), which records the assumption we work under until it's answered. Add new questions there too.
+
 Add a new entry whenever a CSV anomaly is found that the loaders pass through faithfully but that a domain expert should verify. When a question is resolved, replace the “Question” line with the resolution and date so the file remains a record of decisions.
