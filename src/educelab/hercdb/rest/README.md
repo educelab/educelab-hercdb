@@ -194,6 +194,11 @@ UUID, ordered by PHerc / Cornice / Pezzo name:
   `released` counts datasets that are released *and* complete; and
   `newest_complete_version` is the pipeline version of the complete processed
   dataset with the latest end time (`null` for raw types or when unrecorded).
+- **`tray`** is `{kind, method, label, papyri}` for the tray as a whole. Kind
+  and method come from its most specific object. The label is that object's
+  label, or, for a tray shared by several papyri, the tray's name and the
+  papyri: `"Cornice 1 (Osloense): PHerc. 216, 219, 225"`. Placeholder trays
+  (tavolette, whole cassetti, frammenti) are listed, with `papyri: []`.
 - **`catalogue`** holds the PHerc's Author, `literary_work` and Language.
 
 Artifacts with no EduceLabID can't hold datasets and aren't listed; use
@@ -259,8 +264,11 @@ record use `/artifacts?pherc=`.
 
 Lists all Cornici and Pezzi for a PHerc, including Pezzi nested under Cornici.
 Each node (the PHerc itself, every Cornice, every Pezzo) is returned as
-`{displayName, aliases, educelabids, parent, kind, method, label, label_parts}`
-(see *Kind, method and label*). There are no other physical characteristics.
+`{displayName, aliases, educelabids, parent, kind, method, label, label_parts,
+shared_with}` (see *Kind, method and label*). `shared_with` lists the objects
+of *other* papyri on the same tray, as `{uuid, pherc, cornice, pezzo, label}`,
+and is empty when the tray isn't shared. There are no other physical
+characteristics.
 `pherc` is required (422 if missing); 404 if no PHerc has that displayName.
 
 The PHerc is a query parameter, as on `/artifacts`, because some ids contain a

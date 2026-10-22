@@ -101,6 +101,7 @@ class TestLabel(unittest.TestCase):
             (("frammenti", "Cass.1"), ["Frammenti", "Cassetto 1"]),
             (("Cass. 78 s.n. C", "Cass.78 s.n. da A a F"), ["Cassetto 78 s.n. C"]),
             (("PHerc. s.n. Cass LI", "1 (Osloense)"), ["PHerc. s.n. Cass LI", "Cornice 1 (Osloense)"]),
+            (("4 PHerc. s.n.", "1 (Osloense)"), ["4 PHerc. s.n.", "Cornice 1 (Osloense)"]),
             # Assumption Q-10: a whole cassetto is labelled by itself.
             (("Cassetto", "Cass. 51 (A)"), ["Cassetto 51 (A)"]),
             (("Cassetto", "Cass. 98"), ["Cassetto 98"]),
@@ -112,6 +113,52 @@ class TestLabel(unittest.TestCase):
     def test_empty(self):
         self.assertEqual(label_parts(None), [])
         self.assertIsNone(label(None))
+
+
+def art(pherc, cornice=None, pezzo=None):
+    return {"pherc": pherc, "cornice": cornice, "pezzo": pezzo}
+
+
+class TestDescribeTray(unittest.TestCase):
+
+    def test_single_papyrus_tray_is_its_object(self):
+        self.assertEqual(naming.describe_tray([art("2", "1")]), {
+            "kind": "cornice", "method": None, "label": "PHerc. 2, Cornice 1", "papyri": ["2"]})
+
+    def test_shared_tray_names_its_papyri(self):
+        tray = naming.describe_tray([art("216", "1 (Osloense)"), art("225", "1 (Osloense)"),
+                                     art("219", "1 (Osloense)")])
+        self.assertEqual(tray["label"], "Cornice 1 (Osloense): PHerc. 216, 219, 225")
+        self.assertEqual(tray["papyri"], ["216", "219", "225"])
+        self.assertEqual(tray["method"], "Osloense")
+
+    def test_cornice_wins_over_pezzo(self):
+        # 02160e53: a cornice under three papyri and a pezzo of two others.
+        tray = naming.describe_tray([art("1081", "1 (Fackelmann)"), art("221", "1 (Fackelmann)"),
+                                     art("465", "1 (Fackelmann)", "465/2"), art("466", "1 (Fackelmann)"),
+                                     art("467", "1 (Fackelmann)", "467/1")])
+        self.assertEqual(tray["kind"], "cornice")
+        self.assertEqual(tray["label"], "Cornice 1 (Fackelmann): PHerc. 221, 465, 466, 467, 1081")
+
+    def test_object_wins_over_bare_papyrus(self):
+        # 72, 1362, 1363: the UUID is on the papyrus and its Cass. node (#40).
+        tray = naming.describe_tray([art("1362"), art("1362", "Cass.75")])
+        self.assertEqual(tray["kind"], "cassetto_piece")
+        self.assertEqual(tray["label"], "PHerc. 1362, Cassetto 75")
+        self.assertEqual(tray["papyri"], ["1362"])
+
+    def test_unnumbered_papyri_keep_their_names(self):
+        tray = naming.describe_tray([art("4 PHerc. s.n.", "1 (Osloense)"), art("1832", "1 (Osloense)"),
+                                     art("1833", "1 (Osloense)")])
+        self.assertEqual(tray["label"], "Cornice 1 (Osloense): PHerc. 1832, 1833, 4 PHerc. s.n.")
+
+    def test_placeholder_tray_has_no_papyri(self):
+        tray = naming.describe_tray([art("tavoletta", "Cass.29 (B)")])
+        self.assertEqual(tray, {"kind": "tavoletta", "method": None,
+                                "label": "Tavoletta B, Cassetto 29", "papyri": []})
+
+    def test_empty(self):
+        self.assertIsNone(naming.describe_tray([])["label"])
 
 
 class TestTidy(unittest.TestCase):
