@@ -7,6 +7,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Artifacts say what they are: `kind`, `method` and `label`** (#23). Every artifact on `GET /artifacts` (by name, by UUID, and each list row and its `artifacts` entries) and every node on `GET /subdivisions` now carries `kind` (`papyrus`, `cornice`, `scorza`, `pezzo`, `cassetto_piece`, `whole_cassetto`, `tavoletta`, `frammenti`), `method` (`Osloense` / `Fackelmann`), and a readable `label` with its `label_parts` lineage (e.g. `"PHerc. 465, Cornice 1 (Fackelmann), Pezzo 465/2"`). They're derived from the node names by the new pure module `educelab.hercdb.naming`, ported from the pipeline UI's `naming.py` with the kind names of `docs/papyrus_tray_model.md`. Nothing is stored and no display name changes. On the dev graph the kinds match the UI's object types one-to-one, except that 28 objects the UI calls "Frammenti" are cassetto pieces and the 5 trays under the `Cassetto` placeholder are whole cassetti. The rules resting on open questions are tagged Q-04, Q-09, Q-10 and Q-19 (`docs/open_questions.md`). Fields are only added, so existing clients are unaffected; `GET /pherc` is unchanged.
+
 ---
 
 ## [0.3.10] - 2026-10-21

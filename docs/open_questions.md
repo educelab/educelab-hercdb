@@ -53,6 +53,7 @@ team** (scan naming and capture).
 | [Q-16](#q-16) | Delete or mint UUIDs for the 433 failed outputs? | Technical lead | open | processed datasets |
 | [Q-17](#q-17) | 176 Cr 3 / Cr 10 swap: does `negatives.csv` agree? | Technical lead | open | #49 |
 | [Q-18](#q-18) | What does a pipeline on a multi-papyrus tray belong to? | Technical lead | open | #15, pipeline UI list |
+| [Q-19](#q-19) | Are `folded sheet`, `frammento di papiro ercolanese`, `s.n. frammenti 1-2` loose material, not papyri? | Papyrologists | open | #23 `kind`; `GET /pherc` (unchanged until answered) |
 
 ---
 
@@ -162,7 +163,7 @@ also holds `Cass. 52 (A)/(B)` and `Cass. 98`. Other cassetto trays sit under
 - **Assumption:** yes. All five get kind `whole_cassetto`, and `tavoletta`
   trays get kind `tavoletta`. If 52 or 98 turn out to be tavolette, that's a
   source-sheet fix, not a code rule.
-- **Affects:** #23 `kind` (the naming module).
+- **Affects:** #23 `kind` (`naming.object_kind`).
 - **Source:** `.claude/plans/23_object_kind.md`.
 
 ## Q-10
@@ -172,7 +173,8 @@ current `Tavoletta A, Cassetto 51`?**
 
 - **Answerer:** Technical lead. Status: open (raised 2026-10-22).
 - **Assumption:** `Cassetto 51 (A)`.
-- **Affects:** #23 `label`; the pipeline UI's artifact list.
+- **Affects:** #23 `label` (`naming._drawer_object`); the pipeline UI's
+  artifact list.
 
 ## Q-11
 
@@ -258,3 +260,18 @@ is a pipeline for: the tray, or each papyrus on it?**
   one papyrus, chosen deterministically.
 - **Affects:** #15; the pipeline UI's pipeline list.
 - **Source:** `graph_data_audit.md` §3.
+
+## Q-19
+
+**Three PHerc nodes hold loose material rather than a numbered papyrus:
+`folded sheet`, `frammento di papiro ercolanese` and `s.n. frammenti 1-2`.
+Each holds one cassetto tray (`Cass. 116`, `Cass. 116`, `Cass.107`). Are they
+loose material, like the `frammenti` placeholder, or papyri in their own
+right?**
+
+- **Answerer:** Papyrologists. Status: open (raised 2026-10-22).
+- **Assumption:** loose material, so their trays get kind `frammenti` and
+  the PHerc nodes themselves `kind: null`, as in the pipeline UI. `GET
+  /pherc` still lists them, unchanged. Dropping them from `/pherc` (which the
+  UI's scroll list already does) waits for this answer.
+- **Affects:** #23 `naming.is_papyrus`; a possible `GET /pherc` change.

@@ -72,6 +72,7 @@ educelab-hercdb/
 ├── src/educelab/hercdb/
 │   ├── __init__.py           # Package exports (backward-compatible)
 │   ├── config.py             # Configuration management
+│   ├── naming.py             # Object kind / method / label from node names (#23)
 │   │
 │   ├── db/                   # Database layer
 │   │   ├── __init__.py       # Exports GraphDBConnection, connect(), DatasetType
@@ -119,6 +120,11 @@ educelab-hercdb/
 - `get_artifact_info(pherc, cornice, pezzo)`: full artifact detail by exact name (own props + metadata + assigned `educelabids` + child counts), backs `GET /artifacts?...`. `find_artifact_location_by_uuid(uuid)`: the UUID → artifact bridge, backs `GET /artifacts/{uuid}`. Both added in the API consolidation that removed `get_directly_attached_nodes`/`records_to_label_json`/`find_datasets`/`find_educelabids_for_pherc`.
 - Key enums: `DatasetType` (FlatbedScan, PGSRaw, SpectralRaw, PGSProcessed, SpectralProcessed, Registered, WebProcessed)
 - `_run_query` swallows most query errors to `(None, None, None)` (callers treat that as "no rows"), but re-raises Neo4j connectivity failures (`ServiceUnavailable`/`SessionExpired`) as `DatabaseUnavailableError` so a down DB (e.g. during the nightly backup) surfaces as HTTP 503, not a misleading 404. Exported from `educelab.hercdb.db`.
+
+**src/educelab/hercdb/naming.py**: What an artifact is, worked out from its names (#23)
+- Pure functions, no DB access: `object_kind(pherc, cornice, pezzo)` → `papyrus` / `cornice` / `scorza` / `pezzo` / `cassetto_piece` / `whole_cassetto` / `tavoletta` / `frammenti` (`None` for a placeholder PHerc node itself); `method(cornice)` → `Osloense` / `Fackelmann`; `label_parts` / `label` (readable lineage); `is_papyrus(pherc)`; `describe(...)` returns all four fields the REST artifact views add (`kind`, `method`, `label`, `label_parts`). Also holds `PLACEHOLDERS`, the one source for the drawer-placeholder PHerc names.
+- Ported from the pipeline UI's `app/services/naming.py` (`ui-redesign`), with the model doc's kind names. Derived, never stored; display names are never changed to suit it. Rules that rest on open questions carry `# Assumption Q-NN` comments (Q-04, Q-09, Q-10, Q-19).
+- Wired into `get_artifact_info`, `_artifact_identity` (so `find_artifact_location_by_uuid` and `list_artifacts`) and `list_cornici_and_pezzi_for_pherc`. A nested Pezzo is described with its parent Cornice's name, so it inherits the cornice's method and label.
 
 **src/educelab/hercdb/config.py**: Configuration management
 - Loads settings from environment variables, `~/.educedb` file, or prompts
@@ -209,8 +215,8 @@ The `GraphDBConnection` class provides two patterns for queries:
 
 3. **Artifact detail & traversal**:
    - `get_artifact_info(pherc, cornice=None, pezzo=None)` - full detail for one artifact by exact displayName: own props, attached metadata grouped by label, assigned `educelabids`, and child counts (`cornici_count`/`pezzi_count`). No datasets. Backs `GET /artifacts?pherc=...`. Returns `None` if not found.
-   - `list_phercs()` - every scroll, one row each: `{displayName, literary_work, unrolling_status, metadata, cornici_count, pezzi_count}` (Author/Language in `get_artifact_info`'s `metadata` shape, which both now build with `_group_metadata`; counts from the graph, direct children). Leaves out the PHerc-slot drawer placeholders in `_PHERC_PLACEHOLDERS` (`tavoletta`, `Cassetto`, `frammenti`), a stopgap until #23 gives artifacts a real object kind. Backs `GET /pherc`. Not the same as `list_all_pherc_display_names`, which the scan-completeness walk uses and which keeps every node.
-   - `list_cornici_and_pezzi_for_pherc(pherc_display_name)` - full hierarchy of Cornici and Pezzi; returns `{pherc, cornici, pezzi}` where each node is `{displayName, aliases, educelabids, parent}`. `parent` is `{type, displayName}` — a nested Pezzo's parent Cornice, or the PHerc for a directly-attached node (and `None` for the PHerc itself) — so consumers can render a Pezzo under its Cornice. Backs `GET /subdivisions`. Returns `None` if the PHerc doesn't exist.
+   - `list_phercs()` - every scroll, one row each: `{displayName, literary_work, unrolling_status, metadata, cornici_count, pezzi_count}` (Author/Language in `get_artifact_info`'s `metadata` shape, which both now build with `_group_metadata`; counts from the graph, direct children). Leaves out the PHerc-slot drawer placeholders in `_PHERC_PLACEHOLDERS` (`tavoletta`, `Cassetto`, `frammenti`, from `naming.PLACEHOLDERS`). It still lists the three loose-material PHercs (`folded sheet`, `frammento di papiro ercolanese`, `s.n. frammenti 1-2`), which `naming.is_papyrus` reports as not papyri; whether to drop them waits on Q-19. Backs `GET /pherc`. Not the same as `list_all_pherc_display_names`, which the scan-completeness walk uses and which keeps every node.
+   - `list_cornici_and_pezzi_for_pherc(pherc_display_name)` - full hierarchy of Cornici and Pezzi; returns `{pherc, cornici, pezzi}` where each node is `{displayName, aliases, educelabids, parent}` plus `naming.describe`'s `kind`/`method`/`label`/`label_parts`. `parent` is `{type, displayName}` — a nested Pezzo's parent Cornice, or the PHerc for a directly-attached node (and `None` for the PHerc itself) — so consumers can render a Pezzo under its Cornice. Backs `GET /subdivisions`. Returns `None` if the PHerc doesn't exist.
    - (Removed: `get_directly_attached_nodes` / `records_to_label_json` / `list_cornici_pezzi`, which backed the old per-node endpoints.)
 
 4. **UUID lookups**:
@@ -252,9 +258,10 @@ A **PHerc / Cornice / Pezzo is an "artifact"**, addressed on one `/artifacts` re
 - `GET /home` - Welcome message
 - `GET /artifacts` (no params) - Every artifact with an EduceLabID, one row per UUID, with per-type dataset counts and catalogue fields. Backed by `list_artifacts`.
 - `GET /artifacts?pherc=&cornice=&pezzo=` - Full detail for one artifact by exact name (own props, metadata, assigned `educelabids`, child counts; no datasets). `cornice`/`pezzo` without `pherc` → 422, not found → 404. Backed by `get_artifact_info`.
-- `GET /artifacts/{uuid}` - Resolve a UUID to its artifact: `{uuid, type, displayName, pherc, cornice, pezzo, parent, location}`. Backed by `find_artifact_location_by_uuid`.
+- `GET /artifacts/{uuid}` - Resolve a UUID to its artifact: `{uuid, type, displayName, pherc, cornice, pezzo, parent, kind, method, label, label_parts, location}`. Backed by `find_artifact_location_by_uuid`.
+- Every artifact view (`/artifacts` by name, by UUID, the list and its `artifacts` entries, and `/subdivisions` nodes) carries the derived `kind` / `method` / `label` / `label_parts` from `naming.describe` (#23). The tray-level label for shared UUIDs is #47.
 - `GET /pherc` - List every scroll, one summary row each (see `list_phercs`); drawer placeholders are left out. `200 []` if none.
-- `GET /subdivisions?pherc=` - List all Cornici and Pezzi (full hierarchy); each node is `{displayName, aliases, educelabids, parent}` (`parent` = `{type, displayName}`, or `None` for the PHerc — a nested Pezzo carries its parent Cornice).
+- `GET /subdivisions?pherc=` - List all Cornici and Pezzi (full hierarchy); each node is `{displayName, aliases, educelabids, parent, kind, method, label, label_parts}` (`parent` = `{type, displayName}`, or `None` for the PHerc — a nested Pezzo carries its parent Cornice).
 - `GET /all-datasets?pherc=` - All datasets grouped by active/assigned EduceLabID, pooled across REPLACES chains; each dataset carries `belongs_to_uuid`. Optional `dataset_type` (`FlatbedScan` | `PGSRaw` | `SpectralRaw` | `PGSProcessed` | `SpectralProcessed` | `Registered` | `WebProcessed`) / `newest_completed`.
 - `GET /pherc/{pherc_id}/subdivisions`, `GET /pherc/{pherc_id}/all-datasets` - Path forms of the two above, kept for existing callers (same handlers via `_subdivisions` / `_all_datasets`). They 404 on PHerc ids containing a slash (`1007/1673`, 7 on the graph), even URL-encoded, because the server decodes `%2F` before routing — which is why new routes taking a PHerc id use a query parameter (#24). `HercClient` calls the query forms.
 - `GET /educelabid/{uuid}/datasets` - Datasets for a UUID, pooled across its REPLACES chain; each carries `belongs_to_uuid`. Processed outputs are included and carry `pipeline_id` + `status` + the pipeline's `version` (`null` when unrecorded; also on `/all-datasets`). Optional `dataset_type` / `newest_completed` / `released_only` (the last two also on `/all-datasets`; `released_only` filters before the newest-per-type reduction).

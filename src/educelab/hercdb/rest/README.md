@@ -140,6 +140,26 @@ GET /artifacts?pherc=1044&cornice=6
 Returns `404` if no matching artifact exists; `422` if `cornice` or `pezzo` is
 given without `pherc`. With no parameters at all, the list below is returned.
 
+### Kind, method and label
+
+Every artifact on `/artifacts` (by name, by UUID, and each list row and its
+`artifacts` entries) and every node on `/subdivisions` carries four fields
+derived from its names (`educelab.hercdb.naming`, #23). They're never stored,
+and display names are unchanged:
+
+- **`kind`**: `papyrus`, `cornice`, `scorza`, `pezzo`, `cassetto_piece` (a
+  piece taken out of a cassetto, e.g. `571 / Cass. 31`), `whole_cassetto`,
+  `tavoletta` or `frammenti`. It's `null` for a placeholder PHerc node
+  itself. Terms are defined in `docs/glossary.md`.
+- **`method`**: `Osloense`, `Fackelmann` or `null`, from the cornice name (a
+  pezzo takes its cornice's).
+- **`label`** / **`label_parts`**: a readable name and the same as a lineage,
+  e.g. `"PHerc. 465, Cornice 1 (Fackelmann), Pezzo 465/2"`,
+  `"Tavoletta A, Cassetto 29"`, `"Cassetto 51 (A)"`.
+
+A few rules rest on open questions (Q-04, Q-09, Q-10, Q-19 in
+`docs/open_questions.md`) and may change when those are answered.
+
 ### GET /artifacts (list)
 
 With no parameters, lists every artifact that has an EduceLabID, one row per
@@ -199,6 +219,10 @@ GET /artifacts/85f7b1ea-e57a-5d98-b481-658d75ac2dcf
   "cornice": "1",
   "pezzo": null,
   "parent": { "type": "PHerc", "displayName": "10" },
+  "kind": "cornice",
+  "method": null,
+  "label": "PHerc. 10, Cornice 1",
+  "label_parts": ["PHerc. 10", "Cornice 1"],
   "location": "PHerc10 Cornice 1"
 }
 ```
@@ -235,7 +259,8 @@ record use `/artifacts?pherc=`.
 
 Lists all Cornici and Pezzi for a PHerc, including Pezzi nested under Cornici.
 Each node (the PHerc itself, every Cornice, every Pezzo) is returned as
-`{displayName, aliases, educelabids}` — no other physical characteristics.
+`{displayName, aliases, educelabids, parent, kind, method, label, label_parts}`
+(see *Kind, method and label*). There are no other physical characteristics.
 `pherc` is required (422 if missing); 404 if no PHerc has that displayName.
 
 The PHerc is a query parameter, as on `/artifacts`, because some ids contain a
@@ -251,13 +276,15 @@ GET /subdivisions?pherc=1007%2F1673
 **Response:**
 ```json
 {
-  "pherc": { "displayName": "238", "aliases": ["238"], "educelabids": [] },
+  "pherc": { "displayName": "238", "aliases": ["238"], "educelabids": [], "parent": null,
+             "kind": "papyrus", "method": null, "label": "PHerc. 238", "label_parts": ["PHerc. 238"] },
   "cornici": [
-    { "displayName": "Scorze da 238 a 239", "aliases": ["Scorza"], "educelabids": ["..."] }
+    { "displayName": "Scorze da 238 a 239", "aliases": ["Scorza"], "educelabids": ["..."],
+      "parent": { "type": "PHerc", "displayName": "238" },
+      "kind": "scorza", "method": null, "label": "PHerc. 238, Scorze da 238 a 239",
+      "label_parts": ["PHerc. 238", "Scorze da 238 a 239"] }
   ],
-  "pezzi": [
-    { "displayName": "1 (238a)", "aliases": [], "educelabids": ["..."] }
-  ]
+  "pezzi": [ "..." ]
 }
 ```
 
