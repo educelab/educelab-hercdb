@@ -7,6 +7,26 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-10-21 — REST server moved to a PyPI venv; 0.3.10 on .43 and .41 (#52)
+
+The server now runs one exact PyPI release from `~/hercdb-server`, not a git checkout.
+Deploys go through `hercdb_deploy X.Y.Z` (`scripts/deploy_server.sh`, installed in
+`/usr/local/sbin`). See `SERVER_SETUP.md`, "Deploying a release".
+
+- **.43 (new dev REST server):**
+  - The first REST server on .43. It reads .43's own Neo4j, which holds last night's prod snapshot.
+  - Installed with `hercdb_deploy` as 0.3.9, then upgraded to 0.3.10. The rollback line was printed.
+  - It has its own token (user `mami-dev`), which .41 refuses with 401.
+  - Checked: `/check-token` valid, `GET /pherc` 1,873 rows, `/subdivisions?pherc=1007/1673` 17 cornici.
+  - Left running. It answers 503 while the nightly snapshot is being restored.
+- **.41 (production):**
+  - The clone of `develop` was already serving 0.3.10.
+  - The switch to the venv followed "Switching a server that runs from a git checkout": unit backed up to
+    `~/hercdb.service.clone-backup`, `ExecStart`/`WorkingDirectory` pointed at the venv, restarted.
+  - Checked: `/openapi.json` reports 0.3.10, a request with no token and one with the .43 token both get 401,
+    and the pipeline UI works.
+  - The clone is kept for now and will be removed later.
+
 ## 2026-10-21 — 0.3.9 migrations on .43 and .41
 
 Both were run from a workstation, with the target URI checked before each write. Each was
