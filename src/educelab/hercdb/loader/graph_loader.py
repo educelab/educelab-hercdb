@@ -182,6 +182,21 @@ class PhercGraphDatabaseLoader:
                 result.append(x)
         return result
 
+    # A papyrus catalogued under two numbers, "1007/1673" (#45).
+    _TWO_NUMBERS = re.compile(r'^\s*(\d+\w*)\s*/\s*(\d+\w*)\s*$')
+
+    @classmethod
+    def _pherc_aliases(cls, *names):
+        """``_expand_aliases`` for a PHerc name, plus each number of a
+        two-number papyrus, so "1673" finds "1007/1673". PHerc names only: a
+        pezzo such as "465/2" is not two papyri."""
+        aliases = cls._expand_aliases(*names)
+        for name in names:
+            two = cls._TWO_NUMBERS.match(name or '')
+            if two:
+                aliases += [part for part in two.groups() if part not in aliases]
+        return aliases
+
 
 
 ############ Specific methods for adding EduceLabIDs from UUID spreadsheet ##################
@@ -228,7 +243,7 @@ class PhercGraphDatabaseLoader:
         if self._set_names_on_shared_tray(uuid, ph_name, alias_name):
             return
         node_aliases = self._expand_aliases(alias_name)
-        ph_aliases = self._expand_aliases(ph_name)
+        ph_aliases = self._pherc_aliases(ph_name)
         self._run_query("""
             MATCH (e:EduceLabID {uuid: $uuid})-[:ASSIGNED_TO]->(n)
             SET n.name = $alias_name,
@@ -271,13 +286,14 @@ class PhercGraphDatabaseLoader:
             SET e.sheet_pherc = coalesce($ph_name, e.sheet_pherc),
                 e.sheet_cornice = coalesce($node_name, e.sheet_cornice)
             """, uuid=uuid, ph_name=ph_name or None, node_name=node_name or None)
-        for ids, name in ((nodes, node_name), (phercs, ph_name)):
+        for ids, name, expand in ((nodes, node_name, self._expand_aliases),
+                                  (phercs, ph_name, self._pherc_aliases)):
             if ids:
                 self._run_query("""
                     MATCH (x) WHERE elementId(x) IN $ids
                     SET x.name = $name,
                         x.aliases = apoc.coll.toSet(coalesce(x.aliases, []) + $aliases)
-                    """, ids=list(ids), name=name, aliases=self._expand_aliases(name))
+                    """, ids=list(ids), name=name, aliases=expand(name))
         return True
 
     # Add EduceLabID nodes
@@ -291,7 +307,7 @@ class PhercGraphDatabaseLoader:
     
     def set_pherc_and_pezzo_names(self, uuid, pherc_display_name, pherc_name, pezzo_name):
         pezzo_aliases = self._expand_aliases(pezzo_name)
-        ph_aliases = self._expand_aliases(pherc_name)
+        ph_aliases = self._pherc_aliases(pherc_name)
         records, summary, keys = self._run_query("""
             MATCH (e: EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(p:Pezzo)<-[:HAS*1..2]-(ph:PHerc {displayName:$pherc_display_name})
             SET p.name = $pezzo_name,
@@ -307,7 +323,7 @@ class PhercGraphDatabaseLoader:
 
     def set_pherc_and_cornice_names(self, uuid, pherc_display_name, pherc_name, cornice_name):
         cor_aliases = self._expand_aliases(cornice_name)
-        ph_aliases = self._expand_aliases(pherc_name)
+        ph_aliases = self._pherc_aliases(pherc_name)
         records, summary, keys = self._run_query("""
             MATCH (e:EduceLabID {uuid:$uuid})
             MATCH (ph:PHerc {displayName:$pherc_display_name})
@@ -345,7 +361,7 @@ class PhercGraphDatabaseLoader:
         """
         if self._set_names_on_shared_tray(uuid, pherc_name):
             return
-        ph_aliases = self._expand_aliases(pherc_name)
+        ph_aliases = self._pherc_aliases(pherc_name)
         records, _, _ = self._run_query("""
             MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)<-[:HAS*0..2]-(p)
             WHERE p:PHerc OR p:Casetta
@@ -379,7 +395,7 @@ class PhercGraphDatabaseLoader:
         """
         ph_display = (pherc_name or "").strip()
         cor_display = (cornice_name or "").strip()
-        ph_aliases = self._expand_aliases(pherc_name)
+        ph_aliases = self._pherc_aliases(pherc_name)
         cor_aliases = self._expand_aliases(cornice_name)
         records, summary, keys = self._run_query("""
             MATCH (e:EduceLabID {uuid:$uuid})
@@ -423,7 +439,7 @@ class PhercGraphDatabaseLoader:
     # Each PHerc node has a name
     def add_pherc_node(self, uuid, ph_display_name, is_casetta=False):
         casetta_set = "SET p:Casetta" if is_casetta else ""
-        ph_aliases = self._expand_aliases(ph_display_name)
+        ph_aliases = self._pherc_aliases(ph_display_name)
         if uuid:
             # Very few cases where uuid is provided (currently only PHerc 72, 1362, 1363)
             records, summary, keys = self._run_query(f"""

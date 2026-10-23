@@ -163,7 +163,7 @@ material, so they belong in a tray view, not the papyrus list.
    later Scroll node can replace each connected group of these edges with one
    hub.
 6. Add the parts of two-number papyri to `aliases`, so that "1673" finds
-   `1007/1673`.
+   `1007/1673`. Done in #45.
 7. Cassetto pieces split off as their own PHercs (`1132 A-B-C`, `1135 A`,
    `955 A-B`, `1256 A I-II`, `PHerc. 133 A IV gamma`): 1132 A-B-C is rolled
    pieces of 1132 kept in Cass. 60, catalogued only in the Cassetti sheet, and

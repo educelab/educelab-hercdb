@@ -49,6 +49,12 @@ class TestFuzzyFindNode(unittest.TestCase):
         self.assertEqual(results[0]["score"], 100)
         self.assertEqual(results[0]["displayName"], "118a")
 
+    def test_either_number_finds_a_two_number_papyrus(self):
+        # #45: needs preprocessing/migrate_two_number_aliases.py on an older graph.
+        for query in ("1673", "1007"):
+            top = self.db.fuzzy_find_node(query)[0]
+            self.assertEqual((top["displayName"], top["score"]), ("1007/1673", 100), query)
+
     def test_case_insensitive_match(self):
         # Whatever case the user types, normalize lowercases before
         # comparison. Use a name that exists in the DB.
