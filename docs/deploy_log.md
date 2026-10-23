@@ -7,6 +7,17 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-10-22 — #59: phantom 1063 cornice removed on .43 and .41
+
+`preprocessing/fix_1063_phantom_cornice.py --apply`. It deletes `Cornice 1 (Fackelmann)` under
+PHerc 1063, but only while nothing else is attached to it. It was run read-only first, then
+with `--apply`, then read-only again (0 left).
+
+- **.43:** 1 node deleted. Tray `d5b9ebc4` now reads "Cornice 1 (Fackelmann): PHerc. 228,
+  444, 1073", and 1063 has no cornici.
+- **.41:** the same node deleted, with the same result. Run from the workstation with the
+  `~/.educedb.prod` credentials; the script printed the target URI first.
+
 ## 2026-10-22 — #40: papyrus-level UUIDs removed on .43 and .41
 
 `preprocessing/fix_pherc_level_uuids.py --apply`. It removes a PHerc's `ASSIGNED_TO` when

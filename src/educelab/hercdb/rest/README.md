@@ -157,7 +157,7 @@ and display names are unchanged:
   e.g. `"PHerc. 465, Cornice 1 (Fackelmann), Pezzo 465/2"`,
   `"Tavoletta A, Cassetto 29"`, `"Cassetto 51 (A)"`.
 
-A few rules rest on open questions (Q-04, Q-09, Q-10, Q-19 in
+A few rules rest on open questions (Q-09, Q-10, Q-19 in
 `docs/open_questions.md`) and may change when those are answered.
 
 ### GET /artifacts (list)

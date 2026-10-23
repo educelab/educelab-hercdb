@@ -71,7 +71,7 @@ class TestMethod(unittest.TestCase):
             "1 (Osloense)": "Osloense",
             "10 Osloense)": "Osloense",  # typo seen live
             "3 Osloense": "Osloense",
-            "1 (Oslo)": "Osloense",  # Assumption Q-04
+            "1 (Oslo)": "Osloense",  # Q-04
             "1 (Fackelmann)": "Fackelmann",
             "1": None,
             "Scorze da 90 a 223": None,

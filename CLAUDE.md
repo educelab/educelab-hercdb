@@ -123,7 +123,7 @@ educelab-hercdb/
 
 **src/educelab/hercdb/naming.py**: What an artifact is, worked out from its names (#23)
 - Pure functions, no DB access: `object_kind(pherc, cornice, pezzo)` → `papyrus` / `cornice` / `scorza` / `pezzo` / `cassetto_piece` / `whole_cassetto` / `tavoletta` / `frammenti` (`None` for a placeholder PHerc node itself); `method(cornice)` → `Osloense` / `Fackelmann`; `label_parts` / `label` (readable lineage); `is_papyrus(pherc)`; `describe(...)` returns all four fields the REST artifact views add (`kind`, `method`, `label`, `label_parts`); `describe_tray(artifacts)` gives a whole tray's `{kind, method, label, papyri}` (most specific object wins: cornice over pezzo, any object over the bare papyrus). Also holds `PLACEHOLDERS`, the one source for the drawer-placeholder PHerc names.
-- Ported from the pipeline UI's `app/services/naming.py` (`ui-redesign`), with the model doc's kind names. Derived, never stored; display names are never changed to suit it. Rules that rest on open questions carry `# Assumption Q-NN` comments (Q-04, Q-09, Q-10, Q-19).
+- Ported from the pipeline UI's `app/services/naming.py` (`ui-redesign`), with the model doc's kind names. Derived, never stored; display names are never changed to suit it. Rules that rest on open questions carry `# Assumption Q-NN` comments (Q-09, Q-10, Q-19).
 - Wired into `get_artifact_info`, `_artifact_identity` (so `find_artifact_location_by_uuid` and `list_artifacts`) and `list_cornici_and_pezzi_for_pherc`. A nested Pezzo is described with its parent Cornice's name, so it inherits the cornice's method and label.
 
 **src/educelab/hercdb/config.py**: Configuration management
