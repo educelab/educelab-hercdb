@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import csv
 from educelab.hercdb.loader import PhercGraphDatabaseLoader
 from educelab.hercdb.cli.exclude_test_scans import DETACH_QUERY, load_exclusions
+from educelab.hercdb.loader import extra_scan_links
 
 parser = argparse.ArgumentParser(description='Load scan data into Neo4j')
 parser.add_argument('--negatives', default='input_data/negatives.csv',
@@ -18,6 +19,10 @@ parser.add_argument('--exclude', default='input_data/excluded_test_scans.csv',
                     help='Test-run scans to load without a BELONGS_TO edge (see '
                          'el-hercdb-exclude-test-scans). Default: '
                          'input_data/excluded_test_scans.csv; pass "" to skip.')
+parser.add_argument('--extra-links', default=extra_scan_links.DEFAULT_PATH,
+                    help='Scans that image more than one tray: extra BELONGS_TO links to add '
+                         f'after loading (#43). Default: {extra_scan_links.DEFAULT_PATH}; '
+                         'pass "" to skip.')
 args = parser.parse_args()
 
 negatives_file = args.negatives
@@ -152,3 +157,10 @@ if args.exclude:
         raise SystemExit(f"Failed to detach the scans listed in {args.exclude}.")
     print(f"Detached {records[0]['detached']} of {len(excluded)} excluded "
           f"test scan(s) listed in {args.exclude}.")
+
+# A capture holding two trays has one `sample uuid` in the CSV, so it reached
+# only one of them. Add the other links from the hand-kept list.
+if args.extra_links:
+    links = extra_scan_links.load_links(args.extra_links)
+    print(f"Added {extra_scan_links.apply(loader.driver, links)} extra scan link(s) "
+          f"listed in {args.extra_links}.")
