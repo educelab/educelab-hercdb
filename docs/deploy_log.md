@@ -7,7 +7,7 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
-## 2026-10-22 — #43: 76 Cr 05 LR scan linked to Right
+## 2026-10-22 — #43: 76 Cr 05 LR scan linked to Right (.43 and .41)
 
 `python -m educelab.hercdb.loader.extra_scan_links --apply`. It adds the `BELONGS_TO` links
 listed in `input_data/extra_scan_links.csv`. It was run as a check first, then with
@@ -16,6 +16,8 @@ listed in `input_data/extra_scan_links.csv`. It was run as a check first, then w
 - **.43:** linked spectral scan `ce015560` to 76 Cr 05 Right (`c5ca1b3a`). It is now
   listed under both Left and Right. The SPEC work-list is unchanged, because each tray's
   newest spectral scan is its own.
+- **.41:** the same link, with the same result. Run from the workstation with the
+  `~/.educedb.prod` credentials; the module printed the target URI first.
 
 ## 2026-10-22 — #61: shared trays' uuid-sheet names moved onto the EduceLabID (.43 and .41)
 
