@@ -55,6 +55,7 @@ team** (scan naming and capture).
 | [Q-18](#q-18) | What does a pipeline on a multi-papyrus tray belong to? | Technical lead | open | #15, pipeline UI list |
 | [Q-19](#q-19) | Are `folded sheet`, `frammento di papiro ercolanese`, `s.n. frammenti 1-2` loose material, not papyri? | Papyrologists | open | #23 `kind`; `GET /pherc` (unchanged until answered) |
 | [Q-20](#q-20) | Tray `a0eaa0ad`: is it `s.n. IV Cass CXIV` (uuid sheet) or `XCIV` (metadata)? | Papyrologists | open | the papyrus's name and aliases |
+| [Q-21](#q-21) | 1208: has `1 (Oslo)` been fixed in the sheets, and is Cornice 3 really stored with 1691? | Papyrologists | open | #42; 1208's cornice name |
 
 ---
 
@@ -302,3 +303,22 @@ neighbour `PHerc. s.n. I-III Cass CXIV` is CXIV in both sheets.
 - **Affects:** the papyrus's displayName and aliases; whichever sheet is
   wrong.
 - **Source:** `data_review_notes.md` §1 B1 (`a0eaa0ad`); #61.
+
+## Q-21
+
+**PHerc 1208, as of the April 2026 exports:**
+1. Its Oslo cornice is `1 (Oslo)` in both sheets (metadata row, and uuid
+   sheet `1691-1208 / 1 (Oslo)`), where 1691's is `1 (Osloense)`. Has it been
+   corrected to `1 (Osloense)` in the sheets since then?
+2. Its ordinary Cornice `3` has the same `StoredWithPHercNum` as the Oslo
+   cornice: "PHerc. 1691 cr 1 (Osloense)". Is Cornice 3 really stored with
+   1691, or was that copied from the Oslo row?
+
+- **Answerer:** Papyrologists (1 can also be checked in the live sheet).
+  Status: open (raised 2026-10-22; tabled).
+- **Assumption:** both as loaded. The graph keeps `1 (Oslo)` (read as method
+  Osloense, Q-04) and the stored-with text on Cornice 3.
+- **Affects:** #42. **If the sheet is corrected, rename the graph node in the
+  same step.** The loader merges cornici on `displayName`, so a reload alone
+  would add a second `1 (Osloense)` next to `1 (Oslo)`.
+- **Source:** `data_review_notes.md` §1 B3; `input_data/metadata_processed_20260428.csv`.
