@@ -145,8 +145,8 @@ material, so they belong in a tray view, not the papyrus list.
    UUID), and the uuid sheet puts them on the `Cass.` row. The metadata rows
    are the ones to correct.
 3. **PHerc 1063**: the graph is wrong to put it on tray `d5b9ebc4` with
-   228/444/1073. Fix it in the source sheet, and record it in
-   `docs/data_review_notes.md`.
+   228/444/1073. The source sheets are right: the 1063 came from a typo in the
+   loader's hard-coded list. Fixed in #59.
 4. **76 Cr 05 Left/Right**: the whole-cornice spectral scan `ce015560`
    (`PHerc0076Cr05 LR (Fa...`) shows both trays, so it belongs to both Left
    (`10517d86`) and Right (`c5ca1b3a`). This is the single `sample uuid 2` link

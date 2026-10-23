@@ -321,7 +321,7 @@ with open(uuid_csv, 'r') as csvfile:
             loader.set_pherc_and_cornice_names(uuid, "1081", "1081", "1 (Fackelmann)")
         
         elif uuid == "d5b9ebc4-31a9-5368-90ac-eeb2893998db":
-            for pherc_name in ["228", "444", "1063"]:
+            for pherc_name in ["228", "444", "1073"]:  # was "1063", a typo (#59)
                 loader.set_pherc_and_cornice_names(uuid, pherc_name, pherc_name, cor_pezzo_name)
         
         elif uuid == "6c88ad2a-7a6a-5055-b832-babd9f859f37":

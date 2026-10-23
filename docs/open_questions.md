@@ -35,11 +35,11 @@ team** (scan naming and capture).
 
 | ID | Question (short) | Answerer | Status | Affects |
 |---|---|---|---|---|
-| [Q-01](#q-01) | Is a shared UUID a shared tray, not one object? | Papyrologists | open (agreed internally) | model, `/artifacts`, #47 |
+| [Q-01](#q-01) | Is a shared UUID a shared tray, not one object? | Papyrologists | closed 2026-10-22 | model, `/artifacts`, #47 |
 | [Q-02](#q-02) | Is an s.n. aggregator a separate papyrus from its members? | Papyrologists | open | #44 relation edges |
 | [Q-03](#q-03) | Which cornice of 1157 is on tray `4456f59f`? | Papyrologists | open | #42 |
-| [Q-04](#q-04) | `1 (Oslo)` on 1208 is `1 (Osloense)`? | Papyrologists | open (agreed internally) | #42, naming `method` |
-| [Q-05](#q-05) | Is PHerc 1063 on tray `d5b9ebc4`, or is it 1073? | Papyrologists | open (agreed internally) | #42, loader hard-coding |
+| [Q-04](#q-04) | `1 (Oslo)` on 1208 is `1 (Osloense)`? | Papyrologists | closed 2026-10-22 | #42, naming `method` |
+| [Q-05](#q-05) | Is PHerc 1063 on tray `d5b9ebc4`, or is it 1073? | Papyrologists | closed 2026-10-22 | #59 |
 | [Q-06](#q-06) | Are the loader's hard-coded UUID cases still needed? | Technical lead | open | `metadata_loader.py` |
 | [Q-07](#q-07) | 72 / 1362 / 1363: is the UUID on the `Cass.` node, not the papyrus? | Papyrologists | open (agreed internally) | #40 |
 | [Q-08](#q-08) | Are `1135 A`, `955 A-B`, `1256 A I-II`, `133 A IV gamma` pieces of their base papyrus? | Papyrologists | open | #46 |
@@ -63,10 +63,11 @@ team** (scan naming and capture).
 assigned to several nodes, e.g. `02160e53` to Cornice 1 (Fackelmann) of 221,
 466, 1081 and Pezzi 465/2, 467/1.
 
-- **Answerer:** Papyrologists. Status: open. Agreed internally 2026-10-19, and
-  the papyrologists' 2026-05 input points the same way.
-- **Assumption:** a shared UUID means the papyri share a tray and nothing
-  more. Each keeps its own node, and nothing is merged by UUID.
+- **Answerer:** Papyrologists. Status: closed 2026-10-22.
+- **Answer:** yes. The EduceLabID is an identifier on the computer-science
+  side, so what it means is ours to define: a shared UUID means the papyri
+  share a tray and nothing more. Each keeps its own node, and nothing is
+  merged by UUID.
 - **Affects:** `docs/papyrus_tray_model.md`, `GET /artifacts` (one row per
   UUID), #47.
 - **Source:** `data_review_notes.md` §1; `graph_data_audit.md` §2.
@@ -101,9 +102,9 @@ red, but the uuid sheet lists only `1 (Osloense)` for it. Which cornice of
 **Tray `85e4072e` is on 1208 `1 (Oslo)` and 1691 `1 (Osloense)`. Is `Oslo` a
 spelling variant of `Osloense`?**
 
-- **Answerer:** Papyrologists. Status: open (agreed internally 2026-10-19).
-- **Assumption:** yes. The naming module reads `(Oslo)` as method
-  `Osloense`, and the source sheet will be fixed.
+- **Answerer:** Papyrologists. Status: closed 2026-10-22.
+- **Answer:** yes. The naming module reads `(Oslo)` as method `Osloense`.
+  1208's entry in the source sheet is still to be fixed (#42).
 - **Affects:** #42; #23 `method`.
 - **Source:** `papyrus_tray_model.md` follow-up list (the 85e4072e item);
   `data_review_notes.md` §1 B3, §3.
@@ -113,10 +114,12 @@ spelling variant of `Osloense`?**
 **Is PHerc 1063 on tray `d5b9ebc4` (with 228, 444), or should it be 1073?** The
 loader's hard-coded list says 1063, and the metadata CSV says 1073.
 
-- **Answerer:** Papyrologists. Status: open (agreed internally that 1063 is
-  wrong).
-- **Assumption:** 1063 is wrong. Fix the source sheet, not the graph by hand.
-- **Affects:** #42; `metadata_loader.py` hard-coding.
+- **Answerer:** the source data. Status: closed 2026-10-22.
+- **Answer:** 1073. The uuid sheet lists the tray as "228, 444, 1073", and
+  the metadata CSV puts the UUID on those three, each naming the other two
+  as stored with it. "1063" was a typo in the loader's hard-coded list. It
+  was fixed there, and the phantom cornice under 1063 was removed (#59).
+- **Affects:** #59.
 - **Source:** `data_review_notes.md` §2; `papyrus_tray_model.md` decision 3.
 
 ## Q-06

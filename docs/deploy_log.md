@@ -7,6 +7,15 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-10-22 — #59: phantom 1063 cornice removed
+
+`preprocessing/fix_1063_phantom_cornice.py --apply`. It deletes `Cornice 1 (Fackelmann)` under
+PHerc 1063, but only while nothing else is attached to it. It was run read-only first, then
+with `--apply`, then read-only again (0 left).
+
+- **.43:** 1 node deleted. Tray `d5b9ebc4` now reads "Cornice 1 (Fackelmann): PHerc. 228,
+  444, 1073", and 1063 has no cornici.
+
 ## 2026-10-21 — REST server moved to a PyPI venv; 0.3.10 on .43 and .41 (#52)
 
 The server now runs one exact PyPI release from `~/hercdb-server`, not a git checkout.

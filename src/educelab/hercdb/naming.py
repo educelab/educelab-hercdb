@@ -36,7 +36,7 @@ _CASS = re.compile(r"^(?:cass\.|cassetto)\s*(\d+)\s*(.*)$", re.IGNORECASE)
 _PIECE_IN_CASS = re.compile(r"^pz in cass", re.IGNORECASE)
 _LETTER = re.compile(r"^\(([A-Z])\)$")
 _ROMAN = re.compile(r"^[IVXLC]+$")
-# Assumption Q-04: "(Oslo)" is a spelling of "(Osloense)".
+# "(Oslo)" is a spelling of "(Osloense)" (Q-04, closed).
 _METHOD = re.compile(r"\(?\b(Osloense|Oslo|Fackelmann)\)?\s*$", re.IGNORECASE)
 
 

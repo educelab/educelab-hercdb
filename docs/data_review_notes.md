@@ -98,7 +98,7 @@ These UUIDs are hard-coded in `src/educelab/hercdb/loader/metadata_loader.py` (a
 | UUID | What the loader does | Notes |
 |---|---|---|
 | `02160e53-71b8-52ba-bcd3-faf6c6917c66` | Sets PHerc-name on `221`, `1081` and creates Cornice `1 (Fackelmann)`; also attaches Pezzo `465-II` to `465`, Pezzo `467-1` to `467`, Cornice `1 (Fackelmann)` to `466` | Mostly redundant with B2 metadata, plus extra Pezzo wiring |
-| `d5b9ebc4-31a9-5368-90ac-eeb2893998db` | Creates Cornice `1 (Fackelmann)` under PHercs `228`, `444`, `1063` | Hard-coded list says `1063` but metadata.csv has the UUID under PHerc `1073` (B2). **Likely typo — confirm `1063` vs `1073`.** Result is a phantom Cornice under PHerc `1063`. |
+| `d5b9ebc4-31a9-5368-90ac-eeb2893998db` | Creates Cornice `1 (Fackelmann)` under PHercs `228`, `444`, `1063` | **Resolved 2026-10-22 (#59):** `1063` was a typo for `1073`, which both the uuid sheet and metadata.csv give. The list now says `1073`, and the phantom Cornice under PHerc `1063` was removed. |
 | `6c88ad2a-7a6a-5055-b832-babd9f859f37` | Creates Cornice `1 (Fackelmann)` under PHercs `244`, `456`, `461`, `1603` | Redundant with B2 metadata. Could potentially be removed. |
 | `4ca2ccaa-181d-5046-bb65-b18280595e79` | Pezzo `Scorza` under PHerc `465` | |
 | `67105cd9-9755-5bd0-9194-2444874fd54a` | Pezzo `Scorza` under PHerc `467` | |
