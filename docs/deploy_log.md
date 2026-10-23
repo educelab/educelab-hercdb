@@ -7,7 +7,7 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
-## 2026-10-22 — #61: shared trays' uuid-sheet names moved onto the EduceLabID
+## 2026-10-22 — #61: shared trays' uuid-sheet names moved onto the EduceLabID (.43 and .41)
 
 `preprocessing/fix_shared_tray_names.py --apply`. On every EduceLabID assigned to more than
 one node, it moves the uuid-sheet row's names onto the EduceLabID (`sheet_pherc`,
@@ -16,6 +16,8 @@ then with `--apply`, then read-only again (0 left).
 
 - **.43:** 48 nodes cleaned (47 PHercs, e.g. `924-935` off 924 and 935, plus `2 (oslo)` off
   1191's `1 (Osloense)`); names recorded on 22 trays.
+- **.41:** the same 48 nodes and 22 trays, with the same result. Run from the workstation
+  with the `~/.educedb.prod` credentials; the script printed the target URI first.
 
 ## 2026-10-22 — APOC on .43
 
