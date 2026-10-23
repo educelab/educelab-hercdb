@@ -148,11 +148,11 @@ def describe_tray(artifacts: list[dict]) -> dict:
     EduceLabID is assigned to (dicts with ``pherc``/``cornice``/``pezzo``).
 
     Kind and method are its most specific object's: a cornice-level object over
-    a pezzo on it (``02160e53``), any object over the bare papyrus (72, 1362,
-    1363 until #40). ``papyri`` are the papyrus names on the tray in natural
-    order. With one papyrus or none, the label is that object's; with several
-    it is the tray's own name and the papyri, "Cornice 1 (Osloense): PHerc.
-    216, 219, 225".
+    a pezzo on it (``02160e53``), any object over the bare papyrus (as 72,
+    1362 and 1363 were before #40). ``papyri`` are the papyrus names on the
+    tray in natural order. With one papyrus or none, the label is that
+    object's; with several it is the tray's own name and the papyri,
+    "Cornice 1 (Osloense): PHerc. 216, 219, 225".
     """
     described = [(a, describe(a['pherc'], a['cornice'], a['pezzo'])) for a in artifacts]
     if not described:

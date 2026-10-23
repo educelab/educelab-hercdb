@@ -352,9 +352,11 @@ with open(uuid_csv, 'r') as csvfile:
                     loader.set_alias_on_assigned_node(uuid, ph_name, cor_pezzo_name)
                 elif 'PHerc' in object_info or 'Casetta' in object_info:
                     # UUID sits on the PHerc/Casetta itself; create the Cornice
-                    # using the UUID sheet's name as displayName.
+                    # using the UUID sheet's name as displayName, and move the
+                    # UUID onto it: it names that tray, not the papyrus (#40).
                     anchor = object_info.get('PHerc') or object_info.get('Casetta')
                     loader.set_pherc_and_cornice_names(uuid, anchor, ph_name, cor_pezzo_name)
+                    loader.unassign_pherc_if_child_assigned(uuid, anchor)
                 else:
                     # No node assigned to this UUID yet — fall back to creating
                     # PHerc/Cornice from the UUID sheet alone.

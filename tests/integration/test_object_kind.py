@@ -91,9 +91,18 @@ class TestObjectKind(unittest.TestCase):
         self.assertEqual(result['pherc']['shared_with'], [])
         self.assertEqual(nodes['Cass.75']['shared_with'], [])
 
+    def test_no_papyrus_carries_a_uuid_its_own_object_has(self):
+        # #40: 72, 1362 and 1363 had their Cass. tray's UUID on the papyrus too
+        # (preprocessing/fix_pherc_level_uuids.py removes it).
+        records, _, _ = self.db._run_query("""
+            MATCH (e:EduceLabID)-[:ASSIGNED_TO]->(ph:PHerc)
+            WHERE EXISTS { (ph)-[:HAS*1..2]->()<-[:ASSIGNED_TO]-(e) }
+            RETURN e.uuid AS uuid, ph.displayName AS pherc
+            """)
+        self.assertEqual(records, [])
+
     def test_every_assigned_object_gets_a_kind(self):
-        # Every row and every artifact on a shared tray. A UUID on a PHerc node
-        # (72, 1362, 1363 until #40) reports kind "papyrus".
+        # Every row and every artifact on a shared tray.
         for row in self.db.list_artifacts():
             for artifact in [row, *row['artifacts']]:
                 with self.subTest(uuid=row['uuid'], artifact=artifact['displayName']):
