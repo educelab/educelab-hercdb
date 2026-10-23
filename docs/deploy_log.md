@@ -7,7 +7,7 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
-## 2026-10-22 — #40: papyrus-level UUIDs removed on .43
+## 2026-10-22 — #40: papyrus-level UUIDs removed on .43 and .41
 
 `preprocessing/fix_pherc_level_uuids.py --apply`. It removes a PHerc's `ASSIGNED_TO` when
 one of that PHerc's own objects carries the same UUID. It was run read-only first, then with
@@ -16,6 +16,8 @@ one of that PHerc's own objects carries the same UUID. It was run read-only firs
 - **.43:** removed 3 edges: 72 (`a7bee49b`, also on `Cass.7`), 1362 (`caa97a09`) and 1363
   (`614efdb7`, both also on `Cass.75`). `/all-datasets` no longer lists their datasets
   twice (72: 12 → 6 rows; 1362 and 1363: 6 → 3).
+- **.41:** the same 3 edges removed, with the same result. Run from the workstation with
+  the `~/.educedb.prod` credentials; the target URI was checked first.
 
 ## 2026-10-21 — REST server moved to a PyPI venv; 0.3.10 on .43 and .41 (#52)
 
