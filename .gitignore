@@ -122,7 +122,8 @@ dmypy.json
 # Local folder for input data
 test_data/
 scripts/data/
-input_data/
+input_data/*
+!input_data/extra_scan_links.csv
 tmp/
 
 # config, secret, local test files

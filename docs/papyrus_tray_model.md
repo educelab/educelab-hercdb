@@ -154,7 +154,7 @@ material, so they belong in a tray view, not the papyrus list.
    dropped in the 2026 CSVs (`data_review_notes.md` §5). Restore it with a
    hand-kept list of extra links that `scan_loader` re-applies after
    `--replace`, like the excluded-test-scans list. Photogrammetry was captured
-   per tray and needs nothing.
+   per tray and needs nothing. Done in #43 (`input_data/extra_scan_links.csv`).
 5. **Relation edges** (own issue): parse the three relations above into
    `STORED_WITH`, `KNOWN_AS` and `SAME_SCROLL_AS` edges between papyri. Parse
    conservatively (hand-entered text: `cr 1`, `?`, `olim`, `465/II` vs `465/2`,

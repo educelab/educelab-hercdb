@@ -158,8 +158,9 @@ warrant confirmation.
 - **1 dropped secondary `sample uuid 2` link** — 2023 spectral scan `ce015560-122b-46dc-a5cd-915191a3261d`
   had a second sample `c5ca1b3a-5853-54cf-9ced-43b86fccd0b0` in addition to its primary
   `10517d86-92b4-52de-b9e3-caae671ebec0`. The 2026 schema removed `sample uuid 2`, so only the primary
-  `BELONGS_TO` link was recreated. **Confirm whether the secondary association should be preserved**
-  (and, if so, how, since the source column is gone).
+  `BELONGS_TO` link was recreated. **Resolved 2026-10-22 (#43):** the scan shows both trays, so the
+  link to Right is kept in `input_data/extra_scan_links.csv`, which `scan_loader` re-applies after
+  every load.
 
 **2023 CSVs retired (2026-08-03).** The two 2023 scan CSVs (`photogrammetry-scans-20231107.csv`,
 `spectral-scans-20231108.csv`) were verified fully subsumed by the current 2026 files
