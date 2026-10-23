@@ -7,7 +7,7 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
-## 2026-10-22 — #45: two-number papyri's numbers added as aliases
+## 2026-10-22 — #45: two-number papyri's numbers added as aliases (.43 and .41)
 
 `preprocessing/migrate_two_number_aliases.py --apply`. It adds both numbers of each
 two-number papyrus to its `aliases`; `displayName` is unchanged. It was run read-only first,
@@ -15,6 +15,8 @@ then with `--apply`, then read-only again (0 left).
 
 - **.43:** 7 papyri (`1007/1673`, `1078/1080`, `1479/1417`, `152/157`, `1577/1579`,
   `336/1150`, `908/1390`). "1673" and "1007" now resolve to `1007/1673` at score 100.
+- **.41:** the same 7 papyri, with the same result. Run from the workstation with the
+  `~/.educedb.prod` credentials; the script printed the target URI first.
 
 ## 2026-10-22 — #43: 76 Cr 05 LR scan linked to Right (.43 and .41)
 
