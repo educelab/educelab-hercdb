@@ -257,6 +257,16 @@ class PhercGraphDatabaseLoader:
             cor_aliases=cor_aliases, ph_aliases=ph_aliases
         )
 
+    def unassign_pherc_if_child_assigned(self, uuid, pherc_display_name):
+        """Drop the EduceLabID's ASSIGNED_TO on the PHerc when one of the
+        PHerc's own Cornici/Pezzi carries it too: the UUID names that tray, not
+        the papyrus (#40; 72, 1362, 1363, whose metadata rows carry the UUID)."""
+        self._run_query("""
+            MATCH (e:EduceLabID {uuid:$uuid})-[r:ASSIGNED_TO]->(ph:PHerc {displayName:$pherc_display_name})
+            WHERE EXISTS { (ph)-[:HAS*1..2]->()<-[:ASSIGNED_TO]-(e) }
+            DELETE r
+            """, uuid=uuid, pherc_display_name=pherc_display_name)
+
     def set_ph_name(self, uuid, pherc_name):
         """
         UUID phase: record `pherc_name` as a `name` alias on the PHerc/Casetta

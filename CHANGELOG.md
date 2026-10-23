@@ -13,6 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - `label` no longer reads `"PHerc. 4 PHerc. s.n."` for the papyrus `4 PHerc. s.n.`.
+- **72, 1362 and 1363 had their `Cass.` tray's UUID on the papyrus too** (#40), so `/all-datasets` listed their datasets twice. The metadata loader now keeps the UUID on the `Cass.` node only, and `preprocessing/fix_pherc_level_uuids.py --apply` removes the extra edges from an existing graph.
 
 ---
 

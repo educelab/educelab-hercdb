@@ -41,7 +41,7 @@ team** (scan naming and capture).
 | [Q-04](#q-04) | `1 (Oslo)` on 1208 is `1 (Osloense)`? | Papyrologists | open (agreed internally) | #42, naming `method` |
 | [Q-05](#q-05) | Is PHerc 1063 on tray `d5b9ebc4`, or is it 1073? | Papyrologists | open (agreed internally) | #42, loader hard-coding |
 | [Q-06](#q-06) | Are the loader's hard-coded UUID cases still needed? | Technical lead | open | `metadata_loader.py` |
-| [Q-07](#q-07) | 72 / 1362 / 1363: is the UUID on the `Cass.` node, not the papyrus? | Papyrologists | open (agreed internally) | #40 |
+| [Q-07](#q-07) | 72 / 1362 / 1363: is the UUID on the `Cass.` node, not the papyrus? | Papyrologists | closed 2026-10-22 | #40 |
 | [Q-08](#q-08) | Are `1135 A`, `955 A-B`, `1256 A I-II`, `133 A IV gamma` pieces of their base papyrus? | Papyrologists | open | #46 |
 | [Q-09](#q-09) | Is the `Cassetto` placeholder a whole cassetto for Cass. 52 and 98 too? | Papyrologists | open | #23 `kind` |
 | [Q-10](#q-10) | Label form for a whole cassetto | Technical lead | open | #23 `label`, UI |
@@ -135,10 +135,10 @@ loader's hard-coded list says 1063, and the metadata CSV says 1073.
 **72, 1362 and 1363 each have their UUID on both the papyrus and its `Cass.`
 node. Is the UUID the `Cass.` piece's alone?**
 
-- **Answerer:** Papyrologists. Status: open (agreed internally 2026-10-19).
-- **Assumption:** yes. These are single pieces taken out of a cassetto. The
-  metadata CSV rows are wrong, and the papyrus-level `ASSIGNED_TO` should go.
-- **Affects:** #40.
+- **Answerer:** Papyrologists. Status: closed 2026-10-22.
+- **Answer:** yes (agreed 2026-10-19). These are single pieces taken out of a
+  cassetto. The metadata CSV rows are wrong, and the papyrus-level
+  `ASSIGNED_TO` edges were removed in #40.
 - **Source:** `papyrus_tray_model.md` decision 2; `data_review_notes.md` §4;
   `graph_data_audit.md` §2.
 
