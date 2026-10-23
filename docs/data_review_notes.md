@@ -112,6 +112,8 @@ These UUIDs are hard-coded in `src/educelab/hercdb/loader/metadata_loader.py` (a
 
 The UUID sheet (`uuid_file_*.csv`) often uses short labels like `1 (Oslo)` while metadata uses the full name `1 (Osloense)`. The loader now records the UUID-sheet form as `name` on the existing node (the `displayName` is set from the metadata form). Examples below — these all resolve correctly today; listed here only as a record of the duality.
 
+On a **shared tray** the uuid-sheet row names the tray, not each papyrus on it (`1157-1191` / `2 (oslo)`: 1157's Cornice 2 and 1191's Cornice 1 are one tray). Until 2026-10-22 the loader copied those names onto every node, giving 1191's `1 (Osloense)` the alias `2 (oslo)` and every papyrus on a shared tray the row's list of papyri. They now live on the EduceLabID as `sheet_pherc` / `sheet_cornice` (#61).
+
 - `(Oslo)` ↔ `(Osloense)` — pervasive; affects most B1/B2 entries above
 - `Cass.78 s.n. C/D/E/F` (UUID sheet) ↔ `Cass. 78 s.n. C/D/E/F` (metadata)
 - `cd2d27bf`: UUID sheet `1083 = s.n. A cass. 92` ↔ metadata PHerc `1083`

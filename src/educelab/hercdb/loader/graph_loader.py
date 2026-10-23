@@ -44,6 +44,32 @@ def _data_root_relative(path, rel_raw_dir: str):
     return f'{rel_raw_dir}/{normalized}'
 
 
+# A uuid-sheet row names a *tray*. When the tray is shared by several papyri,
+# its names ("1157-1191", "2 (oslo)") apply to the tray, not to each node on it
+# (#61). These two decide whether a sheet name is a form of one node's own name.
+
+def _squash(name) -> str:
+    """Lowercased, punctuation and spaces dropped, a leading "PHerc" removed."""
+    return re.sub(r'^pherc', '', re.sub(r'[\W_]+', '', str(name or '').lower()))
+
+
+def names_papyrus(sheet_name, display_name) -> bool:
+    """Whether a uuid-sheet PHerc value is this papyrus's name, up to spacing,
+    punctuation and a "PHerc" prefix: "s.n. I-III Cass CXIV" for "PHerc. s.n.
+    I-III Cass CXIV" yes; "924-935" for "924", or "118a" for "118", no."""
+    sheet = _squash(sheet_name)
+    return bool(sheet) and sheet == _squash(display_name)
+
+
+def same_number(sheet_name, display_name) -> bool:
+    """Whether a uuid-sheet cornice/pezzo name has this node's leading number
+    ("1 (Oslo)" for "1 (Osloense)" yes, "2 (oslo)" for "1 (Osloense)" no). A
+    name with no leading number ("Oslo") doesn't contradict any node."""
+    sheet = re.match(r'\s*(\d+)', str(sheet_name or ''))
+    own = re.match(r'\s*(\d+)', str(display_name or ''))
+    return not (sheet and own) or sheet[1] == own[1]
+
+
 class PhercGraphDatabaseLoader:
 
     def __init__(self, uri=None, user=None, password=None):
@@ -196,7 +222,11 @@ class PhercGraphDatabaseLoader:
         creating a duplicate keyed off a different displayName. Also adds the
         alias on the ancestor PHerc/Casetta. The curated metadata displayName
         is preserved (coalesce only fills it when missing).
+
+        A shared tray is handled by ``_set_names_on_shared_tray`` instead.
         """
+        if self._set_names_on_shared_tray(uuid, ph_name, alias_name):
+            return
         node_aliases = self._expand_aliases(alias_name)
         ph_aliases = self._expand_aliases(ph_name)
         self._run_query("""
@@ -214,6 +244,41 @@ class PhercGraphDatabaseLoader:
             node_aliases=node_aliases, ph_aliases=ph_aliases,
             node_primary=(node_aliases[0] if node_aliases else None),
             ph_primary=(ph_aliases[0] if ph_aliases else None))
+
+    def _set_names_on_shared_tray(self, uuid, ph_name, node_name=None) -> bool:
+        """UUID phase, for a tray assigned to several nodes (#61). Returns False,
+        doing nothing, for a tray with one node.
+
+        The uuid-sheet row names the tray ("1157-1191", "2 (oslo)"), so its names
+        go on the EduceLabID as ``sheet_pherc`` / ``sheet_cornice``. They are
+        added to a node only where they name it: the cornice name where its
+        leading number matches (``same_number``), the PHerc name where it names
+        that papyrus alone (``names_papyrus``).
+        """
+        records, _, _ = self._run_query("""
+            MATCH (e:EduceLabID {uuid: $uuid})-[:ASSIGNED_TO]->(n)
+            OPTIONAL MATCH (n)<-[:HAS*0..2]-(p) WHERE p:PHerc OR p:Casetta
+            RETURN elementId(n) AS n_id, n.displayName AS n_name, labels(n) AS n_labels,
+                   elementId(p) AS p_id, p.displayName AS p_name
+            """, uuid=uuid)
+        if not records or len({r['n_id'] for r in records}) < 2:
+            return False
+        nodes = {r['n_id'] for r in records
+                 if node_name and 'PHerc' not in r['n_labels'] and same_number(node_name, r['n_name'])}
+        phercs = {r['p_id'] for r in records if ph_name and r['p_id'] and names_papyrus(ph_name, r['p_name'])}
+        self._run_query("""
+            MATCH (e:EduceLabID {uuid: $uuid})
+            SET e.sheet_pherc = coalesce($ph_name, e.sheet_pherc),
+                e.sheet_cornice = coalesce($node_name, e.sheet_cornice)
+            """, uuid=uuid, ph_name=ph_name or None, node_name=node_name or None)
+        for ids, name in ((nodes, node_name), (phercs, ph_name)):
+            if ids:
+                self._run_query("""
+                    MATCH (x) WHERE elementId(x) IN $ids
+                    SET x.name = $name,
+                        x.aliases = apoc.coll.toSet(coalesce(x.aliases, []) + $aliases)
+                    """, ids=list(ids), name=name, aliases=self._expand_aliases(name))
+        return True
 
     # Add EduceLabID nodes
     # Each EduceLabID node has an id and a uuid
@@ -276,7 +341,10 @@ class PhercGraphDatabaseLoader:
         whenever the EduceLabID was already linked to a Cornice/Pezzo from the
         metadata phase. If the EduceLabID has no PHerc/Casetta ancestor at
         all, fall back to creating one keyed on pherc_name as displayName.
+        A shared tray is handled by ``_set_names_on_shared_tray`` instead.
         """
+        if self._set_names_on_shared_tray(uuid, pherc_name):
+            return
         ph_aliases = self._expand_aliases(pherc_name)
         records, _, _ = self._run_query("""
             MATCH (e:EduceLabID {uuid:$uuid})-[:ASSIGNED_TO]->(n)<-[:HAS*0..2]-(p)

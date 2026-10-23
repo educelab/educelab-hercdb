@@ -7,6 +7,26 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-10-22 — #61: shared trays' uuid-sheet names moved onto the EduceLabID
+
+`preprocessing/fix_shared_tray_names.py --apply`. On every EduceLabID assigned to more than
+one node, it moves the uuid-sheet row's names onto the EduceLabID (`sheet_pherc`,
+`sheet_cornice`) and removes them from nodes they don't name. It was run read-only first,
+then with `--apply`, then read-only again (0 left).
+
+- **.43:** 48 nodes cleaned (47 PHercs, e.g. `924-935` off 924 and 935, plus `2 (oslo)` off
+  1191's `1 (Osloense)`); names recorded on 22 trays.
+
+## 2026-10-22 — APOC on .43
+
+The loader's alias writes use `apoc.coll.toSet`. .41 had APOC and .43 didn't, so those
+writes silently did nothing on .43 (the error is swallowed, #34).
+
+- **.43:** copied the bundled `labs/apoc-5.26.31-core.jar` into `plugins/`, set
+  `dbms.security.procedures.unrestricted=apoc.*` (as on .41), and restarted Neo4j.
+  `RETURN apoc.version()` gives 5.26.31. `plugins/` isn't touched by the nightly restore.
+- **.41:** unchanged (APOC 5.26.27 on Neo4j 5.26.30).
+
 ## 2026-10-22 — #59: phantom 1063 cornice removed on .43 and .41
 
 `preprocessing/fix_1063_phantom_cornice.py --apply`. It deletes `Cornice 1 (Fackelmann)` under

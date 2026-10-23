@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - `label` no longer reads `"PHerc. 4 PHerc. s.n."` for the papyrus `4 PHerc. s.n.`.
 - **The metadata loader put PHerc 1063 on tray `d5b9ebc4` instead of 1073** (#59), because of a typo in its hard-coded list. `preprocessing/fix_1063_phantom_cornice.py --apply` removes the resulting phantom cornice from an existing graph.
+- **A shared tray's uuid-sheet names were copied onto every papyrus on it** (#61): each got the row's list of papyri (`924-935`, `1157-1191`, …) as an alias and `name`, and 1191's `1 (Osloense)` got 1157's `2 (oslo)`. The loader now keeps them on the EduceLabID as `sheet_pherc` / `sheet_cornice`, and `preprocessing/fix_shared_tray_names.py --apply` cleans an existing graph.
 - **72, 1362 and 1363 had their `Cass.` tray's UUID on the papyrus too** (#40), so `/all-datasets` listed their datasets twice. The metadata loader now keeps the UUID on the `Cass.` node only, and `preprocessing/fix_pherc_level_uuids.py --apply` removes the extra edges from an existing graph.
 
 ---

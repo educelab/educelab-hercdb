@@ -54,6 +54,7 @@ team** (scan naming and capture).
 | [Q-17](#q-17) | 176 Cr 3 / Cr 10 swap: does `negatives.csv` agree? | Technical lead | open | #49 |
 | [Q-18](#q-18) | What does a pipeline on a multi-papyrus tray belong to? | Technical lead | open | #15, pipeline UI list |
 | [Q-19](#q-19) | Are `folded sheet`, `frammento di papiro ercolanese`, `s.n. frammenti 1-2` loose material, not papyri? | Papyrologists | open | #23 `kind`; `GET /pherc` (unchanged until answered) |
+| [Q-20](#q-20) | Tray `a0eaa0ad`: is it `s.n. IV Cass CXIV` (uuid sheet) or `XCIV` (metadata)? | Papyrologists | open | the papyrus's name and aliases |
 
 ---
 
@@ -278,3 +279,19 @@ right?**
   /pherc` still lists them, unchanged. Dropping them from `/pherc` (which the
   UI's scroll list already does) waits for this answer.
 - **Affects:** #23 `naming.is_papyrus`; a possible `GET /pherc` change.
+
+## Q-20
+
+**Tray `a0eaa0ad` holds PHerc 1828 and the papyrus it is now catalogued as. The
+uuid sheet names that papyrus `s.n. IV Cass CXIV`, the metadata CSV
+`PHerc. s.n. IV Cass XCIV`. Which cassetto is it, CXIV or XCIV?** The two
+Roman numerals have their letters swapped, so one sheet has a typo. Its
+neighbour `PHerc. s.n. I-III Cass CXIV` is CXIV in both sheets.
+
+- **Answerer:** Papyrologists. Status: open (raised 2026-10-22).
+- **Assumption:** the metadata form (`XCIV`) is the papyrus's name, as
+  loaded. The uuid sheet's form is kept on the tray (`sheet_pherc`) and not
+  as an alias of the papyrus.
+- **Affects:** the papyrus's displayName and aliases; whichever sheet is
+  wrong.
+- **Source:** `data_review_notes.md` §1 B1 (`a0eaa0ad`); #61.
