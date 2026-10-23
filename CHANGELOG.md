@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - `label` no longer reads `"PHerc. 4 PHerc. s.n."` for the papyrus `4 PHerc. s.n.`.
 - **The metadata loader put PHerc 1063 on tray `d5b9ebc4` instead of 1073** (#59), because of a typo in its hard-coded list. `preprocessing/fix_1063_phantom_cornice.py --apply` removes the resulting phantom cornice from an existing graph.
+- **72, 1362 and 1363 had their `Cass.` tray's UUID on the papyrus too** (#40), so `/all-datasets` listed their datasets twice. The metadata loader now keeps the UUID on the `Cass.` node only, and `preprocessing/fix_pherc_level_uuids.py --apply` removes the extra edges from an existing graph.
 
 ---
 

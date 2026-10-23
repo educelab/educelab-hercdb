@@ -126,6 +126,8 @@ Cases where the UUID sheet's PHerc value doesn't directly match a metadata `Papy
 - `614efdb7-4095-56f1-b234-35b4a3bcac1a` — Same pattern, PHerc `1363` + Cornice `Cass.75`.
 - `a7bee49b-cca5-53dc-b7cd-82c44c49ca2a` — UUID sheet PHerc `72 frammento`, Cornice `Cass.7`. Metadata PHerc `72` exists but UUID sheet uses the longer label `72 frammento` as the alternate name. Confirm intended.
 
+**Resolved 2026-10-22 (#40):** the metadata CSV also put these three UUIDs on the papyrus row (the only 3 of 1871 papyrus rows with one), so each was assigned to both the PHerc and its `Cass.` node. These are cassetto pieces imaged alone, so each UUID stays on the `Cass.` node only. The loader now drops the papyrus-level edge (`unassign_pherc_if_child_assigned`), and `preprocessing/fix_pherc_level_uuids.py` removes it from an existing graph (see `deploy_log.md`). The metadata rows are still wrong at the source.
+
 ---
 
 ## Section 5 — 2026 scan-CSV reload (PGS / Spectral)
