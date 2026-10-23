@@ -115,7 +115,8 @@ Checked against the 28 shared UUIDs:
 - `85e4072e` is assigned to `1 (Oslo)` (1208) and `1 (Osloense)` (1691).
   `Osloense` is correct. Fix it in the source sheet.
 - `4456f59f` is assigned to `2 (Osloense)` (1157) and `1 (Osloense)` (1191).
-  Unresolved; see the open questions.
+  Correct: one Oslo tray holding 1157's second cornice and one piece of 1191
+  laid over it. Each papyrus numbers its own cornici (Q-03, closed).
 
 The placeholder PHercs (`tavoletta` 135 cornici, `Cassetto` 5, `frammenti` 2)
 come from the Cassetti sheet. There, each row under a cassetto is one imaged
@@ -176,10 +177,8 @@ material, so they belong in a tray view, not the papyrus list.
 Tracked, with working assumptions, in [open_questions.md](open_questions.md) as
 Q-03 and Q-08. Definitions are in [glossary.md](glossary.md).
 
-1. **`4456f59f`**: the uuid sheet assigns it to 1191 `1 (Osloense)` and 1157
-   `2 (Osloense)`. In the metadata sheet, 1157's `2 (Osloense)` is marked in
-   red, but the uuid sheet lists only `1 (Osloense)` for it. Which cornice of
-   1157 is on this tray?
+1. ~~**`4456f59f`**: which cornice of 1157 is on this tray?~~ Answered from the
+   data (Q-03): 1157's `2 (Osloense)`, stored with one piece of 1191.
 2. Confirm that `1135 A`, `955 A-B`, `1256 A I-II` and `PHerc. 133 A IV gamma`
    are pieces of 1135/955/1256/133, like 1132 A-B-C.
 

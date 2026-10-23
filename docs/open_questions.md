@@ -37,7 +37,7 @@ team** (scan naming and capture).
 |---|---|---|---|---|
 | [Q-01](#q-01) | Is a shared UUID a shared tray, not one object? | Papyrologists | closed 2026-10-22 | model, `/artifacts`, #47 |
 | [Q-02](#q-02) | Is an s.n. aggregator a separate papyrus from its members? | Papyrologists | open | #44 relation edges |
-| [Q-03](#q-03) | Which cornice of 1157 is on tray `4456f59f`? | Papyrologists | open | #42 |
+| [Q-03](#q-03) | Which cornice of 1157 is on tray `4456f59f`? | Papyrologists | closed 2026-10-22 | #61 |
 | [Q-04](#q-04) | `1 (Oslo)` on 1208 is `1 (Osloense)`? | Papyrologists | closed 2026-10-22 | #42, naming `method` |
 | [Q-05](#q-05) | Is PHerc 1063 on tray `d5b9ebc4`, or is it 1073? | Papyrologists | closed 2026-10-22 | #59 |
 | [Q-06](#q-06) | Are the loader's hard-coded UUID cases still needed? | Technical lead | open | `metadata_loader.py` |
@@ -54,6 +54,7 @@ team** (scan naming and capture).
 | [Q-17](#q-17) | 176 Cr 3 / Cr 10 swap: does `negatives.csv` agree? | Technical lead | open | #49 |
 | [Q-18](#q-18) | What does a pipeline on a multi-papyrus tray belong to? | Technical lead | open | #15, pipeline UI list |
 | [Q-19](#q-19) | Are `folded sheet`, `frammento di papiro ercolanese`, `s.n. frammenti 1-2` loose material, not papyri? | Papyrologists | open | #23 `kind`; `GET /pherc` (unchanged until answered) |
+| [Q-20](#q-20) | Tray `a0eaa0ad`: is it `s.n. IV Cass CXIV` (uuid sheet) or `XCIV` (metadata)? | Papyrologists | open | the papyrus's name and aliases |
 
 ---
 
@@ -91,9 +92,16 @@ for the bundle 1832–1835?**
 red, but the uuid sheet lists only `1 (Osloense)` for it. Which cornice of
 1157 is on this tray?**
 
-- **Answerer:** Papyrologists. Status: open.
-- **Assumption:** leave the graph as loaded (1157 `2 (Osloense)`).
-- **Affects:** #42 (source-sheet fix).
+- **Answerer:** the source data. Status: closed 2026-10-22.
+- **Answer:** 1157's `2 (Osloense)`. It is one Oslo tray (`Mob.Osl.7`)
+  holding 1157's second Oslo cornice and one piece of 1191 laid over it
+  ("sovrapposto"), which is 1191's only Oslo cornice, `1 (Osloense)`. Each
+  papyrus numbers its own cornici, so the numbers differ. The metadata
+  `StoredWithPHercNum` says so on both rows, and the uuid sheet's
+  `1157-1191 / 2 (oslo)` names the tray from 1157's side. The graph was
+  right. The sheet's `2 (oslo)` had been copied onto 1191's cornice too,
+  fixed in #61.
+- **Affects:** #61.
 - **Source:** `papyrus_tray_model.md` open question 1;
   `data_review_notes.md` §1 B3.
 
@@ -278,3 +286,19 @@ right?**
   /pherc` still lists them, unchanged. Dropping them from `/pherc` (which the
   UI's scroll list already does) waits for this answer.
 - **Affects:** #23 `naming.is_papyrus`; a possible `GET /pherc` change.
+
+## Q-20
+
+**Tray `a0eaa0ad` holds PHerc 1828 and the papyrus it is now catalogued as. The
+uuid sheet names that papyrus `s.n. IV Cass CXIV`, the metadata CSV
+`PHerc. s.n. IV Cass XCIV`. Which cassetto is it, CXIV or XCIV?** The two
+Roman numerals have their letters swapped, so one sheet has a typo. Its
+neighbour `PHerc. s.n. I-III Cass CXIV` is CXIV in both sheets.
+
+- **Answerer:** Papyrologists. Status: open (raised 2026-10-22).
+- **Assumption:** the metadata form (`XCIV`) is the papyrus's name, as
+  loaded. The uuid sheet's form is kept on the tray (`sheet_pherc`) and not
+  as an alias of the papyrus.
+- **Affects:** the papyrus's displayName and aliases; whichever sheet is
+  wrong.
+- **Source:** `data_review_notes.md` §1 B1 (`a0eaa0ad`); #61.

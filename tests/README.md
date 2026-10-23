@@ -34,6 +34,7 @@ path without needing a database.
 - **test_dataset_release.py** - The dataset release flag and dataset UUIDs: defaults on create, `released_only`, releasing by dataset UUID, recording `output_dataset_uuid`, the scan reload keeping flags, and the UUID backfill reading `metadata.json`. Creates its own EduceLabID, scans and pipeline, so it needs no existing data (`unittest.TestCase`, self-cleaning)
 - **test_object_kind.py** - The derived `kind` / `method` / `label` (#23) on `list_cornici_and_pezzi_for_pherc`, `get_artifact_info`, `find_artifact_location_by_uuid` and every `list_artifacts` row (`unittest.TestCase`, read-only). The rules themselves are unit-tested without Neo4j in `tests/test_naming.py`.
 - **test_unassign_pherc.py** - The loader moves a papyrus-level UUID onto the object that also carries it, and leaves a UUID on the papyrus alone (#40) (`unittest.TestCase`, self-cleaning).
+- **test_shared_tray_names.py** - A shared tray's uuid-sheet names go on the EduceLabID, not on every node (#61): a self-cleaning loader test plus a read-only check of the whole graph. Needs APOC on the target. The name rules are unit-tested in `tests/test_shared_tray_names.py`.
 - **test_pipeline_loader.py** - Pipeline/process node creation via `PhercGraphDatabaseLoader` (script with `--create`/`--cleanup` flags; run directly, not via `unittest`)
 
 ### api/
