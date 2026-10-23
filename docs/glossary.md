@@ -27,7 +27,8 @@ record which papyri come from the same scroll (see *Same scroll as*).
 it's kept, e.g. `PHerc. s.n. Cass LI`, `Cass. 78 s.n. C`.
 
 **Two-number papyrus**. One papyrus catalogued under two numbers, written
-with a slash: `1007/1673`, `152/157`.
+with a slash: `1007/1673`, `152/157`. Either number finds it (both are
+aliases).
 
 **bis, letter suffixes**. `927bis`, `118a`, `118b`, `573B` are separate
 catalogue numbers, each its own papyrus. See [Q-11](open_questions.md#q-11).
