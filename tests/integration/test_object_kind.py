@@ -71,6 +71,26 @@ class TestObjectKind(unittest.TestCase):
         self.assertEqual(location['kind'], 'whole_cassetto')
         self.assertEqual(location['label'], 'Cassetto 51 (A)')  # Assumption Q-10
 
+    def test_tray_on_every_list_row(self):
+        rows = {r['uuid']: r for r in self.db.list_artifacts()}
+        self.assertTrue(all(r['tray']['label'] for r in rows.values()))
+        shared = rows['02160e53-71b8-52ba-bcd3-faf6c6917c66']['tray']
+        self.assertEqual(shared['label'], 'Cornice 1 (Fackelmann): PHerc. 221, 465, 466, 467, 1081')
+        self.assertEqual(rows[CASS_51_A]['tray']['kind'], 'whole_cassetto')
+        # Placeholder trays are listed: they belong in the tray view.
+        kinds = {r['tray']['kind'] for r in rows.values()}
+        self.assertTrue({'tavoletta', 'whole_cassetto', 'frammenti'} <= kinds)
+
+    def test_shared_with_other_papyri(self):
+        _, nodes = self.subdivisions('465')
+        others = {s['pherc'] for s in nodes['465/2']['shared_with']}
+        self.assertEqual(others, {'221', '466', '467', '1081'})
+        self.assertEqual(nodes['1 (Osloense)']['shared_with'], [])
+        # A papyrus sharing a UUID with its own Cass. node (#40) shares nothing.
+        result, nodes = self.subdivisions('1362')
+        self.assertEqual(result['pherc']['shared_with'], [])
+        self.assertEqual(nodes['Cass.75']['shared_with'], [])
+
     def test_every_assigned_object_gets_a_kind(self):
         # Every row and every artifact on a shared tray. A UUID on a PHerc node
         # (72, 1362, 1363 until #40) reports kind "papyrus".

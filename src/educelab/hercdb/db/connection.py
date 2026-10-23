@@ -744,7 +744,9 @@ class GraphDBConnection:
         ``displayName``, ``pherc``, ``cornice``, ``pezzo``, ``parent``) plus its
         composed ``location``; ``artifacts``, every artifact the UUID is
         assigned to (one, except for the 28 shared UUIDs, whose identity is the
-        first of these); ``datasets``; and ``catalogue``.
+        first of these); ``tray``, the tray's own ``{kind, method, label,
+        papyri}`` from ``naming.describe_tray`` (#47); ``datasets``; and
+        ``catalogue``.
 
         ``datasets`` maps each dataset type the UUID has to ``{count, complete,
         failed, released, newest_complete_version}``, pooled across the
@@ -832,6 +834,8 @@ class GraphDBConnection:
                                  or {'author': None, 'work': None, 'language': None},
                 }
             row['artifacts'].append(identity)
+        for row in rows.values():
+            row['tray'] = naming.describe_tray(row['artifacts'])
 
         def name_key(row):
             return tuple(row[k] or '' for k in ('pherc', 'cornice', 'pezzo', 'uuid'))
@@ -911,9 +915,11 @@ class GraphDBConnection:
 
         Each node (the PHerc itself, every Cornice, every Pezzo) is reported as
         ``{displayName, aliases, educelabids, parent, kind, method, label,
-        label_parts}`` — the resolution surface, the UUID bridge, the node's
-        immediate parent (so a nested Pezzo can be shown under its Cornice), and
-        what the object is, derived by ``naming.describe``. ``parent`` is ``{type, displayName}`` (e.g. a
+        label_parts, shared_with}`` — the resolution surface, the UUID bridge,
+        the node's immediate parent (so a nested Pezzo can be shown under its
+        Cornice), what the object is (``naming.describe``), and the objects of
+        *other* papyri on the same tray (#47): ``[{uuid, pherc, cornice, pezzo,
+        label}]``, empty when the tray is not shared. ``parent`` is ``{type, displayName}`` (e.g. a
         Pezzo nested under a Cornice carries ``{'type': 'Cornice', ...}``, a Pezzo
         directly under the PHerc carries ``{'type': 'PHerc', ...}``) or ``None`` for
         the PHerc itself. No other physical characteristics are included (those live
@@ -944,13 +950,23 @@ class GraphDBConnection:
 
         first = records[0]
         pherc = first['ph_display']
+        on_tray = self._artifacts_on_trays(pherc)
+
+        def shared_with(uuids):
+            return [
+                {'uuid': uuid, **{k: a[k] for k in ('pherc', 'cornice', 'pezzo', 'label')}}
+                for uuid in uuids for a in on_tray.get(uuid, []) if a['pherc'] != pherc
+            ]
+
+        ph_uuids = [u for u in (first['ph_uuids'] or []) if u]
         result = {
             'pherc': {
                 'displayName': pherc,
                 'aliases': first['ph_aliases'] or [],
-                'educelabids': [u for u in (first['ph_uuids'] or []) if u],
+                'educelabids': ph_uuids,
                 'parent': None,
                 **naming.describe(pherc),
+                'shared_with': shared_with(ph_uuids),
             },
             'cornici': [],
             'pezzi': [],
@@ -978,7 +994,22 @@ class GraphDBConnection:
                 entry.update(naming.describe(
                     pherc, r['parent_display'] if in_cornice else None, r['node_display']))
                 result['pezzi'].append(entry)
+            entry['shared_with'] = shared_with(entry['educelabids'])
         return result
+
+    def _artifacts_on_trays(self, pherc_display_name) -> dict[str, list[dict]]:
+        """uuid -> every artifact identity (with ``naming.describe`` fields) its
+        EduceLabID is assigned to, for each EduceLabID on the PHerc or below."""
+        records, _, _ = self._run_query(f"""
+            MATCH (:PHerc {{displayName: $pherc}})-[:HAS*0..2]->()<-[:ASSIGNED_TO]-(e:EduceLabID)
+            WITH DISTINCT e
+            MATCH (e)-[:ASSIGNED_TO]->(n)
+            {_ARTIFACT_IDENTITY_CYPHER}
+            """, pherc=pherc_display_name)
+        on_tray = defaultdict(list)
+        for r in records or []:
+            on_tray[r['uuid']].append(self._artifact_identity(r))
+        return on_tray
 
     def fuzzy_find_node(
         self,
