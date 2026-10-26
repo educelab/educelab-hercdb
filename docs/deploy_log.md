@@ -7,6 +7,41 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-10-26 — .41 log retention capped, after the 2026-10-23 disk-full outage
+
+**What happened.** On 2026-10-23 the .41 root disk (48 GB) filled to 100%, almost all of it
+`/var/log/syslog` and `syslog.1` (41 GB). Neo4j hit the full disk at about 16:40 UTC and
+refused all transactions (`TransactionStartFailed`) until it was restarted. Nearly every
+syslog line came from uvicorn (`hercdb.service`). Each API request writes three lines (the
+uvicorn access log, the request middleware and the handler's own line), and syslog rotated
+weekly with no size limit. The log rate rose about tenfold around 2026-10-11, which fits the
+acquisition-workflow `dispatch_all.sh` tick (added 2026-10-08, every 10 minutes): its REG/WEB
+work-lists are built on the client, with several requests per artifact. The Oct 11–23 logs
+were deleted to free space, so the per-endpoint mix can't be confirmed. The campus power and
+network outage on the morning of 2026-10-23 came after the rise and did not cause it.
+
+**Recovery (2026-10-23).** Deleted `syslog.1` and emptied `syslog` in place. Stopped the ECC
+autoqueue (scrontab). Restarted Neo4j: recovery replayed 20 transactions and rolled back 0;
+51,175 nodes. Restarted `hercdb.service`. With the autoqueue off, syslog grows about 70 MB/day.
+
+**Writes may have been lost.** From about 16:40 UTC until the restart, a write that reached
+the panicked database got the error swallowed by `_run_query` (#34), not a 503, so clients
+did not retry. Pipeline status updates from that window still need checking against what
+was archived.
+
+**Changes on .41 (2026-10-26)**, so logs keep at most two weeks:
+
+- `/etc/logrotate.d/rsyslog`: `weekly` → `daily`, `rotate 4` → `rotate 14`, added
+  `maxsize 500M`. Backup at `~/rsyslog.logrotate.bak`.
+- `/etc/systemd/system/logrotate.timer.d/hourly.conf`: logrotate runs hourly, so
+  `maxsize` is enforced within an hour.
+- `/etc/systemd/journald.conf.d/retention.conf`: `SystemMaxUse=500M`,
+  `MaxRetentionSec=2week` (journal went from 768 MB to 400 MB).
+
+Still open: a disk-usage alert, cutting the API's log lines to one per request, a 503 for
+a panicked database, and a server-side REG/WEB work-list so a tick makes one request, not
+thousands. The ECC autoqueue stays off until that last one is done.
+
 ## 2026-10-22 — #45: two-number papyri's numbers added as aliases
 
 `preprocessing/migrate_two_number_aliases.py --apply`. It adds both numbers of each
