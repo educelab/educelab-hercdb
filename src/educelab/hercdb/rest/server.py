@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 import uuid as _uuid
 from datetime import datetime as _datetime
 from pathlib import Path
@@ -30,7 +31,11 @@ except FileNotFoundError:
     print("Warning: '.tokens' file not found. No authentication will work.")
 
 # --- Setup logging ---
+# One INFO line per request, from log_requests below. Read handlers log at DEBUG
+# and uvicorn's own access line is silenced: at three lines a request, a busy
+# client filled the production disk through syslog (2026-10-23).
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logger = logging.getLogger("api-auth")
 
 # --- App and Auth ---
@@ -75,13 +80,18 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
     response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - start) * 1000
     method = request.method
     path = request.url.path
+    if request.url.query:
+        path = f"{path}?{request.url.query}"
     auth_header = request.headers.get("authorization", "")
     token = auth_header.replace("Bearer ", "") if "Bearer " in auth_header else None
     user = TOKEN_TO_USER.get(token, "unknown")
-    logger.info(f"{method} {path} called by user: {user}")
+    client = request.client.host if request.client else "-"
+    logger.info(f"{method} {path} -> {response.status_code} in {elapsed_ms:.0f} ms, user: {user} ({client})")
     return response
 
 @app.get("/check-token")
@@ -90,7 +100,7 @@ async def check_token(user: str = Depends(get_current_user)):
     Endpoint to verify if the provided token is valid.
     Returns user information if token is valid, otherwise returns 401.
     """
-    logger.info(f"Token check requested by user: {user}")
+    logger.debug(f"Token check requested by user: {user}")
     return JSONResponse(
         status_code=200, 
         content={
@@ -123,9 +133,9 @@ async def get_artifact_by_name(
     if pherc is None:
         if cornice is not None or pezzo is not None:
             raise HTTPException(status_code=422, detail="cornice and pezzo need pherc")
-        logger.info(f"User {user} called /artifacts (list)")
+        logger.debug(f"User {user} called /artifacts (list)")
         return JSONResponse(content=db.list_artifacts(), status_code=200)
-    logger.info(
+    logger.debug(
         f"User {user} called /artifacts pherc={pherc!r} "
         f"cornice={cornice!r} pezzo={pezzo!r}"
     )
@@ -151,7 +161,7 @@ async def list_phercs(user: str = Depends(get_current_user)):
     ``Cassetto``, ``frammenti``) are not scrolls and are left out. Use
     ``/artifacts?pherc=`` for one scroll's full record.
     """
-    logger.info(f"User {user} called /pherc")
+    logger.debug(f"User {user} called /pherc")
     return JSONResponse(content=db.list_phercs(), status_code=200)
 
 
@@ -183,7 +193,7 @@ async def get_subdivisions_by_name(
     The PHerc is a query parameter, as on ``/artifacts``, so ids containing a
     slash (``1007/1673``) work; ``/pherc/{pherc_id}/subdivisions`` cannot route them.
     """
-    logger.info(f"User {user} called /subdivisions pherc={pherc!r}")
+    logger.debug(f"User {user} called /subdivisions pherc={pherc!r}")
     return _subdivisions(pherc)
 
 
@@ -194,14 +204,14 @@ async def get_subdivisions(pherc_id: str, user: str = Depends(get_current_user))
     Kept for existing clients. It 404s on PHerc ids containing a slash, even
     URL-encoded, so prefer ``GET /subdivisions?pherc=``.
     """
-    logger.info(f"User {user} called /pherc/{pherc_id}/subdivisions")
+    logger.debug(f"User {user} called /pherc/{pherc_id}/subdivisions")
     return _subdivisions(pherc_id)
 
 
 @app.get("/home")
 async def home(user: str = Depends(get_current_user)):
     """Welcome endpoint."""
-    logger.info(f"User {user} called /home")
+    logger.debug(f"User {user} called /home")
     return {"message": "Welcome to the Educelab Herculaneum Database"}
 
 
@@ -222,7 +232,7 @@ async def resolve_name(
     empty result is returned as ``[]`` with HTTP 200, not 404 — this is a
     discovery endpoint, not a "fetch this thing" lookup.
     """
-    logger.info(
+    logger.debug(
         f"User {user} called /resolve name={name!r} label={label!r} "
         f"parent_pherc={parent_pherc!r} parent_cornice={parent_cornice!r}"
     )
@@ -278,7 +288,7 @@ async def get_all_datasets_by_name(
     A PHerc with no (matching) datasets returns ``200`` with ``artifacts: []``;
     404 means no PHerc has that displayName.
     """
-    logger.info(f"User {user} called /all-datasets pherc={pherc!r}")
+    logger.debug(f"User {user} called /all-datasets pherc={pherc!r}")
     return _all_datasets(pherc, dataset_type, newest_completed, released_only)
 
 
@@ -295,7 +305,7 @@ async def get_all_datasets_for_pherc(
     Kept for existing clients. It 404s on PHerc ids containing a slash, even
     URL-encoded, so prefer ``GET /all-datasets?pherc=``.
     """
-    logger.info(f"User {user} called /pherc/{pherc_id}/all-datasets")
+    logger.debug(f"User {user} called /pherc/{pherc_id}/all-datasets")
     return _all_datasets(pherc_id, dataset_type, newest_completed, released_only)
 
 
@@ -339,7 +349,7 @@ async def get_artifact(uuid: str, user: str = Depends(get_current_user)):
     most cases), and a composed ``location`` string. Lightweight — for full
     detail look the artifact up by name via ``GET /artifacts?pherc=...``.
     """
-    logger.info(f"User {user} called /artifacts/{uuid}")
+    logger.debug(f"User {user} called /artifacts/{uuid}")
     location = db.find_artifact_location_by_uuid(uuid)
     if not location:
         raise HTTPException(status_code=404, detail=f"No artifact found for UUID '{uuid}'")
@@ -369,7 +379,7 @@ async def get_datasets_for_educelabid(
     An EduceLabID with no (matching) datasets returns ``200 []``; 404 means the
     uuid is not an EduceLabID.
     """
-    logger.info(f"User {user} called /educelabid/{uuid}/datasets")
+    logger.debug(f"User {user} called /educelabid/{uuid}/datasets")
 
     ds_type = None
     if dataset_type:
@@ -436,7 +446,7 @@ async def set_dataset_released(
 @app.get("/pipelines/{pipeline_id}/stages")
 async def get_pipeline_stages(pipeline_id: str, user: str = Depends(get_current_user)):
     """Get all process stages for a given pipeline."""
-    logger.info(f"User {user} requested pipeline stages for: {pipeline_id}")
+    logger.debug(f"User {user} requested pipeline stages for: {pipeline_id}")
     result = db.get_pipeline_status(pipeline_id)
     if result:
         # Rename 'stage' -> 'proc_type' for the client API.
@@ -470,9 +480,9 @@ async def get_pipelines(
     See ``get_pipeline_summaries_page``.
     """
     if all(v is None for v in (search, sort, direction, offset, limit)):
-        logger.info(f"User {user} requested all pipelines")
+        logger.debug(f"User {user} requested all pipelines")
         return JSONResponse(content=db.get_all_pipeline_summaries(), status_code=200)
-    logger.info(f"User {user} requested pipelines search={search!r} sort={sort} dir={direction} "
+    logger.debug(f"User {user} requested pipelines search={search!r} sort={sort} dir={direction} "
                 f"offset={offset} limit={limit}")
     page = db.get_pipeline_summaries_page(search=search, sort=sort or "started", direction=direction,
                                           offset=offset or 0, limit=limit)
@@ -487,7 +497,7 @@ async def get_unprocessed_spectral_datasets(user: str = Depends(get_current_user
     valid answer (nothing left to process), so this returns 200 with `[]` rather
     than a 404.
     """
-    logger.info(f"User {user} requested unprocessed spectral datasets")
+    logger.debug(f"User {user} requested unprocessed spectral datasets")
     return JSONResponse(content=db.find_unprocessed_spectral_datasets(),
                         status_code=200)
 
@@ -499,7 +509,7 @@ async def get_ambiguous_spectral_datasets(user: str = Depends(get_current_user))
     The companion to the work-list: these need a human to say where their output
     belongs, and reporting them is what stops them being silently dropped.
     """
-    logger.info(f"User {user} requested ambiguous spectral datasets")
+    logger.debug(f"User {user} requested ambiguous spectral datasets")
     return JSONResponse(content=db.find_ambiguous_spectral_datasets(),
                         status_code=200)
 
@@ -517,7 +527,7 @@ async def get_unprocessed_datasets(proc_type: str,
     The work-list for an unattended dispatcher. An empty list is a valid answer
     (nothing left to process), so this returns 200 with `[]` rather than a 404.
     """
-    logger.info(f"User {user} requested unprocessed {proc_type} datasets")
+    logger.debug(f"User {user} requested unprocessed {proc_type} datasets")
     try:
         rows = db.find_unprocessed_datasets(proc_type.upper())
     except ValueError as e:
@@ -533,7 +543,7 @@ async def get_ambiguous_datasets(proc_type: str,
     The companion to the work-list: these need a human to say where their output
     belongs, and reporting them is what stops them being silently dropped.
     """
-    logger.info(f"User {user} requested ambiguous {proc_type} datasets")
+    logger.debug(f"User {user} requested ambiguous {proc_type} datasets")
     try:
         rows = db.find_ambiguous_datasets(proc_type.upper())
     except ValueError as e:
@@ -740,7 +750,7 @@ async def delete_pipeline(pipeline_id: str, user: str = Depends(get_current_user
 @app.get("/pipelines/{pipeline_id}/confirmation")
 async def get_pipeline_confirmation(pipeline_id: str, user: str = Depends(get_current_user)):
     """Get full pipeline summary with all stages."""
-    logger.info(f"User {user} requested confirmation for pipeline: {pipeline_id}")
+    logger.debug(f"User {user} requested confirmation for pipeline: {pipeline_id}")
     result = db.get_pipeline_confirmation(pipeline_id)
     if not result:
         raise HTTPException(

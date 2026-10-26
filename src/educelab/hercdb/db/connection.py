@@ -5,23 +5,32 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from neo4j import GraphDatabase
-from neo4j.exceptions import ServiceUnavailable, SessionExpired
+from neo4j.exceptions import DatabaseError, ServiceUnavailable, SessionExpired, TransientError
 from rapidfuzz import fuzz
 
 from educelab.hercdb import naming
 
-# Driver-level errors that mean "couldn't reach Neo4j" (e.g. the server is down
-# for its nightly backup), as opposed to a query that ran and matched nothing.
-# execute_query already retries these internally for up to
-# max_transaction_retry_time (~30s) before giving up and raising.
-_UNAVAILABLE_ERRORS = (ServiceUnavailable, SessionExpired)
+# Errors that mean Neo4j could not serve the query, as opposed to a query that
+# ran and matched nothing:
+# - ServiceUnavailable / SessionExpired: couldn't reach it (e.g. down for its
+#   nightly backup).
+# - TransientError: reachable but not ready, e.g. DatabaseUnavailable while it
+#   starts or recovers.
+# - DatabaseError: the server failed, e.g. TransactionStartFailed once the
+#   database has panicked on a full disk (2026-10-23); it refuses everything
+#   until restarted.
+# execute_query already retries the first three internally for up to
+# max_transaction_retry_time (~30s) before giving up and raising. ClientError (a
+# bad query) is deliberately not here; see #34.
+_UNAVAILABLE_ERRORS = (ServiceUnavailable, SessionExpired, TransientError, DatabaseError)
 
 
 class DatabaseUnavailableError(Exception):
-    """The Neo4j server could not be reached.
+    """The Neo4j server could not serve the query.
 
     Raised by :meth:`GraphDBConnection._run_query` when the driver reports the
-    database is unavailable (down, restarting, connection lost). Callers should
+    database is unavailable (down, restarting, connection lost) or failed
+    server-side (e.g. panicked after a full disk). Callers should
     treat this as a transient/retryable infrastructure failure — distinct from a
     query that executed successfully and returned no rows. The REST layer maps it
     to HTTP 503 so clients can retry rather than misread it as a 404.
@@ -318,12 +327,12 @@ class GraphDBConnection:
                 **params,
                 database_="neo4j",
             )
-            self.logger.info("Query executed successfully: %s", query.strip().replace('\n', ' '))
+            self.logger.debug("Query executed successfully: %s", query.strip().replace('\n', ' '))
             return records, summary, keys
         except _UNAVAILABLE_ERRORS as e:
-            # Neo4j is unreachable (e.g. down for backup). Propagate as a distinct
-            # error so the REST layer returns 503, not a misleading 404 that a
-            # swallowed None would produce.
+            # Neo4j couldn't serve the query (down for backup, starting, panicked).
+            # Propagate as a distinct error so the REST layer returns 503, not a
+            # misleading 404 that a swallowed None would produce.
             self.logger.error("Neo4j unavailable for query: %s",
                               query.strip().replace('\n', ' '), exc_info=e)
             raise DatabaseUnavailableError(str(e)) from e
