@@ -26,8 +26,9 @@ Written through the REST API from ECC by a one-off script. It read each Process'
 status first and changed only open ones (`submitted`/`running`/`archiving`), then read
 each back. The WEB work-list went from 4 to 3 rows.
 
-Dev (.43) didn't help here: its newest Process is from 2026-10-20, so it hadn't taken
-a snapshot of .41 since then (Neo4j on .43 was also down after a reboot today).
+Dev (.43) couldn't be used for this: its newest Process is from 2026-10-20. The nightly
+backups of .41 are fine (latest 2026-10-27 03:00); the dev database on .43 just hadn't
+been reloaded from one since then.
 
 ## 2026-10-27 — 0.3.12 on .43 and .41
 
