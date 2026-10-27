@@ -7,6 +7,16 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-10-27 — 0.3.11 on .41
+
+`hercdb_deploy 0.3.11`, the same day the tag published to PyPI. `/openapi.json` on .41
+reports `0.3.11`. The release ships one log line per request and a 503 for a panicked or
+starting Neo4j (#65), plus the changes since 0.3.10 (#23, #40, #43, #45, #47, #59, #61).
+The data fixes among those had already been run on .41 (entries below). Rollback:
+`hercdb_deploy 0.3.10`.
+
+The ECC autoqueue is still off; it waits on #66.
+
 ## 2026-10-26 — .41 log retention capped, after the 2026-10-23 disk-full outage
 
 **What happened.** On 2026-10-23 the .41 root disk (48 GB) filled to 100%, almost all of it
