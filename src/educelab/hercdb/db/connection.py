@@ -187,6 +187,30 @@ def _dataset_sources_cypher(anchor: str) -> str:
 # than accepted from the caller, which makes injection structurally impossible.
 _CANDIDATE_LABELS = {'SPEC': 'SpectralRaw', 'PGS': 'PGSRaw'}
 
+# The work-lists whose inputs are earlier stages' published outputs, not raw
+# scans (#66). Inputs are in the order the submitter takes them, under the keys
+# acquisition-workflow's InputSpecs use; the output is what marks an artifact
+# done. Labels are looked up here, never taken from the caller.
+_PROCESSED_WORKLISTS = {
+    'REG': {'inputs': (('pgs', 'PGSProcessed'), ('spec', 'SpectralProcessed')),
+            'output': 'Registered'},
+    'WEB': {'inputs': (('pgs', 'PGSProcessed'), ('spec', 'SpectralProcessed'),
+                       ('reg', 'Registered')),
+            'output': 'WebProcessed'},
+}
+_WORKLIST_PROC_TYPES = sorted([*_CANDIDATE_LABELS, *_PROCESSED_WORKLISTS])
+
+
+def _path_order_key(path: str | None) -> list:
+    """natsort's default key: digit runs compare as numbers, the rest as-is.
+
+    Output paths are timestamped (`<name>_<suffix>_<ts>`), so the last path in
+    this order is the newest run. Same order as the `natsorted(..., key=path)`
+    the acquisition-workflow picker uses; `re.split` with a group always yields
+    text at even indices and digits at odd ones, so lists compare like with like.
+    """
+    return [int(c) if i % 2 else c for i, c in enumerate(re.split(r'(\d+)', path or ''))]
+
 
 def _newer(a, b) -> bool:
     """Whether `a` is a later timestamp than `b`, tolerating missing values.
@@ -1941,7 +1965,7 @@ class GraphDBConnection:
         except KeyError:
             raise ValueError(
                 f"no work-list for proc_type {proc_type!r}; expected one of "
-                f"{', '.join(sorted(_CANDIDATE_LABELS))}") from None
+                f"{', '.join(_WORKLIST_PROC_TYPES)}") from None
 
         records, _, _ = self._run_query(f"""
             MATCH (d:{label})-[:BELONGS_TO]->(e:EduceLabID)
@@ -2005,6 +2029,98 @@ class GraphDBConnection:
             for r in (records or [])
         ]
 
+    def _processed_unprocessed_rows(self, proc_type: str) -> list[dict]:
+        """The REG / WEB work-list: artifacts whose inputs are published and
+        whose output is not (#66).
+
+        Moves acquisition-workflow's `worklist.candidates()` to the server, rule
+        for rule, so the dispatcher queues what it queued before at three
+        queries a tick instead of several requests per artifact:
+
+        - A candidate is an EduceLabID that some Pipeline runs FOR and that is
+          assigned to an artifact with a P.Herc.; a shared UUID reports its
+          first artifact, as ``find_artifact_location_by_uuid`` does.
+        - Its datasets are the processed outputs pooled across its REPLACES
+          chain, each read off its newest Process. One is usable when it has a
+          path and that Process is ``completed``; the newest is the last in
+          `_path_order_key` order.
+        - It is ready when every input type has a usable dataset and the output
+          type has none. Judging "done" by the output, not by a completed
+          Process, keeps a stage that finished but published nothing on the list.
+        - ``attempts`` counts Processes of `proc_type` on pipelines FOR this
+          exact UUID, whatever their status (the retry cap wants hand-run and
+          in-flight ones too); ``last_status`` / ``last_notes`` are the newest's.
+        """
+        spec = _PROCESSED_WORKLISTS[proc_type]
+        labels = sorted({label for _, label in spec['inputs']} | {spec['output']})
+
+        identity_records, _, _ = self._run_query(f"""
+            MATCH (e:EduceLabID)-[:ASSIGNED_TO]->(n)
+            WHERE EXISTS {{ (e)<-[:FOR]-(:Pipeline) }}
+            {_ARTIFACT_IDENTITY_CYPHER}
+            """)
+        identities = {}
+        for r in identity_records or []:
+            identities.setdefault(r['uuid'], r)      # first in the fixed order
+
+        dataset_records, _, _ = self._run_query("""
+            MATCH (e:EduceLabID)
+            WHERE EXISTS { (e)<-[:FOR]-(:Pipeline) } AND EXISTS { (e)-[:ASSIGNED_TO]->() }
+            MATCH (e)-[:REPLACES*0..]->(:EduceLabID)<-[:FOR]-(:Pipeline)
+                  <-[:STAGE_OF]-(proc:Process)-[:OUTPUT]->(d)
+            WHERE any(l IN labels(d) WHERE l IN $labels)
+            WITH e, d, proc ORDER BY proc.start_time DESC
+            WITH e, d, collect(proc)[0] AS newest
+            RETURN e.uuid AS uuid,
+                   [l IN labels(d) WHERE l IN $labels][0] AS ds_type,
+                   d.path AS path,
+                   newest.status = "completed" AS complete,
+                   newest.end_time AS date_end
+            """, labels=labels)
+        newest_usable = {}                           # (uuid, ds_type) -> record
+        for r in dataset_records or []:
+            if not (r['path'] and r['complete']):
+                continue
+            key = (r['uuid'], r['ds_type'])
+            current = newest_usable.get(key)
+            if current is None or _path_order_key(r['path']) > _path_order_key(current['path']):
+                newest_usable[key] = r
+
+        attempt_records, _, _ = self._run_query("""
+            MATCH (e:EduceLabID)<-[:FOR]-(:Pipeline)<-[:STAGE_OF]-(proc:Process {stage: $stage})
+            WITH e, proc ORDER BY proc.start_time DESC
+            WITH e, collect(proc) AS procs
+            RETURN e.uuid AS uuid, size(procs) AS attempts,
+                   head(procs).status AS last_status, head(procs).notes AS last_notes
+            """, stage=proc_type)
+        attempts = {r['uuid']: r for r in attempt_records or []}
+
+        rows = []
+        for uuid, identity in identities.items():
+            if not identity['pherc_name'] or (uuid, spec['output']) in newest_usable:
+                continue
+            inputs = [(key, newest_usable.get((uuid, label))) for key, label in spec['inputs']]
+            if any(ds is None for _, ds in inputs):
+                continue
+            dates = [str(ds['date_end']) for _, ds in inputs if ds['date_end']]
+            tried = attempts.get(uuid, {})
+            rows.append({
+                'uuid': uuid,
+                'pherc': identity['pherc_name'],
+                'cornice': identity['cornice_name'],
+                'pezzo': identity['pezzo_name'],
+                # The first input's path is the row's identity: what the
+                # dispatcher's retry cap and ledger key on, and what
+                # `--retry <path>` takes.
+                'path': inputs[0][1]['path'],
+                'paths': {key: ds['path'] for key, ds in inputs},
+                'date_end': max(dates) if dates else None,
+                'attempts': tried.get('attempts', 0),
+                'last_status': tried.get('last_status'),
+                'last_notes': tried.get('last_notes'),
+            })
+        return sorted(rows, key=lambda r: (r['pherc'] or '', r['cornice'] or '', r['pezzo'] or ''))
+
     @staticmethod
     def _artifact_specificity(row) -> int:
         """Pezzo beats Cornice beats bare PHerc, for picking among an ID's artifacts."""
@@ -2023,11 +2139,16 @@ class GraphDBConnection:
         return by_path
 
     def find_unprocessed_datasets(self, proc_type: str) -> list[dict]:
-        """Raw scans awaiting `proc_type`: one row per artifact, newest scan.
+        """Datasets awaiting `proc_type`: one row per artifact.
 
         Backs an unattended dispatcher, which needs a work-list it can act on
         without a human: each row carries both the dataset to process and the
         artifact fields the caller names its output directory from.
+
+        REG and WEB take earlier stages' outputs, not raw scans, and follow the
+        rules in `_processed_unprocessed_rows`; their rows add ``paths``, one
+        path per input (``pgs``, ``spec``, and for WEB ``reg``), with ``path``
+        the first of them. The rest of this docstring is the PGS / SPEC list.
 
         Three selection rules, and **the order they are applied in matters**:
 
@@ -2054,7 +2175,8 @@ class GraphDBConnection:
         because they carry no P.Herc. number to name an output directory with.
 
         Args:
-            proc_type: 'SPEC' or 'PGS'. Raises ValueError on anything else.
+            proc_type: 'SPEC', 'PGS', 'REG' or 'WEB'. Raises ValueError on
+                anything else.
 
         Returns:
             List of dicts with keys 'uuid' (the *assigned* EduceLabID, which is
@@ -2062,6 +2184,9 @@ class GraphDBConnection:
             (exactly as recorded), 'date_end', 'attempts' (Processes of this
             proc_type so far, for a retry cap), 'last_status' and 'last_notes'.
         """
+        if proc_type in _PROCESSED_WORKLISTS:
+            return self._processed_unprocessed_rows(proc_type)
+
         by_path = self._candidate_rows_by_scan(
             self._raw_candidate_rows(proc_type))
 
@@ -2090,7 +2215,14 @@ class GraphDBConnection:
 
         Returns one row per skipped *scan* (not per artifact), each with the
         artifacts it spans under 'artifacts'.
+
+        Always empty for REG and WEB: their work-list skips nothing for this
+        reason (a shared UUID is listed under its first artifact, as
+        acquisition-workflow's `candidates()` listed it).
         """
+        if proc_type in _PROCESSED_WORKLISTS:
+            return []
+
         by_path = self._candidate_rows_by_scan(
             self._raw_candidate_rows(proc_type))
 

@@ -54,7 +54,7 @@ class TestCandidateLabels(unittest.TestCase):
         # The REST layer turns this ValueError into a 400. It must be raised
         # before anything reaches the database.
         db = RecordingConnection()
-        for bad in ('REG', 'WEB', '', 'SpectralRaw', 'PGS) RETURN 1 //'):
+        for bad in ('ARCHIVE', 'reg', '', 'SpectralRaw', 'PGS) RETURN 1 //'):
             with self.subTest(proc_type=bad):
                 with self.assertRaises(ValueError):
                     db.find_unprocessed_datasets(bad)
@@ -72,7 +72,7 @@ class TestCandidateLabels(unittest.TestCase):
     def test_the_error_names_what_is_supported(self):
         db = RecordingConnection()
         with self.assertRaises(ValueError) as caught:
-            db.find_unprocessed_datasets('REG')
+            db.find_unprocessed_datasets('ARCHIVE')
         message = str(caught.exception)
         for proc_type in _CANDIDATE_LABELS:
             self.assertIn(proc_type, message)
