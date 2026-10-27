@@ -7,13 +7,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [0.3.11] - 2026-10-27
+
 ### Added
 - **Either number finds a two-number papyrus** (#45). The 7 papyri named like `1007/1673` get each number as an alias, so `/resolve?name=1673` returns `1007/1673` at score 100. The loader adds them for PHerc names (a pezzo like `465/2` isn't split), and `preprocessing/migrate_two_number_aliases.py --apply` adds them to an existing graph. `displayName` is unchanged.
 - **Extra scan links for scans that image more than one tray** (#43). `input_data/extra_scan_links.csv` lists the extra `BELONGS_TO` links, `scan_loader --extra-links` re-applies them after every load, and `python -m educelab.hercdb.loader.extra_scan_links --apply` links an existing graph. First case: the 76 Cr 05 LR spectral scan `ce015560` is listed under Right as well as Left.
 - **Artifacts say what they are: `kind`, `method` and `label`** (#23). Every artifact on `GET /artifacts` (by name, by UUID, and each list row and its `artifacts` entries) and every node on `GET /subdivisions` now carries `kind` (`papyrus`, `cornice`, `scorza`, `pezzo`, `cassetto_piece`, `whole_cassetto`, `tavoletta`, `frammenti`), `method` (`Osloense` / `Fackelmann`), and a readable `label` with its `label_parts` lineage (e.g. `"PHerc. 465, Cornice 1 (Fackelmann), Pezzo 465/2"`). They're derived from the node names by the new pure module `educelab.hercdb.naming`, ported from the pipeline UI's `naming.py` with the kind names of `docs/papyrus_tray_model.md`. Nothing is stored and no display name changes. On the dev graph the kinds match the UI's object types one-to-one, except that 28 objects the UI calls "Frammenti" are cassetto pieces and the 5 trays under the `Cassetto` placeholder are whole cassetti. The rules resting on open questions are tagged Q-09, Q-10 and Q-19 (`docs/open_questions.md`). Fields are only added, so existing clients are unaffected; `GET /pherc` is unchanged.
 - **Tray view** (#47). Each `GET /artifacts` row gets `tray`: `{kind, method, label, papyri}` for the tray as a whole (`naming.describe_tray`). A shared tray is labelled with its papyri, e.g. `"Cornice 1 (Fackelmann): PHerc. 221, 465, 466, 467, 1081"`. Each `/subdivisions` node gets `shared_with`: the objects of other papyri on the same tray.
 
+### Changed
+- **The REST server logs one line per request** (#65), down from three plus one per query: `GET /path?query -> status in N ms, user: U (client IP)`. uvicorn's access log is silenced in code, read handlers and successful queries' Cypher log at DEBUG, and the write handlers keep an INFO line recording the request. On 2026-10-23 these logs filled the production disk (`docs/deploy_log.md`).
+
 ### Fixed
+- **A Neo4j that had panicked or was still starting read as "no rows"** (#65), so writes were lost and clients didn't retry. On 2026-10-23 a full disk left Neo4j refusing every transaction (`TransactionStartFailed`) until it was restarted. `DatabaseError` and `TransientError` now raise `DatabaseUnavailableError` like a connection failure does, which the REST layer returns as 503 with `Retry-After` and `HercClient` retries. A bad query (`ClientError`) still reads as no rows (#34).
 - `label` no longer reads `"PHerc. 4 PHerc. s.n."` for the papyrus `4 PHerc. s.n.`.
 - **The metadata loader put PHerc 1063 on tray `d5b9ebc4` instead of 1073** (#59), because of a typo in its hard-coded list. `preprocessing/fix_1063_phantom_cornice.py --apply` removes the resulting phantom cornice from an existing graph.
 - **A shared tray's uuid-sheet names were copied onto every papyrus on it** (#61): each got the row's list of papyri (`924-935`, `1157-1191`, …) as an alias and `name`, and 1191's `1 (Osloense)` got 1157's `2 (oslo)`. The loader now keeps them on the EduceLabID as `sheet_pherc` / `sheet_cornice`, and `preprocessing/fix_shared_tray_names.py --apply` cleans an existing graph.
