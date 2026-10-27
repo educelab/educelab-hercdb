@@ -9,6 +9,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.3.12] - 2026-10-27
+
+### Added
+- **REG and WEB work-lists on the server** (#66). `GET /datasets/REG/unprocessed` and `GET /datasets/WEB/unprocessed` (`find_unprocessed_datasets('REG' | 'WEB')`, `HercClient.get_unprocessed_datasets`) list the artifacts whose input stages are published and whose own output is not, one row per EduceLabID. Rows have the PGS/SPEC row's fields plus `paths`, one path per input (`pgs`, `spec`, and for WEB `reg`); `path` is the first. The rules are acquisition-workflow's `worklist.candidates()`, moved to the server. That built the list on the client with several requests per artifact, about 6,000 per tick on the dev graph, and the resulting log volume filled the production disk on 2026-10-23. The server answers in three queries; on dev its REG rows matched `candidates()` field by field. `GET /datasets/{REG|WEB}/ambiguous` is always `[]`.
+
+---
+
 ## [0.3.11] - 2026-10-27
 
 ### Added
