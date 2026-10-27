@@ -522,10 +522,13 @@ async def get_ambiguous_spectral_datasets(user: str = Depends(get_current_user))
 @app.get("/datasets/{proc_type}/unprocessed")
 async def get_unprocessed_datasets(proc_type: str,
                                    user: str = Depends(get_current_user)):
-    """Raw scans awaiting `proc_type`: one row per artifact, newest scan.
+    """Datasets awaiting `proc_type`: one row per artifact.
 
-    The work-list for an unattended dispatcher. An empty list is a valid answer
-    (nothing left to process), so this returns 200 with `[]` rather than a 404.
+    The work-list for an unattended dispatcher. PGS / SPEC list raw scans;
+    REG / WEB list artifacts whose input stages are published and whose own
+    output is not, with one path per input under `paths` (#66). An empty list is
+    a valid answer (nothing left to process), so this returns 200 with `[]`
+    rather than a 404.
     """
     logger.debug(f"User {user} requested unprocessed {proc_type} datasets")
     try:

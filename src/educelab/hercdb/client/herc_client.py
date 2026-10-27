@@ -410,14 +410,16 @@ class HercClient:
             f"/pipelines/{pipeline_id}/processes/{proc_type}/status", json=body).json()
 
     def get_unprocessed_datasets(self, proc_type: str) -> list[dict]:
-        """Raw scans awaiting `proc_type`: one row per artifact, newest scan.
+        """Datasets awaiting `proc_type`: one row per artifact.
 
         The work-list for an unattended dispatcher. Each row carries the dataset
-        to process plus the artifact fields an output directory is named from.
-        An empty list means nothing is left to process.
+        to process plus the artifact fields an output directory is named from;
+        REG / WEB rows also carry `paths`, one per input (#66). An empty list
+        means nothing is left to process.
 
         Args:
-            proc_type: 'SPEC' or 'PGS'. Anything else returns 400.
+            proc_type: 'SPEC', 'PGS', 'REG' or 'WEB' (REG / WEB need a 0.3.12
+                server). Anything else returns 400.
         """
         return self._get(f"/datasets/{proc_type}/unprocessed").json()
 
