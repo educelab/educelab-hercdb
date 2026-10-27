@@ -7,6 +7,17 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-10-27 — 0.3.12 on .43 and .41
+
+`hercdb_deploy 0.3.12` on both, the same day the tag published to PyPI. `/openapi.json`
+reports `0.3.12` on .43 and .41. The release adds the server-side REG/WEB work-list
+(`GET /datasets/{REG|WEB}/unprocessed`, #66). It's an addition only, with no data change.
+On the dev graph its REG rows matched acquisition-workflow's `worklist.candidates()`, in
+3 queries in place of 6,257 requests. Rollback: `hercdb_deploy 0.3.11`.
+
+The ECC autoqueue is still off. It goes back on after acquisition-workflow calls this
+endpoint in place of `candidates()`, and after the Friday (2026-10-23) records are cleaned up.
+
 ## 2026-10-27 — 0.3.11 on .41
 
 `hercdb_deploy 0.3.11`, the same day the tag published to PyPI. `/openapi.json` on .41
