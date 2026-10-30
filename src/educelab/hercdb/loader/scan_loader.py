@@ -1,6 +1,8 @@
 import argparse
 from datetime import datetime, timezone
 import csv
+import json
+from pathlib import Path
 from educelab.hercdb.loader import PhercGraphDatabaseLoader
 from educelab.hercdb.cli.exclude_test_scans import DETACH_QUERY, load_exclusions
 from educelab.hercdb.loader import extra_scan_links
@@ -23,7 +25,13 @@ parser.add_argument('--extra-links', default=extra_scan_links.DEFAULT_PATH,
                     help='Scans that image more than one tray: extra BELONGS_TO links to add '
                          f'after loading (#43). Default: {extra_scan_links.DEFAULT_PATH}; '
                          'pass "" to skip.')
+parser.add_argument('--release-flags',
+                    help='With --replace: restore release flags from this file (written by '
+                         'an earlier run) instead of reading them from the graph. Use it to '
+                         'rerun a load that stopped after the wipe.')
 args = parser.parse_args()
+if args.release_flags and not args.replace:
+    parser.error('--release-flags only applies with --replace')
 
 negatives_file = args.negatives
 photogrammetry_file = args.photogrammetry
@@ -88,10 +96,29 @@ with open(negatives_file, 'r') as csvfile:
 # Wipe existing scan nodes before reload so changed paths / dropped rows can't
 # leave stale or duplicate PGSRaw/SpectralRaw nodes behind (negatives untouched).
 # Reviewers' release decisions live on the scan nodes, so save them before the
-# wipe and put them back after the load.
+# wipe and put them back after the load. They also go to a file: a load that
+# stops after the wipe would otherwise lose them, since a rerun would read a
+# graph that no longer has them (#34).
 saved_release_states = []
 if args.replace:
+    # Always back up what the graph holds now, even when restoring from a file,
+    # so passing the wrong file can't lose the graph's current flags.
     saved_release_states = loader.get_scan_release_states()
+    flags_file = Path('tmp') / f"scan_release_flags_{datetime.now():%Y%m%d-%H%M%S}.json"
+    flags_file.parent.mkdir(exist_ok=True)
+    flags_file.write_text(json.dumps(saved_release_states, default=str, indent=1))
+    print(f"Saved release flags for {len(saved_release_states)} scans to {flags_file}.")
+    if args.release_flags:
+        with open(args.release_flags) as f:
+            saved_release_states = json.load(f)
+        # Check before the wipe; a bad file found at restore time is too late.
+        if not all(isinstance(s, dict) and {'uuid', 'released'} <= s.keys()
+                   for s in saved_release_states):
+            raise SystemExit(f"{args.release_flags} is not a release-flags file; nothing deleted.")
+        print(f"Will restore release flags for {len(saved_release_states)} scans "
+              f"from {args.release_flags} instead.")
+    else:
+        print(f"If this load stops, rerun with --release-flags {flags_file}.")
     loader.delete_all_scan_nodes()
     print("Deleted existing PGSRaw/SpectralRaw nodes.")
 
@@ -153,8 +180,6 @@ if saved_release_states:
 if args.exclude:
     excluded = load_exclusions(args.exclude)
     records, _, _ = loader._run_query(DETACH_QUERY, scans=excluded)
-    if records is None:
-        raise SystemExit(f"Failed to detach the scans listed in {args.exclude}.")
     print(f"Detached {records[0]['detached']} of {len(excluded)} excluded "
           f"test scan(s) listed in {args.exclude}.")
 

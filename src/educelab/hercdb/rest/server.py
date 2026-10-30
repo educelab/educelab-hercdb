@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, field_validator
 from educelab import hercdb
-from educelab.hercdb.db import DatasetType, DatabaseUnavailableError
+from educelab.hercdb.db import DatasetType, DatabaseUnavailableError, QueryError
 
 # Load tokens from tokens file
 TOKENS = {}
@@ -60,6 +60,20 @@ async def database_unavailable_handler(request: Request, exc: DatabaseUnavailabl
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": "Database temporarily unavailable; please retry."},
         headers={"Retry-After": "60"},
+    )
+
+
+@app.exception_handler(QueryError)
+async def query_error_handler(request: Request, exc: QueryError):
+    """Return 500 when a query fails, so clients can tell "broken" from "empty" (#34).
+
+    No Retry-After: the same query will fail again. The Cypher error itself is
+    in the server log, not the response.
+    """
+    logger.error(f"Query failed handling {request.method} {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Database query failed."},
     )
 
 

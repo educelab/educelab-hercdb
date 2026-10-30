@@ -7,6 +7,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **A failed query is a 500, not "nothing found"** (#34). `GraphDBConnection._run_query` used to return no rows for a failed query, such as a Cypher error or bad data reaching `datetime()`. Reads then answered 404 or `200 []`, and writes were lost without any error. It now raises `QueryError` (exported from `educelab.hercdb.db`), and the REST server answers 500 with no `Retry-After`. Unavailable-database errors are unchanged and still answer 503.
+- **The loader stops on a failed write** (#34). `PhercGraphDatabaseLoader._run_query` used to print the error and return no rows, and the metadata `add_*_and_attach` methods skipped a row when its node lookup failed. A load could therefore finish having written nothing, as alias writes did on a graph without APOC. The loader now raises `DatabaseUnavailableError` or `QueryError`, so a row that used to be skipped stops the load.
+- **`scan_loader --replace` keeps release flags if a load stops.** Before wiping the scans it writes their flags to `tmp/scan_release_flags_<timestamp>.json`. If the load then stops, rerunning with `--release-flags <file>` restores the flags from that file instead of from the graph, which no longer has them.
+
 ---
 
 ## [0.3.12] - 2026-10-27

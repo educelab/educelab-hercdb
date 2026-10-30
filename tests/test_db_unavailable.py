@@ -1,4 +1,4 @@
-"""A Neo4j that can't serve a query is a 503, and each request logs one line.
+"""A Neo4j that can't serve a query is a 503, a failed query a 500, and each request logs one line.
 
 After the 2026-10-23 disk-full outage: a panicked database raised
 ``TransactionStartFailed`` (a ``DatabaseError``), which ``_run_query`` swallowed
@@ -21,7 +21,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from educelab import hercdb
-from educelab.hercdb.db.connection import DatabaseUnavailableError, GraphDBConnection
+from educelab.hercdb.db.connection import DatabaseUnavailableError, GraphDBConnection, QueryError
+from educelab.hercdb.loader.graph_loader import PhercGraphDatabaseLoader
 
 with mock.patch.object(hercdb, "connect"), mock.patch.object(hercdb.config, "_load_config"):
     from educelab.hercdb.rest import server
@@ -60,11 +61,32 @@ class TestRunQueryErrors(unittest.TestCase):
         # Guards the driver's mapping the fix relies on.
         self.assertIsInstance(panicked(), DatabaseError)
 
-    def test_bad_query_still_reads_as_no_rows(self):
-        # Unchanged for now (#34): only server-side failures become 503.
-        error = CypherSyntaxError._hydrate_neo4j(
+    def test_failed_query_raises_query_error(self):
+        # #34: a bad query or bad data must not read as "no rows".
+        syntax = CypherSyntaxError._hydrate_neo4j(
             code="Neo.ClientError.Statement.SyntaxError", message="bad")
-        self.assertEqual(FailingConnection(error)._run_query("RETRUN 1"), (None, None, None))
+        for error in (syntax, ValueError("bad datetime")):
+            with self.subTest(error=type(error).__name__):
+                with self.assertRaises(QueryError):
+                    FailingConnection(error)._run_query("RETRUN 1")
+
+    def test_loader_raises_the_same_errors(self):
+        # The loader used to print and return no rows, so a load could "finish"
+        # having written nothing (e.g. APOC missing on .43).
+        loader = PhercGraphDatabaseLoader.__new__(PhercGraphDatabaseLoader)
+        loader.driver = mock.Mock()
+        for error, expected in ((ServiceUnavailable("down"), DatabaseUnavailableError),
+                                (ValueError("no apoc"), QueryError)):
+            with self.subTest(error=type(error).__name__):
+                loader.driver.execute_query.side_effect = error
+                with self.assertRaises(expected):
+                    loader._run_query("RETURN 1")
+
+    def test_query_error_maps_to_500_without_retry_after(self):
+        response = asyncio.run(server.query_error_handler(
+            make_request("GET", "/educelabid/x/datasets"), QueryError("bad")))
+        self.assertEqual(response.status_code, 500)
+        self.assertNotIn("retry-after", response.headers)
 
     def test_unavailable_maps_to_503_with_retry_after(self):
         response = asyncio.run(server.database_unavailable_handler(

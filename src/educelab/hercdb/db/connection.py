@@ -20,8 +20,8 @@ from educelab.hercdb import naming
 #   database has panicked on a full disk (2026-10-23); it refuses everything
 #   until restarted.
 # execute_query already retries the first three internally for up to
-# max_transaction_retry_time (~30s) before giving up and raising. ClientError (a
-# bad query) is deliberately not here; see #34.
+# max_transaction_retry_time (~30s) before giving up and raising. Anything else
+# (a bad query, bad data) is a QueryError (#34).
 _UNAVAILABLE_ERRORS = (ServiceUnavailable, SessionExpired, TransientError, DatabaseError)
 
 
@@ -34,6 +34,16 @@ class DatabaseUnavailableError(Exception):
     treat this as a transient/retryable infrastructure failure — distinct from a
     query that executed successfully and returned no rows. The REST layer maps it
     to HTTP 503 so clients can retry rather than misread it as a 404.
+    """
+
+
+class QueryError(Exception):
+    """A query that Neo4j could serve failed anyway (#34).
+
+    Raised by :meth:`GraphDBConnection._run_query` for everything that is not a
+    :class:`DatabaseUnavailableError`: a Cypher error, or bad data such as an
+    unparseable date reaching ``datetime()``. Retrying will not help. The REST
+    layer maps it to HTTP 500, so a broken query is never read as "no rows".
     """
 
 
@@ -361,8 +371,10 @@ class GraphDBConnection:
                               query.strip().replace('\n', ' '), exc_info=e)
             raise DatabaseUnavailableError(str(e)) from e
         except Exception as e:
+            # Raise rather than return no rows: a caller can't tell a failed
+            # query from an empty result, and writes would vanish silently (#34).
             self.logger.error("Query failed: %s", query.strip().replace('\n', ' '), exc_info=e)
-            return None, None, None
+            raise QueryError(str(e)) from e
 
     def _delete_all(self) -> None:
         """Delete all nodes and relationships in the database. Use with caution!"""

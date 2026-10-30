@@ -33,9 +33,10 @@ Deletion is per stage, not per pipeline: one uber pipeline can have a PGS stage
 fed by a test scan and a SPEC stage fed by a real one, and ``delete_pipeline``
 would take the good SPEC output with it.
 
-Queries run on the driver directly rather than through ``_run_query``, which
-swallows errors into "no rows" -- for a destructive tool a failed query must
-stop the run, not read as "nothing to do".
+Queries run on the driver directly rather than through ``_run_query``. That
+dates from when ``_run_query`` swallowed errors into "no rows" (fixed in #34);
+for a destructive tool a failed query must stop the run, not read as "nothing
+to do".
 
 ``scan_loader.py`` re-applies the detach after every load (``--exclude``), so a
 ``--replace`` reload does not quietly re-attach these scans.

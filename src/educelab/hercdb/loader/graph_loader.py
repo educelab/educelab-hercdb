@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 from neo4j import GraphDatabase
 from educelab.hercdb import config
+from educelab.hercdb.db.connection import _UNAVAILABLE_ERRORS, DatabaseUnavailableError, QueryError
 
 # Set up basic logging
 logging.basicConfig(level=logging.INFO)
@@ -98,18 +99,18 @@ class PhercGraphDatabaseLoader:
         print("connected to Neo4j.")
 
     def _run_query(self, query, **params):
+        # Raise like GraphDBConnection._run_query: a failed write used to print
+        # and carry on, so a load could finish having written nothing (#34).
         try:
-            records, summary, keys = self.driver.execute_query(
+            return self.driver.execute_query(
                 query,
                 **params,
                 database_="neo4j",
             )
-            #print(records, summary, keys)
-            return records, summary, keys
-        
+        except _UNAVAILABLE_ERRORS as e:
+            raise DatabaseUnavailableError(str(e)) from e
         except Exception as e:
-            print(e)
-            return None, None, None
+            raise QueryError(str(e)) from e
         
     def _delete_all_nodes(self):
         # This method deletes all nodes in the database
@@ -603,11 +604,7 @@ class PhercGraphDatabaseLoader:
 
     def add_custodial_institution_node(self, node_type, pherc_display_name, institution_name, insitution_url=None,
                                        cornice_display_name=None, pezzo_display_name=None, disegni_name=None):
-        try:
-            node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
-        except Exception as e:
-            print(f"Error retrieving node ID: {e}")
-            return
+        node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
         query = """
             MATCH (n)
             WHERE elementId(n) = $node_id
@@ -638,11 +635,7 @@ class PhercGraphDatabaseLoader:
 
     def add_object_format_node_and_attach(self, node_type, pherc_display_name, object_format, object_format_url=None,
                                           cornice_display_name=None, pezzo_display_name=None, disegni_name=None):
-        try:
-            node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
-        except Exception as e:
-            print(f"Error retrieving node ID: {e}")
-            return        
+        node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
         query = """
             MATCH (n)
             WHERE elementId(n) = $node_id
@@ -660,11 +653,7 @@ class PhercGraphDatabaseLoader:
 
     def add_material_type_node_and_attach(self, node_type, pherc_display_name, material_type, material_type_url=None,
                                           cornice_display_name=None, pezzo_display_name=None, disegni_name=None):
-        try:
-            node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
-        except Exception as e:
-            print(f"Error retrieving node ID: {e}")
-            return        
+        node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
         query = """
             MATCH (n)
             WHERE elementId(n) = $node_id
@@ -684,11 +673,7 @@ class PhercGraphDatabaseLoader:
 
     def add_language_node_and_attach(self, language, node_type, pherc_display_name, language_url=None, 
                                      cornice_display_name=None, pezzo_display_name=None, disegni_name=None):
-        try:
-            node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
-        except Exception as e:
-            print(f"Error retrieving node ID: {e}")
-            return
+        node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
         query = """
             MATCH (n)
             WHERE elementId(n) = $node_id
@@ -705,11 +690,7 @@ class PhercGraphDatabaseLoader:
         self._run_query(query, **params)
 
     def add_unroller_node_and_attach(self, node_type, unroller_name, pherc_display_name, cornice_display_name=None, pezzo_display_name=None, disegni_name=None):
-        try:
-            node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
-        except Exception as e:
-            print(f"Error retrieving node ID: {e}")
-            return
+        node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
         
         query = """
             MATCH (n)
@@ -724,11 +705,7 @@ class PhercGraphDatabaseLoader:
         self._run_query(query, **params)
 
     def add_unrolling_method_node_and_attach(self, node_type, unrolling_method_name, pherc_display_name, cornice_display_name=None, pezzo_display_name=None, disegni_name=None):
-        try:
-            node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
-        except Exception as e:
-            print(f"Error retrieving node ID: {e}")
-            return
+        node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
         
         query = """
             MATCH (n)
@@ -743,11 +720,7 @@ class PhercGraphDatabaseLoader:
         self._run_query(query, **params)
 
     def add_oslo_method_node_and_attach(self, node_type, pherc_display_name, cornice_display_name=None, pezzo_display_name=None, disegni_name=None):
-        try:
-            node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
-        except Exception as e:
-            print(f"Error retrieving node ID: {e}")
-            return
+        node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
         
         query = """
             MATCH (n)
@@ -761,11 +734,7 @@ class PhercGraphDatabaseLoader:
         self._run_query(query, **params)
 
     def add_author_node_and_attach(self, node_type, author_name, pherc_display_name, cornice_display_name=None, pezzo_display_name=None, disegni_name=None):
-        try:
-            node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
-        except Exception as e:
-            print(f"Error retrieving node ID: {e}")
-            return
+        node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
         
         query = """
             MATCH (n)
@@ -780,11 +749,7 @@ class PhercGraphDatabaseLoader:
         self._run_query(query, **params)
 
     def add_cavallo_scribal_style_node_and_attach(self, node_type, cavallo_scribal_style, pherc_display_name, cornice_display_name=None, pezzo_display_name=None, disegni_name=None):
-        try:
-            node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
-        except Exception as e:
-            print(f"Error retrieving node ID: {e}")
-            return
+        node_id = self._get_node_id(node_type, pherc_display_name, cornice_display_name, pezzo_display_name, disegni_name)
         
         query = """
             MATCH (n)
@@ -919,22 +884,17 @@ class PhercGraphDatabaseLoader:
             RETURN n.uuid AS uuid, n.released AS released,
                    n.released_by AS released_by, n.released_at AS released_at
         """)
-        # _run_query hides errors as None; carrying on would wipe every flag.
-        if records is None:
-            raise RuntimeError("Could not read scan release flags; not reloading scans")
         return [dict(r) for r in records]
 
     def restore_scan_release_states(self, states: list[dict]) -> None:
         """Re-apply flags saved by `get_scan_release_states`; scans no longer loaded are skipped."""
-        records, _, _ = self._run_query("""
+        self._run_query("""
             UNWIND $states AS st
             MATCH (n {uuid: st.uuid}) WHERE n:PGSRaw OR n:SpectralRaw
             SET n.released = st.released,
                 n.released_by = st.released_by,
                 n.released_at = st.released_at
         """, states=states)
-        if records is None:
-            raise RuntimeError(f"Could not restore {len(states)} scan release flags")
 
     def delete_all_scan_nodes(self):
         """Remove every PGSRaw and SpectralRaw node (and their relationships).

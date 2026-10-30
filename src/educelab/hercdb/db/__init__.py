@@ -5,6 +5,7 @@ from .connection import (
     connect,
     DatasetType,
     DatabaseUnavailableError,
+    QueryError,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "connect",
     "DatasetType",
     "DatabaseUnavailableError",
+    "QueryError",
 ]
