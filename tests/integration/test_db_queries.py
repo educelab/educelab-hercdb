@@ -358,11 +358,13 @@ class TestFormatDatasetName(unittest.TestCase):
 class TestProcessedDatasets(unittest.TestCase):
     """Pipeline outputs surface through the dataset queries.
 
-    Self-seeds a REG pipeline (Registered output) and an unfinished WEB one
-    against a real EduceLabID, so the assertions don't wait on REG/WEB stages
-    actually running in production.
+    Self-seeds a raw scan, a REG pipeline (Registered output) and an unfinished
+    WEB one on a throwaway EduceLabID. A real one picks up real outputs, and
+    `newest_completed` then returns those instead of the seeded ones.
     """
 
+    UUID = f"TEST-PROCESSED-UUID-{_TS}"
+    RAW_PATH = f"/test/pgsraw/{_TS}"
     PIPELINE_ID = f"TEST-PROCESSED-{_TS}"
     WIP_PIPELINE_ID = f"TEST-PROCESSED-WIP-{_TS}"
     REG_PATH = f"/test/registered/{_TS}"
@@ -373,9 +375,13 @@ class TestProcessedDatasets(unittest.TestCase):
         hercdb.config._load_config()
         cls.db = hercdb.connect()
         cls.db.verify_connection()
-        artifacts = cls.db.find_all_datasets_for_pherc("1044")
-        assert artifacts, "Need at least one UUID under 1044 to test"
-        cls.uuid = artifacts[0]['uuid']
+        cls.uuid = cls.UUID
+
+        # A complete raw scan, for the raw-row regression test.
+        cls.db._run_query("""
+            MERGE (e:EduceLabID {uuid: $uuid})
+            CREATE (:PGSRaw {path: $path, uuid: $path, complete: 'True'})-[:BELONGS_TO]->(e)
+            """, uuid=cls.uuid, path=cls.RAW_PATH)
 
         # A completed REG stage -> Registered output.
         cls.db._run_query("""
@@ -411,6 +417,11 @@ class TestProcessedDatasets(unittest.TestCase):
                 OPTIONAL MATCH (proc)-[:OUTPUT]->(out)
                 DETACH DELETE out, proc, p
                 """, pid=pid)
+        cls.db._run_query("""
+            MATCH (e:EduceLabID {uuid: $uuid})
+            OPTIONAL MATCH (raw:PGSRaw {path: $path})
+            DETACH DELETE raw, e
+            """, uuid=cls.uuid, path=cls.RAW_PATH)
 
     def _one(self, datasets, path):
         matches = [d for d in datasets if d.get('path') == path]
@@ -453,6 +464,7 @@ class TestProcessedDatasets(unittest.TestCase):
         """Regression: processed enrichment must not touch raw rows."""
         raw = self.db.find_datasets_for_educelabid_with_predecessors(
             self.uuid, ds_type=hercdb.DatasetType.PGSRaw)
+        self.assertTrue(raw, "the seeded raw scan should be returned")
         for d in raw:
             self.assertNotIn('pipeline_id', d)
             self.assertNotIn('status', d)
