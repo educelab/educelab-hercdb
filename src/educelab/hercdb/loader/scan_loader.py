@@ -30,6 +30,8 @@ parser.add_argument('--release-flags',
                          'an earlier run) instead of reading them from the graph. Use it to '
                          'rerun a load that stopped after the wipe.')
 args = parser.parse_args()
+if args.release_flags and not args.replace:
+    parser.error('--release-flags only applies with --replace')
 
 negatives_file = args.negatives
 photogrammetry_file = args.photogrammetry
@@ -99,17 +101,24 @@ with open(negatives_file, 'r') as csvfile:
 # graph that no longer has them (#34).
 saved_release_states = []
 if args.replace:
+    # Always back up what the graph holds now, even when restoring from a file,
+    # so passing the wrong file can't lose the graph's current flags.
+    saved_release_states = loader.get_scan_release_states()
+    flags_file = Path('tmp') / f"scan_release_flags_{datetime.now():%Y%m%d-%H%M%S}.json"
+    flags_file.parent.mkdir(exist_ok=True)
+    flags_file.write_text(json.dumps(saved_release_states, default=str, indent=1))
+    print(f"Saved release flags for {len(saved_release_states)} scans to {flags_file}.")
     if args.release_flags:
         with open(args.release_flags) as f:
             saved_release_states = json.load(f)
-        print(f"Read release flags for {len(saved_release_states)} scans from {args.release_flags}.")
+        # Check before the wipe; a bad file found at restore time is too late.
+        if not all(isinstance(s, dict) and {'uuid', 'released'} <= s.keys()
+                   for s in saved_release_states):
+            raise SystemExit(f"{args.release_flags} is not a release-flags file; nothing deleted.")
+        print(f"Will restore release flags for {len(saved_release_states)} scans "
+              f"from {args.release_flags} instead.")
     else:
-        saved_release_states = loader.get_scan_release_states()
-        flags_file = Path('tmp') / f"scan_release_flags_{datetime.now():%Y%m%d-%H%M%S}.json"
-        flags_file.parent.mkdir(exist_ok=True)
-        flags_file.write_text(json.dumps(saved_release_states, default=str, indent=1))
-        print(f"Saved release flags for {len(saved_release_states)} scans to {flags_file}. "
-              f"If this load stops, rerun with --release-flags {flags_file}.")
+        print(f"If this load stops, rerun with --release-flags {flags_file}.")
     loader.delete_all_scan_nodes()
     print("Deleted existing PGSRaw/SpectralRaw nodes.")
 
