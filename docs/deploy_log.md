@@ -7,6 +7,29 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-10-27 — 23 Process statuses lost on 2026-10-23 recorded (.41)
+
+The jobs of 23 pipelines submitted on 2026-10-23 ended on ECC between 16:41 and 21:09 UTC,
+while Neo4j refused writes. Their reports never landed, so .41 still showed them
+`submitted` (one `archiving`) with nothing in squeue. `sacct` showed:
+
+- **20 finished:** every job, including the checksum-verified `-archive` job, ended
+  `COMPLETED`. That's 16 PGS, 3 REG (`347e759f`, `af197ef3`, `f2991bcd`) and 1 WEB
+  (`362063a2`). Set to `completed`, with the archive job's end time.
+- **3 failed:** WEB `ce4324cf`, `a9c1aa15` and `64fb3856`, whose `webify` exited 1 with
+  no archive job. Set to `failed` with the webify end time, and the note `webify exited 1;
+  report lost in the 2026-10-23 outage; recorded 2026-10-27 from sacct`. These are real
+  failures (PHerc 1180, Cornici 01, 03 and 04). They wait at the retry cap until the cause
+  is found, then `web_autoqueue.py --retry <path>`.
+
+Written through the REST API from ECC by a one-off script. It read each Process's current
+status first and changed only open ones (`submitted`/`running`/`archiving`), then read
+each back. The WEB work-list went from 4 to 3 rows.
+
+Dev (.43) couldn't be used for this: its newest Process is from 2026-10-20. The nightly
+backups of .41 are fine (latest 2026-10-27 03:00); the dev database on .43 just hadn't
+been reloaded from one since then.
+
 ## 2026-10-27 — 0.3.12 on .43 and .41
 
 `hercdb_deploy 0.3.12` on both, the same day the tag published to PyPI. `/openapi.json`
