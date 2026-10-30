@@ -584,9 +584,9 @@ class TestCrossPipelineProcessInputs(unittest.TestCase):
     def test_missing_input_records_nothing(self):
         """The relaxed MATCH must not start recording processes with no input.
 
-        `initialize_process` also returns None when `_run_query` swallows a
-        broken query, so a bare assertIsNone would pass on a REG query that
-        never works at all. The good-input call afterwards is the control: it
+        A REG query that never matches anything would also return None, so a
+        bare assertIsNone would pass on a query that never works at all. The
+        good-input call afterwards is the control: it
         proves the same query does record a Process when the inputs resolve.
         """
         proc = self.db.initialize_process(
