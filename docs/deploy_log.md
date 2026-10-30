@@ -7,6 +7,17 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-10-30 — 0.3.13 on .43 and .41
+
+`hercdb_deploy 0.3.13` on both, the same day the tag published to PyPI. `/openapi.json`
+reports `0.3.13` on .43 and .41. A failed query now answers 500 instead of 404 or
+`200 []`, and the loader stops on a failed write instead of skipping it (#34). No data
+change. Before the deploy, read-only Cypher on .41 confirmed that every Process
+`end_time` and raw-scan `date_end` parses with `datetime()`, so the dataset reads that
+sort by date don't start answering 500. On .43, `/check-token`, `/datasets/REG/unprocessed`
+and `/resolve` answered 200, and an unknown EduceLabID still answered 404. Rollback:
+`hercdb_deploy 0.3.12`.
+
 ## 2026-10-27 — 23 Process statuses lost on 2026-10-23 recorded (.41)
 
 The jobs of 23 pipelines submitted on 2026-10-23 ended on ECC between 16:41 and 21:09 UTC,
