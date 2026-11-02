@@ -7,6 +7,14 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-11-02 — .41 git clone removed; nightly restore to .43 confirmed
+
+- **.41:** the old `develop` clone and the unit backup `~/hercdb.service.clone-backup`
+  have been deleted. The server has run from the `~/hercdb-server` venv since
+  2026-10-21 (see that entry). No service change.
+- **.43:** the nightly restore of the .41 snapshot is working again, so dev is current.
+  This closes the 2026-10-27 note that .43 hadn't been reloaded since 2026-10-20.
+
 ## 2026-10-30 — 0.3.13 on .43 and .41
 
 `hercdb_deploy 0.3.13` on both, the same day the tag published to PyPI. `/openapi.json`
