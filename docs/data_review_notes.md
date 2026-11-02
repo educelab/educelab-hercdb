@@ -357,6 +357,18 @@ When the 0.3.9 `migrate_dataset_uuids.py` ran on 2026-10-21 (see `docs/deploy_lo
 - **Effect:** these nodes can't be released or withdrawn through `PUT /datasets/{uuid}/released`. Dataset reads still return them, marked not complete, so nothing downstream treats them as data.
 - **Question:** delete these nodes (and their failed Processes), or mint UUIDs for them with `--mint-missing`? Minting gives a UUID to a dataset that doesn't exist in storage.
 
+## Section 11 — Corrections made in the graph, not in the source sheets
+
+**Read this before reloading from the source sheets.** The CSVs in `input_data/` are snapshots and aren't expected to be loaded again. So some corrections were made in the graph only, and the sheets still hold the old, wrong values. A reload from them undoes every row below. After any reload, re-apply each row's fix (each script refuses to write unless it finds the exact state it expects).
+
+Corrections that a reload keeps on its own aren't listed here, because they live in the loader or in a file it re-reads: #40, #45, #59, #61 (loader code), #43 (`extra_scan_links.csv`), §9 (`excluded_test_scans.csv`).
+
+| Date | Issue | What the sheets say | What the graph says | Sheet rows still wrong | Re-apply with |
+|---|---|---|---|---|---|
+| 2026-11-02 | #49 | PHerc 176: `d52ae541` (scanned 2022-12-22) on Cornice 3, `9a333479` (scanned 2022-12-23) on Cornice 10 | Swapped: `d52ae541` on Cornice 10, `9a333479` on Cornice 3. The papyrologists report the trays were labelled the wrong way round at imaging; a UUID names the physical tray, so only the `ASSIGNED_TO` edges moved and the datasets follow their UUID. | `uuid_file_20260427.csv` (`mellon-herc.01229`, `.01236`); `metadata_file_20260427.csv` and `metadata_processed_20260428.csv` (176 rows `3`, `10`); `negatives.csv` (`PHercNegatives_0016`, `_0022`; not checked whether the negatives share the mix-up, Q-17 dropped) | `preprocessing/fix_176_cr3_cr10_swap.py --apply` |
+
+Raw and processed paths for these trays still say `PHerc0176Cr03` / `Cr10` the old way round. Renaming them is the path-rename job in acquisition-workflow (GitLab work item 5).
+
 ## Maintenance
 
 Every open question here also has an entry in [open_questions.md](open_questions.md), which records the assumption we work under until it's answered. Add new questions there too.

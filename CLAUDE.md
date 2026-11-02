@@ -312,6 +312,7 @@ A **PHerc / Cornice / Pezzo is an "artifact"**, addressed on one `/artifacts` re
 - `preprocessing/` has Jupyter notebooks for data preparation from Google Sheets
 - `scan_loader.py` normalizes the `complete` CSV column case-insensitively to `"True"` / `"False"` / `"unknown"`. With `--replace` (default) it wipes and reloads PGSRaw/SpectralRaw, MERGE-ing on the scan `uuid`, so all nodes carry the canonical `complete` and the 2026 integer count columns after a reload
 - `metadata_loader.py` detects sentinel `Replacement UUID` values (anything that isn't a real UUID, e.g. `"discarded"` or `"."`) and flags the original EduceLabID as `retired = true` instead of creating a bogus successor node
+- **Before reloading from the source sheets, read `docs/data_review_notes.md` §11.** Some corrections live only in the graph (the sheets are snapshots and weren't edited), so a reload puts the old values back; §11 lists each one and the script that re-applies it (first case: #49, the PHerc 176 Cornice 3/10 UUID swap)
 
 ### CSV Anomalies and Data Review
 - `docs/data_review_notes.md` tracks CSV anomalies and modelling questions awaiting papyrologist confirmation (multi-row UUIDs, hard-coded loader edge cases, name-form inconsistencies). Add new entries there when you encounter data that the loaders pass through faithfully but that a domain expert should verify; update or remove entries once resolved.
