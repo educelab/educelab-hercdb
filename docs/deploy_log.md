@@ -7,6 +7,27 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-11-02 — #49 PHerc 176 Cornice 3/10 UUID swap (.43 and .41)
+
+`preprocessing/fix_176_cr3_cr10_swap.py --apply`: `d52ae541` moved from 176/Cornice 3 to
+Cornice 10, and `9a333479` from Cornice 10 to Cornice 3, in one transaction. Datasets and
+pipelines stay on their UUIDs. A second run reported "Already swapped". Checked through
+the .43 REST server: `/artifacts/d52ae541…` reports Cornice 10, `/artifacts/9a333479…`
+reports Cornice 3, and `/subdivisions?pherc=176` gives each cornice one of the two UUIDs.
+The source sheets were not changed; a reload from them undoes this (see
+`data_review_notes.md` §11).
+
+On .41, the same script via `tmp/with_prod.py`: the check run found the old assignment,
+then `--apply` swapped both edges and the read-back matched.
+
+## 2026-11-02 — .41 git clone removed; nightly restore to .43 confirmed
+
+- **.41:** the old `develop` clone and the unit backup `~/hercdb.service.clone-backup`
+  have been deleted. The server has run from the `~/hercdb-server` venv since
+  2026-10-21 (see that entry). No service change.
+- **.43:** the nightly restore of the .41 snapshot is working again, so dev is current.
+  This closes the 2026-10-27 note that .43 hadn't been reloaded since 2026-10-20.
+
 ## 2026-10-30 — 0.3.13 on .43 and .41
 
 `hercdb_deploy 0.3.13` on both, the same day the tag published to PyPI. `/openapi.json`

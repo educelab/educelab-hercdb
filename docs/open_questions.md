@@ -51,7 +51,7 @@ team** (scan naming and capture).
 | [Q-14](#q-14) | Scan names written `Cn`: is `Cn` the same as `Cr` (Cornice)? | Imaging team | open | 12 stranded scan UUIDs |
 | [Q-15](#q-15) | Is the excluded test-scan list complete? | Technical lead / Imaging team | open | coverage report |
 | [Q-16](#q-16) | Delete or mint UUIDs for the 433 failed outputs? | Technical lead | open | processed datasets |
-| [Q-17](#q-17) | 176 Cr 3 / Cr 10 swap: does `negatives.csv` agree? | Technical lead | open | #49 |
+| [Q-17](#q-17) | 176 Cr 3 / Cr 10 swap: does `negatives.csv` agree? | Technical lead | closed 2026-11-02 (not needed) | #49 |
 | [Q-18](#q-18) | What does a pipeline on a multi-papyrus tray belong to? | Technical lead | open | #15, pipeline UI list |
 | [Q-19](#q-19) | Are `folded sheet`, `frammento di papiro ercolanese`, `s.n. frammenti 1-2` loose material, not papyri? | Papyrologists | open | #23 `kind`; `GET /pherc` (unchanged until answered) |
 | [Q-20](#q-20) | Tray `a0eaa0ad`: is it `s.n. IV Cass CXIV` (uuid sheet) or `XCIV` (metadata)? | Papyrologists | open | the papyrus's name and aliases |
@@ -256,8 +256,12 @@ mint UUIDs for them?**
 **Before swapping the UUIDs of 176 Cornice 3 and Cornice 10, does
 `negatives.csv` agree that the trays were mislabelled at imaging?**
 
-- **Answerer:** Technical lead. Status: open.
-- **Assumption:** none. #49 waits for this check.
+- **Answerer:** Technical lead. Status: closed 2026-11-02, not needed.
+- **Answer:** not asked. The question only decided whether to edit
+  `negatives.csv` along with the other sheets, and no sheet is being edited:
+  they're snapshots, not expected to be reloaded. #49 swapped the edges in the
+  graph only, and `data_review_notes.md` §11 lists the sheet rows (including
+  `negatives.csv`) that still hold the old assignment.
 - **Affects:** #49 (and the path rename tracked in acquisition-workflow
   GitLab work item 5).
 
