@@ -188,6 +188,33 @@ set-initial-password …`) — the `neo4j` data restore alone recovers the graph
 
 ---
 
+## Dev refresh (backup VM)
+
+The backup VM also runs the dev Neo4j. `scripts/neo4j_dev_refresh.sh` reloads it each
+morning from the newest dumps, so dev starts every day as a copy of production:
+
+1. Picks the newest `neo4j-*.dump` and the `system-*.dump` with the same timestamp.
+2. Stops without touching Neo4j if that dump is older than 24 hours (`MAX_AGE_HOURS`),
+   i.e. the night's backup didn't arrive, or if the matching system dump is missing.
+3. Stops Neo4j, loads `neo4j` and `system`, starts Neo4j, and waits for the Bolt port.
+   As in the backup script, an `EXIT` trap restarts Neo4j if a load fails.
+
+Anything written to dev is gone the next morning, and dev's users and passwords become
+production's. Install and schedule it as root on the backup VM:
+
+```bash
+sudo cp scripts/neo4j_dev_refresh.sh /usr/local/sbin/neo4j_dev_refresh.sh
+sudo chmod 755 /usr/local/sbin/neo4j_dev_refresh.sh
+sudo crontab -e
+```
+```cron
+0 4 * * *  /usr/local/sbin/neo4j_dev_refresh.sh
+```
+
+It logs to `/var/log/neo4j_dev_refresh.log`; a good run ends with `dev refresh OK`.
+
+---
+
 ## Testing checklist (prove it before trusting it)
 
 1. **Dry run** on the primary: `sudo /usr/local/sbin/neo4j_backup.sh`, then confirm
