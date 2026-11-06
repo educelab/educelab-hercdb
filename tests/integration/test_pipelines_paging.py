@@ -7,6 +7,7 @@ Requires a live Neo4j connection (dev, never prod).
 import unittest
 
 from educelab import hercdb
+from educelab.hercdb import naming
 from educelab.hercdb.db.connection import PIPELINE_SORTS, _page_pipeline_summaries
 
 
@@ -51,6 +52,20 @@ class TestPipelinesPaging(unittest.TestCase):
         pid = self.rows[len(self.rows) // 2]['pipeline_id']
         page = self.db.get_pipeline_summaries_page(search=pid)
         self.assertIn(pid, [r['pipeline_id'] for r in page['rows']])
+
+    def test_label_names_the_same_artifact_as_dataset_name(self):
+        uuids = sorted({r['artifact_uuid'] for r in self.rows if r['artifact_uuid']})
+        names = self.db.find_artifact_names_by_uuids(uuids)
+        for r in self.rows:
+            n = names.get(r['artifact_uuid'])
+            expected = naming.label(n['pherc'], n['cornice'], n['pezzo']) if n else None
+            self.assertEqual(r['label'], expected, r['pipeline_id'])
+        self.assertTrue(any(r['label'] for r in self.rows))
+
+    def test_search_by_label(self):
+        drawer = next(r for r in self.rows if (r['label'] or '').startswith('Tavoletta'))
+        page = self.db.get_pipeline_summaries_page(search=drawer['label'])
+        self.assertIn(drawer['pipeline_id'], [r['pipeline_id'] for r in page['rows']])
 
 
 if __name__ == "__main__":

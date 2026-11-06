@@ -1,4 +1,5 @@
-"""Server-side filter, sort and paging on GET /pipelines (#26).
+"""Server-side filter, sort and paging on GET /pipelines (#26), and the label
+it searches and sorts on (#80).
 
 The rules match the pipeline UI's in-process `_page()`, which this replaces.
 Exercises the paging function on fixed rows and calls the handler with the DB
@@ -10,22 +11,33 @@ import unittest
 from unittest import mock
 
 from educelab import hercdb
-from educelab.hercdb.db.connection import PIPELINE_SORTS, _page_pipeline_summaries
+from educelab.hercdb.db.connection import PIPELINE_SORTS, GraphDBConnection, _page_pipeline_summaries
 
 with mock.patch.object(hercdb, "connect"), mock.patch.object(hercdb.config, "_load_config"):
     from educelab.hercdb.rest import server
 
 
-def summary(pid, name='', start='', types=(), version=None, status='completed', uuid=''):
-    return {'pipeline_id': pid, 'dataset_name': name, 'start_time': start, 'proc_types': list(types),
-            'version': version, 'status': status, 'artifact_uuid': uuid}
+def summary(pid, name='', start='', types=(), version=None, status='completed', uuid='', label=None):
+    return {'pipeline_id': pid, 'dataset_name': name, 'label': label, 'start_time': start,
+            'proc_types': list(types), 'version': version, 'status': status, 'artifact_uuid': uuid}
 
 
 ROWS = [
-    summary('p1', 'PHerc6 Cornice 1', '2026-10-01T00:00:00', ['PGS', 'REG'], '2.2.0'),
-    summary('p2', 'PHerc60', '2026-10-03T00:00:00', ['SPEC'], None, 'failed'),
-    summary('p3', 'PHerc10', '2026-10-02T00:00:00', ['SPEC', 'REG', 'WEB'], '2.10.0', 'running', 'abc-uuid'),
-    summary('p4', 'PHerc2', '2026-10-02T00:00:00', ['PGS'], '2.2.0'),
+    summary('p1', 'PHerc6 Cornice 1', '2026-10-01T00:00:00', ['PGS', 'REG'], '2.2.0',
+            label='PHerc. 6, Cornice 1'),
+    summary('p2', 'PHerc60', '2026-10-03T00:00:00', ['SPEC'], None, 'failed', label='PHerc. 60'),
+    summary('p3', 'PHerc10', '2026-10-02T00:00:00', ['SPEC', 'REG', 'WEB'], '2.10.0', 'running', 'abc-uuid',
+            label='PHerc. 10'),
+    summary('p4', 'PHerc2', '2026-10-02T00:00:00', ['PGS'], '2.2.0', label='PHerc. 2'),
+]
+
+# Where the label and dataset_name disagree on order (#80): by dataset_name,
+# "PHerctavoletta" sorts before "PHerc90"; by label, "PHerc. 90" comes first.
+LABELLED = [
+    summary('t1', 'PHerctavoletta Cornice Cass. 38 (A)', label='Tavoletta A, Cassetto 38'),
+    summary('t2', 'PHerc90 Cornice Scorze da 90 a 223', label='PHerc. 90, Scorze da 90 a 223'),
+    summary('t3', 'PHercCass. 78 s.n. C Cornice Cass. 78', label='Cassetto 78 s.n. C'),
+    summary('t4'),  # no artifact
 ]
 
 
@@ -83,6 +95,68 @@ class TestPagePipelineSummaries(unittest.TestCase):
             page(sort='nope')
         with self.assertRaises(ValueError):
             page(direction='up')
+
+
+class TestLabel(unittest.TestCase):
+    """Search and the artifact sort run over the label the UI shows (#80)."""
+
+    def labelled(self, search=None, sort='started', direction=None):
+        return ids(_page_pipeline_summaries(LABELLED, search, sort, direction, 0, None))
+
+    def test_search_matches_the_label(self):
+        cases = {'Tavoletta A, Cassetto 38': ['t1'], 'PHerc. 90, Scorze': ['t2'],
+                 'cassetto 78 s.n.': ['t3'], 'Cassetto': ['t1', 't3']}
+        for search, expected in cases.items():
+            with self.subTest(search=search):
+                self.assertEqual(sorted(self.labelled(search)), expected)
+
+    def test_search_still_matches_dataset_name(self):
+        self.assertEqual(self.labelled('PHerc90 Cornice Scorze'), ['t2'])
+        self.assertEqual(self.labelled('pherctavoletta'), ['t1'])
+
+    def test_artifact_sort_is_by_label(self):
+        # No label sorts first ascending, as an empty dataset_name did.
+        self.assertEqual(self.labelled(sort='artifact'), ['t4', 't3', 't2', 't1'])
+        self.assertEqual(self.labelled(sort='artifact', direction='desc'), ['t1', 't2', 't3', 't4'])
+
+
+class SummaryConnection(GraphDBConnection):
+    """Feeds get_all_pipeline_summaries canned pipelines, stages and names."""
+
+    def __init__(self, pipelines, names):
+        self.pipelines, self.names = pipelines, names
+
+    def find_pipelines(self):
+        return [{'pipeline_id': pid, 'artifact_uuid': uuid, 'version': None}
+                for pid, uuid in self.pipelines.items()]
+
+    def _all_pipeline_processes(self):
+        return {pid: [{'stage': 'PGS', 'status': 'completed', 'start_time': '2026-10-01T00:00:00'}]
+                for pid in self.pipelines}
+
+    def find_artifact_names_by_uuids(self, uuids):
+        return {u: n for u, n in self.names.items() if u in uuids}
+
+
+class TestSummaryLabel(unittest.TestCase):
+
+    def test_rows_carry_the_artifact_label(self):
+        db = SummaryConnection(
+            {'a': 'u90', 'b': 'u90', 'c': 'utav', 'd': 'unassigned', 'e': None},
+            {'u90': {'pherc': '90', 'cornice': 'Scorze da 90 a 223', 'pezzo': None},
+             'utav': {'pherc': 'tavoletta', 'cornice': 'Cass. 38 (A)', 'pezzo': None}})
+        rows = {r['pipeline_id']: r for r in db.get_all_pipeline_summaries()}
+        self.assertEqual(
+            {pid: (r['dataset_name'], r['label'], r['label_parts']) for pid, r in rows.items()},
+            {'a': ('PHerc90 Cornice Scorze da 90 a 223', 'PHerc. 90, Scorze da 90 a 223',
+                   ['PHerc. 90', 'Scorze da 90 a 223']),
+             'b': ('PHerc90 Cornice Scorze da 90 a 223', 'PHerc. 90, Scorze da 90 a 223',
+                   ['PHerc. 90', 'Scorze da 90 a 223']),
+             'c': ('PHerctavoletta Cornice Cass. 38 (A)', 'Tavoletta A, Cassetto 38',
+                   ['Tavoletta A', 'Cassetto 38']),
+             'd': ('', None, []),
+             'e': ('', None, [])})
+        self.assertIsNot(rows['a']['label_parts'], rows['b']['label_parts'])
 
 
 class TestPipelinesRoute(unittest.TestCase):

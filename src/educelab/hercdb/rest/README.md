@@ -79,7 +79,7 @@ match `displayName` **exactly** — resolve noisy input with `/resolve` first.
 | GET | `/artifacts` | List every artifact with an EduceLabID, one row per UUID, with per-type dataset counts and catalogue fields |
 | GET | `/artifacts?pherc=&cornice=&pezzo=` | Full detail for one artifact by name (properties, metadata, `educelabids`, child counts) |
 | GET | `/artifacts/{uuid}` | Resolve a UUID to its artifact (type, displayName, hierarchy, parent, location) |
-| GET | `/pherc` | List every scroll (PHerc), one summary row each; drawer placeholders left out |
+| GET | `/pherc` | List every papyrus (PHerc), one summary row each; placeholders and loose material left out |
 | GET | `/subdivisions?pherc=` | List all Cornici and Pezzi for a PHerc (each with `aliases` + `educelabids`) |
 | GET | `/all-datasets?pherc=` | All datasets under a PHerc, grouped by artifact (chain-pooled, `belongs_to_uuid`) |
 | GET | `/pherc/{pherc_id}/subdivisions` | Path form of `/subdivisions`, kept for existing clients; 404s on ids containing a slash |
@@ -236,12 +236,15 @@ Returns `404` if no artifact is found for the UUID.
 
 ### GET /pherc
 
-Lists every scroll (PHerc), one row each, ordered by `displayName`:
+Lists every papyrus (PHerc), one row each, ordered by `displayName`:
 
 ```json
 [
   {
     "displayName": "0101b",
+    "label": "PHerc. 0101b",
+    "label_parts": ["PHerc. 0101b"],
+    "kind": "papyrus",
     "literary_work": null,
     "unrolling_status": "Unrolled",
     "metadata": {
@@ -254,11 +257,16 @@ Lists every scroll (PHerc), one row each, ordered by `displayName`:
 ]
 ```
 
+`label`, `label_parts` and `kind` are derived from the name as on `/artifacts`
+(see *Kind, method and label*), so a cassetto piece reads `"Cassetto 78 s.n. C"`.
 `metadata` holds Author and Language as `/artifacts` gives them; a label is
 absent when the scroll has none. The counts are direct Cornice / Pezzo children,
-as on `/artifacts`. PHerc nodes that are drawer placeholders (`tavoletta`,
-`Cassetto`, `frammenti`) are not scrolls and are left out. For one scroll's full
-record use `/artifacts?pherc=`.
+as on `/artifacts`. PHerc nodes that aren't papyri are left out, so every row's
+`kind` is `papyrus`: the drawer placeholders (`tavoletta`, `Cassetto`,
+`frammenti`) and the loose material (`folded sheet`, `frammento di papiro
+ercolanese`, `s.n. frammenti 1-2`; Q-19 in `docs/open_questions.md`). Their
+trays are still listed on `/artifacts`. For one scroll's full record use
+`/artifacts?pherc=`.
 
 ### GET /subdivisions?pherc=
 
@@ -468,6 +476,8 @@ Returns all pipelines with their computed status summaries.
   {
     "start_time": "2025-01-15T10:30:00",
     "dataset_name": "PHerc1044 Cornice 4",
+    "label": "PHerc. 1044, Cornice 4",
+    "label_parts": ["PHerc. 1044", "Cornice 4"],
     "artifact_uuid": "abc-123",
     "pipeline_id": "20251222-389",
     "status": "completed",
@@ -477,17 +487,21 @@ Returns all pipelines with their computed status summaries.
 ]
 ```
 
-`start_time` is the latest stage start. `version` is `null` when the pipeline
-recorded none. Possible status values: `completed`, `partially_completed`,
-`running`, `archiving`, `failed`, `unknown(error)`.
+`start_time` is the latest stage start. `dataset_name` and `label` name the
+pipeline's artifact: `dataset_name` in the composed `location` form, `label` and
+`label_parts` as on `/artifacts` (see *Kind, method and label*). A pipeline
+whose UUID names no artifact has `dataset_name` `""`, `label` `null` and
+`label_parts` `[]`. `version` is `null` when the pipeline recorded none.
+Possible status values: `completed`, `partially_completed`, `running`,
+`archiving`, `failed`, `unknown(error)`.
 
 **Paging.** Give any of these and the response becomes one page,
 `{"rows": [...], "matched": 12, "total": 7353, "sort": "started", "dir": "desc"}`:
 
 | Param | Meaning |
 |-------|---------|
-| `search` | Keep pipelines where `dataset_name`, `artifact_uuid`, `pipeline_id`, `proc_types`, `version` or `status` contains it, compared as folded words, so `PHerc6`, `pherc 6` and `PHerc. 6` are the same. A search ending in a space or punctuation must end on a word: `PHerc. 6,` skips PHerc 60. |
-| `sort` | `started` (default), `type`, `version`, `artifact` (natural order on `dataset_name`) or `status`; anything else is a `422` |
+| `search` | Keep pipelines where `label`, `dataset_name`, `artifact_uuid`, `pipeline_id`, `proc_types`, `version` or `status` contains it, compared as folded words, so `PHerc6`, `pherc 6` and `PHerc. 6` are the same. A search ending in a space or punctuation must end on a word: `PHerc. 6,` skips PHerc 60. |
+| `sort` | `started` (default), `type`, `version`, `artifact` (natural order on `label`) or `status`; anything else is a `422` |
 | `dir` | `asc` or `desc`; defaults to newest-first for `started` and `version` (unversioned last), ascending otherwise |
 | `offset`, `limit` | The slice of the sorted matches; no `limit` returns them all |
 

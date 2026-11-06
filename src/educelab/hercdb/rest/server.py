@@ -167,13 +167,15 @@ async def get_artifact_by_name(
 
 @app.get("/pherc")
 async def list_phercs(user: str = Depends(get_current_user)):
-    """List every scroll (PHerc), one summary row each.
+    """List every papyrus (PHerc), one summary row each.
 
-    Each row is ``{displayName, literary_work, unrolling_status, metadata,
-    cornici_count, pezzi_count}``, with Author and Language under ``metadata`` as
-    on ``/artifacts``. Drawer placeholders filed as PHercs (``tavoletta``,
-    ``Cassetto``, ``frammenti``) are not scrolls and are left out. Use
-    ``/artifacts?pherc=`` for one scroll's full record.
+    Each row is ``{displayName, label, label_parts, kind, literary_work,
+    unrolling_status, metadata, cornici_count, pezzi_count}``, with the derived
+    name and kind and Author and Language under ``metadata`` as on
+    ``/artifacts``. PHerc nodes that aren't papyri are left out: the drawer
+    placeholders (``tavoletta``, ``Cassetto``, ``frammenti``) and the loose
+    material (``folded sheet`` and two more). Use ``/artifacts?pherc=`` for one
+    scroll's full record.
     """
     logger.debug(f"User {user} called /pherc")
     return JSONResponse(content=db.list_phercs(), status_code=200)
@@ -475,8 +477,9 @@ async def get_pipeline_stages(pipeline_id: str, user: str = Depends(get_current_
 
 @app.get("/pipelines")
 async def get_pipelines(
-    search: Optional[str] = Query(None, description="Folded-word match on artifact name, artifact uuid, "
-                                                    "pipeline id, stage types, version or status"),
+    search: Optional[str] = Query(None, description="Folded-word match on artifact label or name, "
+                                                    "artifact uuid, pipeline id, stage types, version "
+                                                    "or status"),
     sort: Optional[Literal["started", "type", "version", "artifact", "status"]] = Query(None),
     direction: Optional[Literal["asc", "desc"]] = Query(None, alias="dir"),
     offset: Optional[int] = Query(None, ge=0),

@@ -53,7 +53,7 @@ team** (scan naming and capture).
 | [Q-16](#q-16) | Delete or mint UUIDs for the 433 failed outputs? | Technical lead | open | processed datasets |
 | [Q-17](#q-17) | 176 Cr 3 / Cr 10 swap: does `negatives.csv` agree? | Technical lead | closed 2026-11-02 (not needed) | #49 |
 | [Q-18](#q-18) | What does a pipeline on a multi-papyrus tray belong to? | Technical lead | open | #15, pipeline UI list |
-| [Q-19](#q-19) | Are `folded sheet`, `frammento di papiro ercolanese`, `s.n. frammenti 1-2` loose material, not papyri? | Papyrologists | open | #23 `kind`; `GET /pherc` (unchanged until answered) |
+| [Q-19](#q-19) | Are `folded sheet`, `frammento di papiro ercolanese`, `s.n. frammenti 1-2` loose material, not papyri? | Papyrologists | open | #23 `kind`; `GET /pherc` leaves them out (#79) |
 | [Q-20](#q-20) | Tray `a0eaa0ad`: is it `s.n. IV Cass CXIV` (uuid sheet) or `XCIV` (metadata)? | Papyrologists | open | the papyrus's name and aliases |
 
 ---
@@ -286,10 +286,11 @@ right?**
 
 - **Answerer:** Papyrologists. Status: open (raised 2026-10-22).
 - **Assumption:** loose material, so their trays get kind `frammenti` and
-  the PHerc nodes themselves `kind: null`, as in the pipeline UI. `GET
-  /pherc` still lists them, unchanged. Dropping them from `/pherc` (which the
-  UI's scroll list already does) waits for this answer.
-- **Affects:** #23 `naming.is_papyrus`; a possible `GET /pherc` change.
+  the PHerc nodes themselves `kind: null`, as in the pipeline UI. Since #79,
+  `GET /pherc` lists only nodes `naming.is_papyrus` accepts, so it leaves
+  them out; their trays stay on `/artifacts`. If they turn out to be papyri,
+  changing `is_papyrus` puts them back on `/pherc` too.
+- **Affects:** #23 `naming.is_papyrus`; the `GET /pherc` filter (#79).
 
 ## Q-20
 

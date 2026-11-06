@@ -132,12 +132,13 @@ class HercClient:
         return self._get("/artifacts", params=params).json()
 
     def list_phercs(self) -> list[dict]:
-        """List every scroll (PHerc), one summary row each.
+        """List every papyrus (PHerc), one summary row each.
 
-        Each row is ``{displayName, literary_work, unrolling_status, metadata,
-        cornici_count, pezzi_count}``; ``metadata`` holds Author and Language as
-        :meth:`get_artifact_by_name` gives them. Drawer placeholders
-        (``tavoletta``, ``Cassetto``, ``frammenti``) are left out.
+        Each row is ``{displayName, label, label_parts, kind, literary_work,
+        unrolling_status, metadata, cornici_count, pezzi_count}``; ``metadata``
+        holds Author and Language as :meth:`get_artifact_by_name` gives them.
+        PHerc nodes that aren't papyri (drawer placeholders, loose material)
+        are left out.
         """
         return self._get("/pherc").json()
 
