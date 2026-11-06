@@ -7,6 +7,13 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-11-06 — Daily dev refresh on .43
+
+.43 is now reloaded from the newest .41 dumps by root cron at 04:00, running
+`scripts/neo4j_dev_refresh.sh` from `/usr/local/sbin/`. It loads `neo4j` and `system`,
+as the manual reload did, and logs to `/var/log/neo4j_dev_refresh.log`. A manual run
+worked before the cron entry was added. See `docs/BACKUP.md`, "Dev refresh".
+
 ## 2026-11-06 — 0.3.14 on .43 and .41
 
 `hercdb_deploy 0.3.14` on both, the same day the tag published to PyPI. `/openapi.json`
