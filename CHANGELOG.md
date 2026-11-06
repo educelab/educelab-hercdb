@@ -7,6 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [0.3.14] - 2026-11-06
+
 ### Added
 - **`GET /pherc` rows carry `label`, `label_parts` and `kind`** (#79), from `naming` as on `/artifacts`, so a client can show "Cassetto 78 s.n. C" without parsing names itself.
 - **`GET /pipelines` rows carry `label` and `label_parts`** (#80) for the same artifact `dataset_name` names: `"PHerc. 90, Scorze da 90 a 223"` beside `"PHerc90 Cornice Scorze da 90 a 223"`. `null` and `[]` when the pipeline's UUID names no artifact. `search` matches it too, as well as `dataset_name`.
