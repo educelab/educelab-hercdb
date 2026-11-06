@@ -7,6 +7,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Release settings have their own `[release]` section in `~/.educedb`** (#81): `writers` and `default`, still overridden by `HERCDB_RELEASE_WRITERS` / `HERCDB_RELEASE_DEFAULT`. They are no longer read from the first section as `release_writers` / `release_default`, a placement never used. The Neo4j settings are still read from the first section, whatever its name. A `writers` list is parsed on Python 3.10 too, where configparser reads it as one string.
+- **Unread config is reported** (#81). A section of `~/.educedb` that nothing reads is logged as a warning instead of being ignored silently.
+- **Release settings are documented** (#81) in `docs/SERVER_SETUP.md` and `docs/AUTHENTICATION.md`: the names they take, that a restart is needed, and how to check a token's writer status without changing anything.
+
+### Fixed
+- **An empty `~/.educedb`** no longer crashes the import with `StopIteration`.
+
 ---
 
 ## [0.3.13] - 2026-10-30

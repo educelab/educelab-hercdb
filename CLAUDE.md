@@ -60,8 +60,10 @@ For full server setup (Neo4j credentials, API tokens, systemd service), see `doc
 
 The package reads Neo4j connection settings from:
 1. Environment variables (highest priority): `EDUCEDB_URI`, `EDUCEDB_USER`, `EDUCEDB_PASSWORD`
-2. Config file at `~/.educedb` (TOML format)
+2. Config file at `~/.educedb` (TOML format): the **first section, whatever its name** (`[database]` in the docs, `[hercdb]` on the dev machines), or top-level keys. Don't change that to a lookup by name; it would break the `[hercdb]` files.
 3. Interactive prompt via `hercdb.config.request_required()`
+
+The release settings (#81) live in their own `[release]` section: `writers` (token users allowed to release datasets) and `default` (whether new datasets start released), overridden by `HERCDB_RELEASE_WRITERS` / `HERCDB_RELEASE_DEFAULT`. `config._load_sections()` reads the file once per process, so the server needs a restart after a change. Any other section is logged as a warning and not read. On Python 3.10 (configparser, no tomllib) every value is a string, so `config._names` also parses `'["a", "b"]'`.
 
 ## Architecture
 
