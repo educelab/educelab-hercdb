@@ -1,4 +1,4 @@
-"""list_phercs: every scroll in one call, agreeing with get_artifact_info (#22).
+"""list_phercs: every papyrus in one call, agreeing with get_artifact_info (#22, #79).
 
 Read-only. Requires a live Neo4j connection (dev, never prod).
 """
@@ -6,8 +6,11 @@ import random
 import unittest
 
 from educelab import hercdb
+from educelab.hercdb import naming
 
 FIELDS = ('literary_work', 'unrolling_status', 'cornici_count', 'pezzi_count')
+# Assumption Q-19: loose material, not papyri.
+LOOSE_MATERIAL = {'folded sheet', 'frammento di papiro ercolanese', 's.n. frammenti 1-2'}
 
 
 class TestListPhercs(unittest.TestCase):
@@ -24,12 +27,20 @@ class TestListPhercs(unittest.TestCase):
     def tearDownClass(cls):
         cls.db.close()
 
-    def test_every_pherc_but_the_placeholders(self):
+    def test_every_papyrus(self):
         every = {r['display_name'] for r in self.db.list_all_pherc_display_names()}
-        placeholders = set(self.db._PHERC_PLACEHOLDERS)
-        self.assertTrue(placeholders <= every, "placeholders should exist in the graph")
-        self.assertEqual(set(self.by_name), every - placeholders)
+        not_papyri = set(naming.PLACEHOLDERS) | LOOSE_MATERIAL
+        self.assertTrue(not_papyri <= every, "placeholders and loose material should exist in the graph")
+        self.assertEqual(set(self.by_name), every - not_papyri)
         self.assertEqual(len(self.rows), len(self.by_name), "one row per PHerc")
+
+    def test_label_and_kind(self):
+        self.assertEqual({r['kind'] for r in self.rows}, {'papyrus'})
+        for name in ('1044', 'Cass. 78 s.n. C', 'Joannowsky Papyrus'):
+            with self.subTest(pherc=name):
+                row, info = self.by_name[name], self.db.get_artifact_info(name)
+                self.assertEqual((row['label'], row['label_parts'], row['kind']),
+                                 (info['label'], info['label_parts'], info['kind']))
 
     def test_rows_match_artifact_detail(self):
         with_author = [r['displayName'] for r in self.rows if 'Author' in r['metadata']]

@@ -278,15 +278,17 @@ def _natural_key(text: str | None) -> list[tuple]:
     ]
 
 
-_PIPELINE_SEARCH_FIELDS = ('dataset_name', 'artifact_uuid', 'pipeline_id', 'proc_types',
-                           'version', 'status')
+# `label` is the name the UI shows (#80); `dataset_name` stays so searches
+# written against the old "PHerc90 Cornice 1" form still match.
+_PIPELINE_SEARCH_FIELDS = ('label', 'dataset_name', 'artifact_uuid', 'pipeline_id',
+                           'proc_types', 'version', 'status')
 # sort name -> (default direction, key). Ties break on pipeline_id.
 PIPELINE_SORTS = {
     'started': ('desc', lambda p: p['start_time'] or ''),
     'type': ('asc', lambda p: ' '.join(p['proc_types'])),
     # Unversioned pipelines sort below every versioned one when newest-first.
     'version': ('desc', lambda p: (bool(p['version']), _natural_key(p['version']))),
-    'artifact': ('asc', lambda p: _natural_key(p['dataset_name'])),
+    'artifact': ('asc', lambda p: _natural_key(p['label'])),
     'status': ('asc', lambda p: p['status'] or ''),
 }
 
@@ -911,27 +913,26 @@ class GraphDBConnection:
             for r in records
         ]
 
-    # Drawer contents the uuid sheet files in the PHerc column: PHerc nodes that
-    # are not papyri. Matched by exact displayName, never renamed.
-    _PHERC_PLACEHOLDERS = list(naming.PLACEHOLDERS)
-
     def list_phercs(self) -> list[dict]:
-        """Every scroll, one summary row each. Backs ``GET /pherc``.
+        """Every papyrus, one summary row each. Backs ``GET /pherc``.
 
-        Each row is ``{displayName, literary_work, unrolling_status, metadata,
-        cornici_count, pezzi_count}``. ``metadata`` holds the Author and Language
-        in the shape ``get_artifact_info`` gives them (a label is absent when the
-        scroll has none), and the counts are its direct Cornice / Pezzo children,
-        as ``/artifacts`` counts them. Both counts come from the graph, not the
+        Each row is ``{displayName, label, label_parts, kind, literary_work,
+        unrolling_status, metadata, cornici_count, pezzi_count}``. ``label``,
+        ``label_parts`` and ``kind`` are ``naming``'s, as on ``/artifacts``
+        (#79). ``metadata`` holds the Author and Language in the shape
+        ``get_artifact_info`` gives them (a label is absent when the scroll has
+        none), and the counts are its direct Cornice / Pezzo children, as
+        ``/artifacts`` counts them. Both counts come from the graph, not the
         CSV-loaded ``cornici_count`` / ``pezzi_count`` properties on the node.
 
-        The ``_PHERC_PLACEHOLDERS`` drawer nodes are left out; the
-        scan-completeness walk uses ``list_all_pherc_display_names`` instead,
-        because it must cover every node. Ordered by displayName (as text).
+        PHerc nodes that aren't papyri (``naming.is_papyrus``) are left out: the
+        drawer placeholders and the loose material. Their trays stay listed on
+        ``/artifacts``. The scan-completeness walk uses
+        ``list_all_pherc_display_names`` instead, because it must cover every
+        node. Ordered by displayName (as text).
         """
         records, _, _ = self._run_query("""
             MATCH (p:PHerc)
-            WHERE NOT p.displayName IN $placeholders
             RETURN p.displayName AS displayName,
                    p.literary_work AS literary_work,
                    p.unrolling_status AS unrolling_status,
@@ -940,19 +941,23 @@ class GraphDBConnection:
                    COUNT { (p)-[:HAS]->(:Cornice) } AS cornici_count,
                    COUNT { (p)-[:HAS]->(:Pezzo) } AS pezzi_count
             ORDER BY displayName
-            """, placeholders=self._PHERC_PLACEHOLDERS)
-        if not records:
-            return []
+            """)
         return [
             {
                 'displayName': r['displayName'],
+                'label': naming.label(r['displayName']),
+                'label_parts': naming.label_parts(r['displayName']),
+                'kind': naming.object_kind(r['displayName']),
                 'literary_work': r['literary_work'],
                 'unrolling_status': r['unrolling_status'],
                 'metadata': self._group_metadata(r['metas']),
                 'cornici_count': r['cornici_count'],
                 'pezzi_count': r['pezzi_count'],
             }
-            for r in records
+            for r in records or []
+            # Assumption Q-19: "folded sheet", "frammento di papiro ercolanese"
+            # and "s.n. frammenti 1-2" are loose material, so not listed here.
+            if naming.is_papyrus(r['displayName'])
         ]
 
     def list_cornici_and_pezzi_for_pherc(self, pherc_display_name) -> dict | None:
@@ -1463,7 +1468,11 @@ class GraphDBConnection:
         Returns:
             list: List of dicts with keys:
                 - start_time: Most recent process start_time timestamp
-                - dataset_name: Human-readable artifact name
+                - dataset_name: The artifact's composed location, "PHerc90
+                  Cornice Scorze da 90 a 223"
+                - label, label_parts: The same artifact's readable name from
+                  ``naming``, "PHerc. 90, Scorze da 90 a 223" (#80); None and
+                  [] for a pipeline whose uuid names no artifact
                 - artifact_uuid: UUID of the associated EduceLabID
                 - pipeline_id: Pipeline identifier
                 - status: Computed status (completed/partially_completed/running/failed/unknown(error))
@@ -1485,6 +1494,9 @@ class GraphDBConnection:
 
         names = self.find_artifact_names_by_uuids(
             list({uuid for uuid in pipeline_artifacts.values() if uuid}))
+        # Once per artifact, not per pipeline: ~11k pipelines share ~3.5k uuids.
+        label_parts = {uuid: naming.label_parts(n['pherc'], n['cornice'], n['pezzo'])
+                       for uuid, n in names.items()}
 
         summaries = []
         for pipeline_id, processes in pipeline_processes.items():
@@ -1493,6 +1505,7 @@ class GraphDBConnection:
             dataset_name = ''
             if artifact_uuid:
                 dataset_name = self._format_dataset_name(names.get(artifact_uuid))
+            parts = list(label_parts.get(artifact_uuid, []))
 
             # Find most recent start_time
             most_recent_datetime = ''
@@ -1504,6 +1517,8 @@ class GraphDBConnection:
             summaries.append({
                 'start_time': most_recent_datetime,
                 'dataset_name': dataset_name,
+                'label': ", ".join(parts) or None,
+                'label_parts': parts,
                 'artifact_uuid': artifact_uuid or '',
                 'pipeline_id': pipeline_id,
                 'status': self._compute_pipeline_status(processes),
@@ -1521,14 +1536,14 @@ class GraphDBConnection:
         Backs ``GET /pipelines`` when it is given any paging parameter.
 
         Args:
-            search: Keep pipelines where any of dataset_name, artifact_uuid,
-                pipeline_id, proc_types, version or status contains it, compared
-                as folded words (case, punctuation and "PHerc6" vs "PHerc 6" are
-                ignored). A search ending in a space or punctuation must end on
-                a word boundary.
+            search: Keep pipelines where any of label, dataset_name,
+                artifact_uuid, pipeline_id, proc_types, version or status
+                contains it, compared as folded words (case, punctuation and
+                "PHerc6" vs "PHerc 6" are ignored). A search ending in a space
+                or punctuation must end on a word boundary.
             sort: A key of `PIPELINE_SORTS`: 'started' (latest stage start),
                 'type' (stage types in order), 'version', 'artifact'
-                (dataset_name, in natural order) or 'status'.
+                (label, in natural order) or 'status'.
             direction: 'asc' or 'desc'; None takes the sort's default (newest
                 first for 'started' and 'version', ascending otherwise).
             offset, limit: the slice of the sorted matches; limit None is all.

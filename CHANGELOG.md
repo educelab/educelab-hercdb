@@ -7,7 +7,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **`GET /pherc` rows carry `label`, `label_parts` and `kind`** (#79), from `naming` as on `/artifacts`, so a client can show "Cassetto 78 s.n. C" without parsing names itself.
+- **`GET /pipelines` rows carry `label` and `label_parts`** (#80) for the same artifact `dataset_name` names: `"PHerc. 90, Scorze da 90 a 223"` beside `"PHerc90 Cornice Scorze da 90 a 223"`. `null` and `[]` when the pipeline's UUID names no artifact. `search` matches it too, as well as `dataset_name`.
+
 ### Changed
+- **`GET /pherc` lists papyri only** (#79). It now filters on `naming.is_papyrus`, which also drops the three loose-material PHercs (`folded sheet`, `frammento di papiro ercolanese`, `s.n. frammenti 1-2`; assumption Q-19). Their trays stay on `/artifacts`. Every row's `kind` is `papyrus`.
+- **`GET /pipelines?sort=artifact` sorts on `label`** (#80), in natural order, instead of on `dataset_name`. Drawer objects now sort by their own names (`Cassetto …`, `Tavoletta …`) rather than all under `PHerc`.
 - **Release settings have their own `[release]` section in `~/.educedb`** (#81): `writers` and `default`, still overridden by `HERCDB_RELEASE_WRITERS` / `HERCDB_RELEASE_DEFAULT`. They are no longer read from the first section as `release_writers` / `release_default`, a placement never used. The Neo4j settings are still read from the first section, whatever its name. A `writers` list is parsed on Python 3.10 too, where configparser reads it as one string.
 - **Unread config is reported** (#81). A section of `~/.educedb` that nothing reads is logged as a warning instead of being ignored silently.
 - **Release settings are documented** (#81) in `docs/SERVER_SETUP.md` and `docs/AUTHENTICATION.md`: the names they take, that a restart is needed, and how to check a token's writer status without changing anything.
