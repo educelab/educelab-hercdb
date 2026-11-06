@@ -48,6 +48,10 @@ chmod 600 ~/.educedb
 ```
 
 Replace the URI, username, and password with your actual Neo4j connection details.
+The Neo4j settings are read from the file's first section, whatever it is called
+(`[database]` here; some machines use `[hercdb]`). The release settings have a
+`[release]` section of their own (step 4). Any other section is ignored, with a
+warning in the log.
 
 Alternatively, use environment variables (these take priority over the config file):
 
@@ -72,6 +76,42 @@ chmod 600 ~/.tokens
 Generate tokens however you like (e.g., `python -c "import secrets; print(secrets.token_hex(32))"`).
 
 Clients will use these tokens in the `Authorization: Bearer <token>` header.
+
+### Release settings
+
+Two settings control the release (publish) flag on datasets:
+
+| Setting | `[release]` key in `~/.educedb` | Environment variable | When unset |
+|---------|-------------------------------|----------------------|------------|
+| Who may release or withdraw a dataset | `writers`: a list of user names from `~/.tokens` | `HERCDB_RELEASE_WRITERS`, comma-separated | Nobody: `PUT /datasets/{uuid}/released` answers 403 to everyone |
+| Whether a new dataset starts released | `default`: `true` or `false` | `HERCDB_RELEASE_DEFAULT` | `true` |
+
+```toml
+[release]
+writers = ["portal"]     # token users from ~/.tokens
+default = true           # new datasets start released
+```
+
+An environment variable overrides the file, as the `EDUCEDB_*` ones do; on a
+systemd server it goes in the unit as `Environment=HERCDB_RELEASE_WRITERS=portal`.
+Either way the server reads them once, at startup, so **restart it after a
+change** (`sudo systemctl restart hercdb`).
+
+`release_default` also applies to loaders and scripts that write datasets
+straight to Neo4j, so set it on any machine that runs them.
+
+To check who is a writer, send a release request for a UUID that doesn't
+exist. The writer check comes first and nothing is written:
+
+```bash
+curl -s -w '\n%{http_code}\n' -X PUT \
+  -H "Authorization: Bearer <token>" -H 'Content-Type: application/json' \
+  -d '{"released": true}' \
+  http://<server-ip>:8000/datasets/00000000-0000-0000-0000-000000000000/released
+```
+
+`404` ("No dataset with UUID") means the token's user is a writer; `403` means
+it isn't, and the message names the user.
 
 ## 5. Verify the connection
 
@@ -126,6 +166,7 @@ Once running, check the interactive docs at `http://<server-ip>:8000/docs`.
    Environment=EDUCEDB_URI=neo4j://localhost:7687
    Environment=EDUCEDB_USER=neo4j
    Environment=EDUCEDB_PASSWORD=your_password_here
+   Environment=HERCDB_RELEASE_WRITERS=portal
    ```
 
 3. Enable and start:
@@ -207,7 +248,7 @@ published, whether or not the server has it. Keep the two in step:
 
 | File | Purpose |
 |------|---------|
-| `~/.educedb` | Neo4j connection credentials (server-side) |
+| `~/.educedb` | Neo4j connection credentials (first section) and release settings (`[release]`) |
 | `~/.tokens` | API Bearer tokens (server-side) |
 | `~/hercdb-server/` | The venv the service runs from, holding one PyPI release |
 | `src/educelab/hercdb/rest/hercdb.service` | systemd service template |

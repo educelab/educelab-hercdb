@@ -20,6 +20,10 @@ username = "neo4j"
 password = "your_password"
 ```
 
+The Neo4j settings are read from the first section, whatever its name
+(`[database]` or `[hercdb]`). `[release]` holds the release settings (below);
+any other section is ignored with a warning.
+
 Managed in: `src/educelab/hercdb/config.py`
 
 ## 2. REST API Bearer Tokens (client-facing)
@@ -37,6 +41,26 @@ username2 = another-token-string
 The server loads this file at startup. If the file is missing, no authentication will work.
 
 Managed in: `src/educelab/hercdb/rest/server.py` (lines 16–27)
+
+### Release writers
+
+A valid token can read everything and record pipelines, but only the token
+users named as **release writers** may release (publish) or withdraw a dataset
+(`PUT /datasets/{uuid}/released`). Name them by their `~/.tokens` user name,
+under `[release]` in `~/.educedb` or in `HERCDB_RELEASE_WRITERS`
+(comma-separated), which wins over the file:
+
+```toml
+[release]
+writers = ["portal"]
+default = true           # whether a new dataset starts released (default true)
+```
+
+With no writers set, every release request gets a 403. The server reads the
+list at startup, so restart it after a change. To check a token, send a
+release request for a UUID that doesn't exist: `404` means its user is a
+writer, `403` means it isn't, and nothing is written either way. Full steps
+are in [SERVER_SETUP.md](SERVER_SETUP.md#release-settings).
 
 ### Client side
 
@@ -68,3 +92,4 @@ A client never sees the Neo4j password. The Neo4j database knows nothing about A
 |-------|--------|-----------|---------|
 | Database | Neo4j URI, user, password | `~/.educedb` or env vars | REST server, direct DB scripts |
 | API | Bearer tokens | `~/.tokens` (server-side) | REST clients via HTTP header |
+| API | Release writers (token user names, not secrets) | `[release]` in `~/.educedb` or `HERCDB_RELEASE_WRITERS` | REST server, for `PUT /datasets/{uuid}/released` |
