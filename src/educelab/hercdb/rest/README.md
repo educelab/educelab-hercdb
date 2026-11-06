@@ -388,9 +388,10 @@ GET /educelabid/abc-123/datasets?dataset_type=SpectralRaw&newest_completed=true
 ### PUT /datasets/{dataset_uuid}/released
 
 Release (publish) or withdraw one dataset, by its own `uuid`: a raw scan's scan
-UUID, or the UUID a pipeline minted for its output. Only token users listed in
-`release_writers` (`HERCDB_RELEASE_WRITERS`, or a `release_writers` list in
-`~/.educedb`) may call it.
+UUID, or the UUID a pipeline minted for its output. Only release writers may
+call it: the token users listed in `HERCDB_RELEASE_WRITERS` or as `writers`
+under `[release]` in `~/.educedb` (see `docs/SERVER_SETUP.md`, *Release
+settings*).
 
 **Request body:**
 ```json
@@ -415,11 +416,13 @@ for someone else. Flatbed negatives are not releasable.
 }
 ```
 
-403 for a token not in `release_writers`, 404 for no such dataset, 409 (with
-nothing written) when two datasets share the UUID.
+403 for a token that isn't a release writer, 404 for no such dataset, 409 (with
+nothing written) when two datasets share the UUID. The writer check comes
+first, so a request for a UUID that doesn't exist tells you whether a token is
+a writer (404) or not (403) without changing anything.
 
-New datasets start as `release_default` says (`HERCDB_RELEASE_DEFAULT`, or
-`release_default` in `~/.educedb`; `true` when unset).
+New datasets start as the release default says (`HERCDB_RELEASE_DEFAULT`, or
+`default` under `[release]` in `~/.educedb`; `true` when unset).
 
 ### GET /resolve
 
