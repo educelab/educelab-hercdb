@@ -72,9 +72,17 @@ single papyrus. The Cassetti sheet files these under the placeholder PHerc
 **Frammenti**. Loose material that belongs to no single papyrus, filed under
 placeholder PHercs such as `frammenti` and `folded sheet`.
 
+**Loose material**. Material that belongs to no single papyrus. Besides the
+`frammenti` placeholder, three PHerc nodes hold it under names of their own:
+`folded sheet`, `frammento di papiro ercolanese` and `s.n. frammenti 1-2`
+(see [Q-19](open_questions.md#q-19)). They aren't papyri, so `GET /pherc`
+leaves them out (#79). Their trays are listed on `/artifacts` with kind
+`frammenti`.
+
 **Placeholder PHerc**. A `PHerc` node that isn't a papyrus: `tavoletta`,
 `Cassetto`, `frammenti`. They exist because the uuid sheet needs a value in
-its PHerc column. They're left out of the papyrus list (`GET /pherc`).
+its PHerc column. They're left out of the papyrus list (`GET /pherc`), as is
+the loose material.
 
 **Method**. The unwrapping method used on a tray: **Osloense** (also written
 `Oslo`, see [Q-04](open_questions.md#q-04)) or **Fackelmann**. It's part of
@@ -82,6 +90,10 @@ the tray's identity: Cornice `1`, `1 (Fackelmann)` and `1 (Osloense)` of one
 papyrus are three different trays.
 
 **Disegni**. Historical drawings of papyri, stored as `Disegni` nodes.
+
+**Institution** (museum). Where a papyrus is held, from the metadata CSV's
+`CustodialInstitution` column, stored as a `CustodialInstitution` node. The
+scan-completeness report's `Institution` column is the papyrus's.
 
 ### Relations between papyri
 
@@ -123,7 +135,12 @@ plus `retired_reason`).
 **Kind, label** (derived, #23). Worked out in the API from node names, never
 stored. **Kind** is one of: `papyrus`, `cornice`, `scorza`, `pezzo`,
 `cassetto_piece`, `whole_cassetto`, `tavoletta`, `frammenti`. **Label** is the
-readable name, e.g. "PHerc. 90, Scorze da 90 a 223".
+readable name, e.g. "PHerc. 90, Scorze da 90 a 223", and **label_parts** the
+same name as a list, outermost first. See *One name, three forms*.
+
+**Tray label**. A whole tray's label (`tray.label` on `GET /artifacts` rows).
+The same as its object's label, except on a tray several papyri share:
+"Cornice 1 (Osloense): PHerc. 216, 219, 225".
 
 ## Names in the graph
 
@@ -135,6 +152,21 @@ it up.
 **aliases**. Every known form of a node's name (displayName, uuid-sheet name,
 cassetto synonyms, spelling variants). Used only to resolve input to a node,
 never shown.
+
+**One name, three forms**. The API names the same object three ways:
+
+| Form | Example | Where | Use |
+|---|---|---|---|
+| `displayName` | `90`, `Scorze da 90 a 223` (one per node) | every node | The stored name. Exact lookups and joins use it. |
+| `location` / `dataset_name` | `PHerc90 Cornice Scorze da 90 a 223` | `location` on `/artifacts/{uuid}` and `/artifacts` list rows, `dataset_name` on `/pipelines` | An older composed form, kept for existing callers. Don't parse it. |
+| `label` (`label_parts`) | `PHerc. 90, Scorze da 90 a 223` | every artifact view, `/subdivisions`, `/pherc`, `/pipelines` | What people see. Derived, never stored. |
+
+**`:Casetta`** (node label). An extra label the metadata loader puts on a
+PHerc node whose name contains "cass": `Cass. 78 s.n. C`, `PHerc. s.n. Cass
+LI`, the `Cassetto` placeholder. It says only that the name mentions a
+cassetto. What the object is comes from *kind*, not from this label. The
+one-*s* spelling is the loader's, not the catalogue's. Queries match
+`p:PHerc OR p:Casetta`.
 
 **Artifact** (API). A PHerc, Cornice or Pezzo, as served by `/artifacts`.
 
@@ -152,12 +184,33 @@ rather than to an EduceLabID: **PGSProcessed**, **SpectralProcessed**,
 **Registered** (PGS and spectral aligned) and **WebProcessed** (for web
 viewing).
 
+**Dataset types in the UI**. The pipeline UI names the types differently
+from the API and the graph:
+
+| API / graph | UI | UI, short |
+|---|---|---|
+| `PGSRaw` | Photogrammetry (Raw) | PGS (Raw) |
+| `SpectralRaw` | Spectral (Raw) | Spectral (Raw) |
+| `PGSProcessed` | Photogrammetry Reconstruction | Reconstruction |
+| `SpectralProcessed` | Spectral Enhancements | Enhancement |
+| `Registered` | Registration | Registration |
+| `WebProcessed` | Web Versions | Web |
+
+The UI's names live in its `app/services/pipeline_service.py`.
+
 **Complete**. For a raw scan, `complete == "True"` *and* zero missing,
 zero-byte, short and bad-format files (stricter than the CSV flag). For a
 processed dataset, its Process finished.
 
+**Newest completed** (`newest_completed`). A dataset-read option
+(`/all-datasets`, `/educelabid/{uuid}/datasets`): only the newest complete
+dataset of each type.
+
 **Released**. A dataset's publish flag (0.3.9). The flag records who set it
-and when.
+and when. Only **release writers** can change it: token users named in
+`HERCDB_RELEASE_WRITERS` or as `writers` under `[release]` in `~/.educedb`
+(#81). The **release default** decides whether a new dataset starts released
+(`true` unless set).
 
 **Pipeline**. One submission of processing for a tray, keyed by
 `pipeline_id` (the acquisition workflow's `uber_job_id`). It carries the
