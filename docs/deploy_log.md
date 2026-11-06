@@ -7,6 +7,18 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-11-05 — Release writers set on .41 and .43 (stopgap)
+
+`Environment=HERCDB_RELEASE_WRITERS=…` added to `hercdb.service` on both
+servers, naming the pipeline UI's token user on each (a personal token for now;
+a UI-only token user is planned), then `daemon-reload` and a restart. Before, a
+`PUT /datasets/00000000-…/released` answered 403 on both; after, 404 (the user
+is a writer, and nothing was written). `~/.educedb` was not changed.
+
+A stopgap: once a release with #81 is deployed, the list moves to `writers`
+under `[release]` in `~/.educedb`, and the `Environment=` line comes out, since
+the variable overrides the file.
+
 ## 2026-11-02 — #49 PHerc 176 Cornice 3/10 UUID swap (.43 and .41)
 
 `preprocessing/fix_176_cr3_cr10_swap.py --apply`: `d52ae541` moved from 176/Cornice 3 to
