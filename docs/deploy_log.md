@@ -7,6 +7,21 @@ a snapshot of .41, so a run on .43 is a rehearsal and does not last.
 
 ---
 
+## 2026-11-06 — 0.3.14 on .43 and .41
+
+`hercdb_deploy 0.3.14` on both, the same day the tag published to PyPI. `/openapi.json`
+reports `0.3.14` on .43 and .41, and both serve the new `/pherc` and `/pipelines`
+descriptions. `/pherc` rows now carry `label`/`label_parts`/`kind`, and the list keeps
+papyri only (#79). `/pipelines` rows carry `label`, which `search` and `sort=artifact`
+use (#80). Release settings are read from `[release]` in `~/.educedb` (#81). No data
+change.
+
+The 2026-11-05 stopgap is over. On both servers, the release writers moved from the
+`Environment=` line to `writers` under `[release]` in `~/.educedb`. `systemctl show
+hercdb -p Environment` no longer lists `HERCDB_RELEASE_WRITERS`, and a `PUT
+/datasets/00000000-…/released` with the UI's token answers 404 on both (a writer; nothing
+written).
+
 ## 2026-11-05 — Release writers set on .41 and .43 (stopgap)
 
 `Environment=HERCDB_RELEASE_WRITERS=…` added to `hercdb.service` on both
